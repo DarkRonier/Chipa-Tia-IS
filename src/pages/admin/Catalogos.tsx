@@ -16,9 +16,11 @@ export default function Catalogos() {
   const [max, setMax] = useState('')
   const [areaId, setAreaId] = useState(datos.areas[0].id)
 
-  const renombrar = (actual: string) => {
-    const n = prompt('Nuevo nombre', actual)
-    return n && n.trim() ? n.trim() : null
+  const [renombrando, setRenombrando] = useState<{ id: string; nombre: string } | null>(null)
+  const guardarNombre = () => {
+    const n = renombrando!.nombre.trim()
+    if (n) actualizar((d) => ({ ...d, productos: d.productos.map((x) => (x.id === renombrando!.id ? { ...x, nombre: n } : x)) }))
+    setRenombrando(null)
   }
 
   const agregar = () => {
@@ -56,9 +58,17 @@ export default function Catalogos() {
           <tbody>
             {datos.productos.filter((p) => p.sector === sector).map((p) => (
               <tr key={p.id} className={p.activo ? '' : 'apagado'}>
-                <td>{p.nombre}</td>
                 <td>
-                  <button className="btn-texto" onClick={() => { const n = renombrar(p.nombre); if (n) actualizar((d) => ({ ...d, productos: d.productos.map((x) => (x.id === p.id ? { ...x, nombre: n } : x)) })) }}>Renombrar</button>
+                  {renombrando?.id === p.id ? (
+                    <input id={`renombrar-${p.id}`} autoFocus value={renombrando.nombre} onChange={(e) => setRenombrando({ id: p.id, nombre: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && guardarNombre()} />
+                  ) : p.nombre}
+                </td>
+                <td>
+                  {renombrando?.id === p.id ? (
+                    <button className="btn-texto" onClick={guardarNombre}>Guardar</button>
+                  ) : (
+                    <button className="btn-texto" onClick={() => setRenombrando({ id: p.id, nombre: p.nombre })}>Renombrar</button>
+                  )}
                   <button className="btn-texto" onClick={() => actualizar((d) => ({ ...d, productos: d.productos.map((x) => (x.id === p.id ? { ...x, activo: !x.activo } : x)) }))}>{p.activo ? 'Desactivar' : 'Activar'}</button>
                 </td>
               </tr>

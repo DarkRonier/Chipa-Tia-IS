@@ -11,10 +11,11 @@
   --error: #c62828;
   --error-fondo: #fdecea;
   --aviso: #fff4d6;
+  --sobre-marca: #ffffff;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --fondo: #1b1612;
     --superficie: #262019;
     --texto: #f3ebe0;
@@ -27,9 +28,26 @@
     --error: #ef9a9a;
     --error-fondo: #3d1f1f;
     --aviso: #3a3018;
+    --sobre-marca: #1b1612;
     color-scheme: dark;
   }
 }
+:root[data-theme="dark"] {
+    --fondo: #1b1612;
+    --superficie: #262019;
+    --texto: #f3ebe0;
+    --suave: #b3a38e;
+    --borde: #3d342a;
+    --marca: #e0a35a;
+    --marca-claro: #3b2c1b;
+    --ok: #81c784;
+    --ok-fondo: #1f3321;
+    --error: #ef9a9a;
+    --error-fondo: #3d1f1f;
+    --aviso: #3a3018;
+    --sobre-marca: #1b1612;
+    color-scheme: dark;
+  }
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -54,14 +72,14 @@ input.rojo { border-color: var(--error); background: var(--error-fondo); }
 .aviso { background: var(--aviso); text-align: center; font-size: 0.8rem; padding: 0.3rem; }
 .barra {
   display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
-  padding: 0.6rem 1rem; background: var(--marca); color: #fff;
-  position: sticky; top: 0; z-index: 5;
+  padding: 0.6rem 1rem; background: var(--marca); color: var(--sobre-marca);
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
 }
-.barra .marca { color: #fff; font-weight: 700; text-decoration: none; font-size: 1.1rem; }
+.barra .marca { color: var(--sobre-marca); font-weight: 700; text-decoration: none; font-size: 1.1rem; }
 .barra-der { display: flex; align-items: center; gap: 0.5rem; }
 .barra select { min-height: 36px; padding: 0.3rem; width: auto; color: var(--texto); }
-.barra .btn-texto { color: #fff; }
-.barra .chip { background: rgba(255,255,255,0.2); color: #fff; border: none; }
+.barra .btn-texto { color: var(--sobre-marca); }
+.barra .chip { background: color-mix(in srgb, var(--sobre-marca) 20%, transparent); color: var(--sobre-marca); border: none; }
 .pestanas { display: flex; gap: 0.25rem; overflow-x: auto; padding: 0.5rem 1rem; background: var(--superficie); border-bottom: 1px solid var(--borde); }
 .pestanas a { white-space: nowrap; padding: 0.4rem 0.7rem; border-radius: 999px; text-decoration: none; color: var(--suave); font-size: 0.9rem; }
 .pestanas a.active { background: var(--marca-claro); color: var(--texto); font-weight: 600; }
@@ -86,11 +104,11 @@ input.rojo { border-color: var(--error); background: var(--error-fondo); }
 .btn-primario, .btn-secundario {
   min-height: 52px; padding: 0.7rem 1.2rem; border-radius: 10px; font-weight: 600; cursor: pointer; width: 100%;
 }
-.btn-primario { background: var(--marca); color: #fff; border: none; }
+.btn-primario { background: var(--marca); color: var(--sobre-marca); border: none; }
 .btn-secundario { background: var(--superficie); border: 1px solid var(--marca); color: var(--marca); margin-bottom: 0.75rem; }
 .btn-texto { background: none; border: none; color: var(--marca); cursor: pointer; padding: 0.3rem 0.4rem; text-decoration: underline; }
 .accion-fija {
-  position: fixed; left: 0; right: 0; bottom: 0; padding: 0.75rem 1rem;
+  position: fixed; left: 0; right: 0; bottom: 0; padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
   background: var(--fondo); border-top: 1px solid var(--borde);
 }
 .accion-fija .btn-primario { max-width: 928px; margin: 0 auto; display: block; }
@@ -108,12 +126,12 @@ input.rojo { border-color: var(--error); background: var(--error-fondo); }
 .segmentado.chico { margin: 0; }
 .segmentado.chico button { min-height: 40px; font-size: 0.85rem; }
 .segmentado button.marca-X.activo { background: var(--ok-fondo); color: var(--ok); }
-.segmentado button.marca-XX.activo { background: var(--ok); color: #fff; }
+.segmentado button.marca-XX.activo { background: var(--ok); color: var(--sobre-marca); }
 .segmentado button.marca-no.activo { background: var(--error-fondo); color: var(--error); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
 .chip { display: inline-block; padding: 0.4rem 0.8rem; border-radius: 999px; border: 1px solid var(--borde); background: var(--superficie); cursor: pointer; font-size: 0.9rem; }
-.chip.activo { background: var(--marca); border-color: var(--marca); color: #fff; }
+.chip.activo { background: var(--marca); border-color: var(--marca); color: var(--sobre-marca); }
 
 .lista-productos { display: grid; gap: 0.5rem; }
 .fila-producto { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding: 0.75rem; background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; }

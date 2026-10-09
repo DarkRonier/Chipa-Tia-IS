@@ -12,6 +12,7 @@ export default function Layout() {
   const { usuario, salir, reiniciar } = useDatos()
   const esAdmin = usuario!.rol === 'admin'
   const [elegido, setElegido] = useState<SectorId>('chiperia')
+  const [confirmar, setConfirmar] = useState(false)
   const sector = esAdmin ? elegido : (usuario!.rol as SectorId)
   const nombreSector = SECTORES.find((s) => s.id === sector)!.nombre
 
@@ -50,9 +51,15 @@ export default function Layout() {
       </main>
       <footer className="pie">
         {usuario!.nombre} ·{' '}
-        <button className="btn-texto" onClick={() => confirm('¿Volver a los datos de ejemplo?') && reiniciar()}>
-          Reiniciar datos de ejemplo
-        </button>
+        {confirmar ? (
+          <>
+            ¿Borrar lo cargado y volver a los datos de ejemplo?{' '}
+            <button className="btn-texto" onClick={() => { reiniciar(); setConfirmar(false) }}>Sí, reiniciar</button>
+            <button className="btn-texto" onClick={() => setConfirmar(false)}>Cancelar</button>
+          </>
+        ) : (
+          <button className="btn-texto" onClick={() => setConfirmar(true)}>Reiniciar datos de ejemplo</button>
+        )}
       </footer>
     </SectorActivo.Provider>
   )
