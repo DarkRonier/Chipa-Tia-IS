@@ -32,6 +32,12 @@ function rol(v: unknown): Rol {
 /** Espacios al principio o al final: la entrada no los recorta, así que una contraseña así nunca funcionaría. */
 const BORDE_ESPACIO = /^\s|\s$/
 
+/**
+ * Solo el administrador cambia contraseñas: los operadores entran con la que les pone el administrador y no la
+ * cambian. Por eso solo a un administrador nuevo o restablecido se le pide que elija la suya al entrar.
+ */
+const debeCambiar = (r: Rol) => r === 'admin'
+
 function clave(v: unknown): string {
   if (typeof v !== 'string' || !v) throw invalido('Escribí la contraseña.')
   if (BORDE_ESPACIO.test(v)) throw invalido('La contraseña no puede empezar ni terminar con espacios.')
@@ -68,13 +74,13 @@ rutasUsuarios.post('/usuarios', soloAdmin, async (c) => {
   const hash = await hashClave(clave(b.clave))
   if (await una(c.env.DB, 'SELECT id FROM usuarios WHERE usuario = ?', usuario)) throw repetido(usuario)
   const id = nuevoId()
-  const nuevo: Usuario = { id, nombre, usuario, rol: r, activo: true, debeCambiarClave: true, creadoEn: ahora().fecha }
+  const nuevo: Usuario = { id, nombre, usuario, rol: r, activo: true, debeCambiarClave: debeCambiar(r), creadoEn: ahora().fecha }
   try {
     await c.env.DB.batch([
       sentencia(
         c.env.DB,
-        'INSERT INTO usuarios (id, nombre, usuario, clave_hash, rol, activo, debe_cambiar_clave, creado_en) VALUES (?, ?, ?, ?, ?, 1, 1, ?)',
-        id, nombre, usuario, hash, r, nuevo.creadoEn,
+        'INSERT INTO usuarios (id, nombre, usuario, clave_hash, rol, activo, debe_cambiar_clave, creado_en) VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
+        id, nombre, usuario, hash, r, Number(nuevo.debeCambiarClave), nuevo.creadoEn,
       ),
       sentenciaAuditoria(c.env.DB, { tabla: 'usuarios', registroId: id, accion: 'crear', usuarioId: yo.id, despues: nuevo }),
     ])
@@ -104,6 +110,11 @@ rutasUsuarios.patch('/usuarios/:id', soloAdmin, async (c) => {
   const cambios: SentenciaD1[] = [
     sentencia(db, 'UPDATE usuarios SET nombre = ?, rol = ?, activo = ? WHERE id = ?', despues.nombre, despues.rol, despues.activo, antes.id),
   ]
+  // Un operador no puede cambiar su contraseña: si deja de ser administrador, no se le pide que la cambie.
+  if (antes.debeCambiarClave && !debeCambiar(despues.rol)) {
+    despues.debeCambiarClave = false
+    cambios.push(sentencia(db, 'UPDATE usuarios SET debe_cambiar_clave = 0 WHERE id = ?', antes.id))
+  }
   // Al desactivarlo o cambiarle el rol se cierran sus sesiones: vuelve a entrar con lo nuevo (o ya no puede).
   if (!despues.activo || despues.rol !== antes.rol) cambios.push(sentencia(db, 'DELETE FROM sesiones WHERE usuario_id = ?', antes.id))
   const accion = antes.activo && !despues.activo ? 'desactivar' : !antes.activo && despues.activo ? 'activar' : 'editar'
@@ -117,14 +128,15 @@ rutasUsuarios.post('/usuarios/:id/clave', soloAdmin, async (c) => {
   const yo = c.get('usuario')
   const db = c.env.DB
   const u = await leerUsuario(db, c.req.param('id'))
-  if (u.id === yo.id) throw invalido('Para cambiar tu propia contraseña usá «Contraseña», arriba.')
+  if (u.id === yo.id) throw invalido('Para cambiar tu propia contraseña usá «Configuración → Cambiar mi contraseña».')
   const hash = await hashClave(clave(b.clave))
+  const debe = debeCambiar(u.rol)
   await db.batch([
-    sentencia(db, 'UPDATE usuarios SET clave_hash = ?, debe_cambiar_clave = 1 WHERE id = ?', hash, u.id),
+    sentencia(db, 'UPDATE usuarios SET clave_hash = ?, debe_cambiar_clave = ? WHERE id = ?', hash, Number(debe), u.id),
     sentencia(db, 'DELETE FROM sesiones WHERE usuario_id = ?', u.id),
     sentenciaAuditoria(db, {
       tabla: 'usuarios', registroId: u.id, accion: 'restablecer_clave', usuarioId: yo.id,
-      antes: { debeCambiarClave: u.debeCambiarClave }, despues: { debeCambiarClave: true },
+      antes: { debeCambiarClave: u.debeCambiarClave }, despues: { debeCambiarClave: debe },
     }),
   ])
   return c.json({ ok: true })

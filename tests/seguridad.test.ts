@@ -293,10 +293,10 @@ describe('sesiones', () => {
     expect(nadie.body.error.codigo).toBe('credenciales')
   })
 
-  it('con una contraseña inicial o restablecida solo puede cambiarla antes de usar el sistema', async () => {
+  it('un administrador con contraseña inicial o restablecida solo puede cambiarla antes de usar el sistema', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
-    const nuevo = await p.pedir(admin, 'POST', '/usuarios', { nombre: 'Rosa', usuario: 'rosa', rol: 'cocina', clave: 'inicial1' })
+    const nuevo = await p.pedir(admin, 'POST', '/usuarios', { nombre: 'Rosa', usuario: 'rosa', rol: 'admin', clave: 'inicial1' })
     expect(nuevo.status).toBe(200)
     const t = await p.entrar('rosa', 'inicial1')
     for (const [metodo, ruta, cuerpo] of [['GET', '/productos'], ['GET', '/stock'], ['POST', '/salidas', { productoId: EMPANADA, cantidad: 1 }]] as const) {
@@ -452,6 +452,15 @@ describe('validación de entradas', () => {
     expect((await p.pedir(t, 'GET', '/producciones?desde=ayer')).status).toBe(400)
   })
 
+  it('a un operador nunca se le exige cambiar la contraseña, aunque la base lo marque', async () => {
+    const p = await nuevaPrueba()
+    await p.sql('UPDATE usuarios SET debe_cambiar_clave = 1 WHERE id = ?', 'usr-cocina')
+    const login = await p.pedir(null, 'POST', '/auth/login', { usuario: 'cocina', clave: '1234' })
+    expect(login.body.usuario.debeCambiarClave).toBe(false)
+    expect((await p.pedir(login.body.token, 'GET', '/auth/yo')).body.debeCambiarClave).toBe(false)
+    expect((await p.pedir(login.body.token, 'GET', '/stock?sector=cocina')).status).toBe(200)
+  })
+
   it('claves __proto__ y constructor no contaminan objetos ni cambian lo que se guarda', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
@@ -459,7 +468,7 @@ describe('validación de entradas', () => {
       '{"__proto__": {"rol": "admin", "activo": true, "debeCambiarClave": false}, "nombre": "Pepe", "usuario": "pepe", "rol": "cocina", "clave": "segura123"}',
     ))
     expect(r.status).toBe(200)
-    expect(r.body).toMatchObject({ rol: 'cocina', debeCambiarClave: true })
+    expect(r.body).toMatchObject({ rol: 'cocina', debeCambiarClave: false })
     const sinCambios = await p.pedir(admin, 'PATCH', '/usuarios/usr-cocina', JSON.parse('{"__proto__": {"rol": "admin", "activo": false}}'))
     expect(sinCambios.status).toBe(400)
     await p.pedir(admin, 'PATCH', '/config', JSON.parse('{"__proto__": {"correoReportes": "malo@x.com"}, "constructor": {"prototype": {"admin": true}}}'))

@@ -77,7 +77,9 @@ function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolText
     e.preventDefault()
     if (await restablecer.ejecutar(clave)) {
       setModo(null)
-      setHecho(`Contraseña restablecida. ${u.usuario} entra con «${clave}» y al entrar la tiene que cambiar.`)
+      setHecho(u.rol === 'admin'
+        ? `Contraseña restablecida. ${u.usuario} entra con «${clave}» y al entrar la tiene que cambiar.`
+        : `Contraseña restablecida. ${u.usuario} entra con «${clave}».`)
       setClave('')
     }
   }
@@ -153,7 +155,7 @@ function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolText
               spellCheck={false}
               minLength={CLAVE_MINIMA}
             />
-            <span className="pista-campo">Mínimo {CLAVE_MINIMA} caracteres. Pasásela a la persona: al entrar la va a tener que cambiar. Se cierra su sesión abierta.</span>
+            <span className="pista-campo">Mínimo {CLAVE_MINIMA} caracteres. Pasásela a la persona{u.rol === 'admin' ? ': al entrar la va a tener que cambiar' : ''}. Se cierra su sesión abierta.</span>
           </label>
           <div className="botones-cat">
             <button className="btn-primario" disabled={enviando || clave.length < CLAVE_MINIMA}>
@@ -195,7 +197,7 @@ function NuevoUsuario({ rolTexto }: { rolTexto: NombreDeRol }) {
     setCreado(null)
     const u = await crear.ejecutar()
     if (u) {
-      setCreado(`Usuario ${u.usuario} creado (${rolTexto(u.rol)}). Entra con la contraseña que le diste y al entrar la cambia.`)
+      setCreado(`Usuario ${u.usuario} creado (${rolTexto(u.rol)}). Entra con la contraseña que le diste${u.rol === 'admin' ? ' y al entrar la cambia' : ''}.`)
       setNombre('')
       setUsuario('')
       setRol('')

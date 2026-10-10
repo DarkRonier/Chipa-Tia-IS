@@ -10,9 +10,11 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
 - **Sesión.** Todo salvo `POST /auth/login` y `GET /salud` (`{ ok: true }`) exige `Authorization: Bearer <token>`.
   El token dura 30 días y en la base solo se guarda su hash. Sin sesión válida (falta, venció, se cerró o el
   usuario se desactivó): `401 no_autorizado`. Una ruta desconocida, con sesión, da `404 no_encontrado`.
-- **Contraseña propia.** Con la contraseña inicial o una restablecida por el administrador
-  (`debeCambiarClave: true`) solo responden las rutas de `/auth`; el resto da `403 debe_cambiar_clave` hasta que
-  la cambie con `POST /auth/clave` (`conClavePropia` en `src/server/sesion.ts`).
+- **Contraseñas.** Solo el administrador cambia contraseñas: las de los operadores las pone y las restablece él
+  (`/usuarios`), y los operadores no pueden cambiar la suya (`POST /auth/clave` da `403`). Un administrador con la
+  contraseña inicial o una restablecida (`debeCambiarClave: true`) solo tiene las rutas de `/auth`; el resto da
+  `403 debe_cambiar_clave` hasta que la cambie con `POST /auth/clave` (`conClavePropia` en `src/server/sesion.ts`).
+  A los operadores nunca se les pide.
 - **Errores.** `{ "error": { "codigo": "...", "mensaje": "..." } }`. El `mensaje` se muestra tal cual al usuario,
   en castellano rioplatense/paraguayo y sin jerga ("No hay stock suficiente para esa salida.").
 
@@ -23,7 +25,7 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
 | 401 | `credenciales` | Usuario o contraseña incorrectos (el mismo mensaje en los dos casos) |
 | 403 | `prohibido` | Otro sector (A03), función de administrador, lotes fuera de Chipería |
 | 403 | `usuario_inactivo` | Login de un usuario desactivado |
-| 403 | `debe_cambiar_clave` | Todavía no cambió la contraseña inicial o restablecida |
+| 403 | `debe_cambiar_clave` | Un administrador todavía no cambió su contraseña inicial o restablecida |
 | 404 | `no_encontrado` | El registro no existe; ruta desconocida |
 | 409 | `stock_insuficiente` | Salida, envío, merma o corrección que dejaría negativo el producto o el lote (D04) |
 | 409 | `usuario_repetido` | Ya existe ese nombre de usuario |
@@ -69,7 +71,7 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
 | POST | `/auth/clave` | `{ actual, nueva }` | `{ token }` |
 
 - El usuario se compara en minúsculas. Si no existe, el login tarda lo mismo que con la contraseña equivocada.
-- `/auth/clave`: `nueva` de al menos 6 caracteres y distinta de la actual; si `actual` no es la correcta,
+- `/auth/clave`: solo administradores (un operador recibe `403 prohibido`). `nueva` de al menos 6 caracteres y distinta de la actual; si `actual` no es la correcta,
   `400`. Deja `debeCambiarClave: false`, cierra todas las sesiones del usuario y devuelve un token nuevo.
 
 ## Usuarios (A01–A04) · solo admin
@@ -77,7 +79,7 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
 | Método | Ruta | Cuerpo | Respuesta |
 |---|---|---|---|
 | GET | `/usuarios` | | `Usuario[]` (incluye inactivos; activos primero, por rol y nombre) |
-| POST | `/usuarios` | `{ nombre, usuario, rol, clave }` | `Usuario` (`debeCambiarClave: true`; `409 usuario_repetido`) |
+| POST | `/usuarios` | `{ nombre, usuario, rol, clave }` | `Usuario` (`debeCambiarClave: true` solo si es administrador; `409 usuario_repetido`) |
 | PATCH | `/usuarios/:id` | `{ nombre?, rol?, activo? }` | `Usuario` |
 | POST | `/usuarios/:id/clave` | `{ clave }` | `{ ok }` |
 
@@ -85,7 +87,7 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
   minúsculas). `clave`: al menos 6 caracteres. `rol`: un sector o `admin`.
 - `PATCH`: desactivarlo o cambiarle el rol cierra sus sesiones. El administrador no puede desactivarse ni
   quitarse el rol a sí mismo (`403`).
-- `/clave` restablece: `debeCambiarClave: true` y cierra sus sesiones. Para la propia, `400` (se usa
+- `/clave` restablece y cierra sus sesiones; a un administrador le deja `debeCambiarClave: true`. Para la propia, `400` (se usa
   `POST /auth/clave`).
 
 ## Catálogos (B01–B04)

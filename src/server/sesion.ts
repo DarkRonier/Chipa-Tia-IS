@@ -65,7 +65,8 @@ export const conSesion: MiddlewareHandler<Entorno> = async (c, next) => {
     usuario: fila.usuario,
     rol: fila.rol,
     sector: fila.rol === 'admin' ? null : fila.rol,
-    debeCambiarClave: !!fila.debe_cambiar_clave,
+    // Solo un administrador puede cambiar su contraseña, así que solo a él se le exige.
+    debeCambiarClave: !!fila.debe_cambiar_clave && fila.rol === 'admin',
   })
   await next()
 }

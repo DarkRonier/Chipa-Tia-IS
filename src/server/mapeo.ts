@@ -18,6 +18,7 @@ export const aUsuario = (f: FilaUsuario): Usuario => ({
   usuario: f.usuario,
   rol: f.rol,
   activo: !!f.activo,
-  debeCambiarClave: !!f.debe_cambiar_clave,
+  // Solo un administrador puede cambiar su contraseña, así que solo a él se le pide.
+  debeCambiarClave: !!f.debe_cambiar_clave && f.rol === 'admin',
   creadoEn: f.creado_en,
 })

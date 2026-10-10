@@ -178,29 +178,27 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
       nombre: 'Ayudante de cocina', usuario: 'ayudante', rol: 'cocina', clave: 'inicio123',
     })
     expect(nuevo.status).toBe(200)
-    expect(nuevo.body).toMatchObject({ usuario: 'ayudante', rol: 'cocina', activo: true, debeCambiarClave: true })
+    expect(nuevo.body).toMatchObject({ usuario: 'ayudante', rol: 'cocina', activo: true, debeCambiarClave: false })
     const primera = await pedir<RespuestaLogin>(null, 'POST', '/auth/login', { usuario: 'ayudante', clave: 'inicio123' })
     expect(primera.status).toBe(200)
 
-    // Contraseña restablecida: la vieja ya no entra, la nueva sí (y pide cambiarla).
+    // Contraseña restablecida: la vieja ya no entra, la nueva sí y se usa tal cual (solo el administrador cambia contraseñas).
     expect((await pedir(tk.admin, 'POST', `/usuarios/${nuevo.body.id}/clave`, { clave: 'nueva456' })).status).toBe(200)
     expect((await pedir(null, 'POST', '/auth/login', { usuario: 'ayudante', clave: 'inicio123' })).status).toBe(401)
     const conNueva = await pedir<RespuestaLogin>(null, 'POST', '/auth/login', { usuario: 'ayudante', clave: 'nueva456' })
     expect(conNueva.status).toBe(200)
-    expect(conNueva.body.usuario.debeCambiarClave).toBe(true)
+    expect(conNueva.body.usuario.debeCambiarClave).toBe(false)
     expect((await pedir(primera.body.token, 'GET', '/auth/yo')).status).toBe(401)
-    // La cambia por una propia y ya puede usar el sistema.
-    const propia = await pedir<{ token: string }>(conNueva.body.token, 'POST', '/auth/clave', { actual: 'nueva456', nueva: 'propia789' })
-    expect(propia.status).toBe(200)
-    expect((await pedir(propia.body.token, 'GET', '/producciones')).status).toBe(200)
+    expect((await pedir(conNueva.body.token, 'GET', '/producciones')).status).toBe(200)
+    expect((await pedir(conNueva.body.token, 'POST', '/auth/clave', { actual: 'nueva456', nueva: 'propia789' })).status).toBe(403)
 
     // Desactivado: no puede entrar y la sesión que tenía abierta se cierra.
     const baja = await pedir<Usuario>(tk.admin, 'PATCH', `/usuarios/${nuevo.body.id}`, { activo: false })
     expect(baja.body.activo).toBe(false)
-    const r = await pedir(null, 'POST', '/auth/login', { usuario: 'ayudante', clave: 'propia789' })
+    const r = await pedir(null, 'POST', '/auth/login', { usuario: 'ayudante', clave: 'nueva456' })
     expect(r.status).toBe(403)
     expect(r.body.error.codigo).toBe('usuario_inactivo')
-    expect((await pedir(propia.body.token, 'GET', '/auth/yo')).status).toBe(401)
+    expect((await pedir(conNueva.body.token, 'GET', '/auth/yo')).status).toBe(401)
     // Nada se borra: sigue en la lista, desactivado.
     const lista = await pedir<Usuario[]>(tk.admin, 'GET', '/usuarios')
     expect(lista.body.find((u) => u.usuario === 'ayudante')).toMatchObject({ activo: false })

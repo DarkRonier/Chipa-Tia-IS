@@ -4,7 +4,7 @@ import type { RespuestaLogin } from '../../shared/tipos'
 import { CLAVE_MINIMA, HASH_DE_RELLENO, hashClave, verificarClave } from '../clave'
 import { ejecutar, una } from '../db'
 import type { Entorno } from '../entorno'
-import { ErrorApi, invalido } from '../errores'
+import { ErrorApi, invalido, prohibido } from '../errores'
 import { aUsuario, COLUMNAS_USUARIO, type FilaUsuario } from '../mapeo'
 import { cerrarSesion, cerrarSesionesDe, conSesion, crearSesion, tokenDe } from '../sesion'
 import { cuerpo, texto } from '../validar'
@@ -43,6 +43,8 @@ rutasAuth.use('/clave', conSesion)
 rutasAuth.post('/clave', async (c) => {
   const b = await cuerpo(c)
   const u = c.get('usuario')
+  // Solo el administrador cambia contraseñas; a los operadores se las pone y restablece él (Usuarios).
+  if (u.rol !== 'admin') throw prohibido('Tu contraseña la cambia el administrador.')
   const actual = texto(b.actual, 'la contraseña actual', { max: 200, recortar: false })
   // Sin recortar: la nueva se valida como se va a guardar. Los espacios de los bordes se rechazan antes del largo.
   const nueva = texto(b.nueva, 'la contraseña nueva', { min: 0, max: 200, recortar: false })

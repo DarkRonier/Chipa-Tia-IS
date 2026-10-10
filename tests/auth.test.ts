@@ -37,14 +37,26 @@ describe('autenticación', () => {
     expect((await p.pedir(t, 'GET', '/auth/yo')).status).toBe(401)
   })
 
-  it('cambia la propia contraseña y cierra las otras sesiones', async () => {
+  it('el administrador cambia su propia contraseña y cierra las otras sesiones', async () => {
     const p = await nuevaPrueba()
-    const vieja = await p.entrar('panaderia')
-    const r = await p.pedir(vieja, 'POST', '/auth/clave', { actual: '1234', nueva: 'pan-nuevo' })
+    const vieja = await p.entrar('admin')
+    const r = await p.pedir(vieja, 'POST', '/auth/clave', { actual: '1234', nueva: 'admin-nueva' })
     expect(r.status).toBe(200)
     expect((await p.pedir(vieja, 'GET', '/auth/yo')).status).toBe(401)
     expect((await p.pedir(r.body.token, 'GET', '/auth/yo')).status).toBe(200)
-    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'panaderia', clave: '1234' })).status).toBe(401)
-    await p.entrar('panaderia', 'pan-nuevo')
+    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'admin', clave: '1234' })).status).toBe(401)
+    await p.entrar('admin', 'admin-nueva')
+  })
+
+  it('un operador no puede cambiar su contraseña: la cambia el administrador', async () => {
+    const p = await nuevaPrueba()
+    for (const u of ['chiperia', 'chipitas', 'panaderia', 'cocina']) {
+      const t = await p.entrar(u)
+      const r = await p.pedir(t, 'POST', '/auth/clave', { actual: '1234', nueva: 'otra-clave' })
+      expect(r.status, u).toBe(403)
+      expect(r.body.error.mensaje).toBe('Tu contraseña la cambia el administrador.')
+      expect((await p.pedir(t, 'GET', '/auth/yo')).status).toBe(200)
+      await p.entrar(u, '1234')
+    }
   })
 })

@@ -1,4 +1,5 @@
-// A01: cambiar la propia contraseña. Obligatorio en el primer ingreso cuando el administrador la reinició.
+// A01: el administrador cambia su propia contraseña (obligatorio en su primer ingreso o cuando otro administrador la reinició).
+// Los operadores no cambian la suya: se la pone y la restablece el administrador.
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Volver from '../components/Volver'
@@ -51,6 +52,16 @@ export default function CambiarClave() {
       {obligatorio && <button type="button" className="btn-texto" onClick={() => void salir()}>Salir</button>}
     </form>
   )
+
+  // Solo el administrador cambia contraseñas; la de cada operador la pone y la restablece él.
+  if (usuario.rol !== 'admin') {
+    return (
+      <>
+        <Volver titulo="Contraseña" a="/" />
+        <p className="tarjeta">Tu contraseña la cambia el administrador. Si la olvidaste o querés otra, pedísela.</p>
+      </>
+    )
+  }
 
   if (obligatorio) {
     return (
