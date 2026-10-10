@@ -1,5 +1,9 @@
 # Backlog para cerrar el sistema
 
+> **Estado (10/10/2026): los 11 tickets están hechos y verificados** (214 pruebas en verde, recorrido del anexo
+> A01–I05 en pantalla sin fallas). Queda para probar en producción: A05 en celulares reales y Safari, H04 con
+> Resend, I01 con la base central e I02 (Time Travel) en la cuenta de Cloudflare.
+
 Estado de partida: los 9 módulos (A–I) están en la rama `first-complete` (PR #2), con 196 pruebas
 pasando, la prueba automática del anexo (`tests/anexo.test.ts`) y la revisión de seguridad hecha.
 Lo que sigue son los tickets pendientes. Cada uno dice qué archivos toca, qué tiene que lograr y

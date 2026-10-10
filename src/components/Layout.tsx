@@ -1,5 +1,5 @@
 import { createContext, useContext, useState } from 'react'
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { esDemo } from '../cliente/api'
 import { useSectores } from '../cliente/catalogo'
 import { useSesion, useUsuario } from '../cliente/sesion'
@@ -27,6 +27,8 @@ export default function Layout() {
   const { salir } = useSesion()
   const sectores = useSectores()
   const esAdmin = usuario.rol === 'admin'
+  // «Lotes» vive bajo /sector pero tiene su propia pestaña: «Vista del sector» no se marca ahí.
+  const enLotes = useLocation().pathname.startsWith('/sector/lotes')
   const [elegido, setElegido] = useState<SectorId>(leerElegido)
   const [confirmar, setConfirmar] = useState(false)
   const id: SectorId = esAdmin ? elegido : (usuario.rol as SectorId)
@@ -77,7 +79,7 @@ export default function Layout() {
           <NavLink to="/admin/catalogos">Catálogos</NavLink>
           <NavLink to="/admin/usuarios">Usuarios</NavLink>
           <NavLink to="/admin/datos">Datos</NavLink>
-          <NavLink to="/sector">Vista del sector</NavLink>
+          <NavLink to="/sector" className={({ isActive }) => (isActive && !enLotes ? 'active' : '')}>Vista del sector</NavLink>
         </nav>
       )}
       <main className="contenido">

@@ -312,7 +312,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
         )}
       </Seccion>
 
-      <Seccion titulo="Limpiezas" detalle={t.limpiezas ? `${num(t.limpiezas)} reportes · ${num(t.limpiezasSinControlar)} sin controlar` : undefined}>
+      <Seccion titulo="Limpiezas" detalle={t.limpiezas ? `${num(t.limpiezas)} ${t.limpiezas === 1 ? 'reporte' : 'reportes'} · ${num(t.limpiezasSinControlar)} sin controlar` : undefined}>
         {r.limpiezas.length === 0 ? <Vacio>No se reportaron limpiezas en el período.</Vacio> : (
           <>
             <Tabla etiqueta="Limpiezas" columnas={[

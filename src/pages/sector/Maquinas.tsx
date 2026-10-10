@@ -20,7 +20,7 @@ import '../../styles/controles.css'
 
 /** "3,5 °C", "−18 °C". */
 export function grados(n: number): string {
-  return `${n.toLocaleString('es-PY', { maximumFractionDigits: 1 }).replace('-', '−')} °C`
+  return `${n.toLocaleString('es-PY', { maximumFractionDigits: 1 }).replace('-', '−')}\u00a0°C`
 }
 
 const numeroSolo = (n: number) => n.toLocaleString('es-PY', { maximumFractionDigits: 1 }).replace('-', '−')
