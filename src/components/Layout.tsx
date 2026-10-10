@@ -54,11 +54,11 @@ export default function Layout() {
         <Link to="/" className="marca">Chipa Tía</Link>
         <div className="barra-der">
           {esAdmin ? (
-            <select aria-label="Sector a ver" value={elegido} onChange={(e) => elegir(e.target.value as SectorId)}>
+            <select aria-label="Sector a ver" title={sector.nombre} value={elegido} onChange={(e) => elegir(e.target.value as SectorId)}>
               {sectores.lista.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
             </select>
           ) : (
-            <span className="chip">{sector.nombre}</span>
+            <span className="chip" title={sector.nombre}>{sector.nombre}</span>
           )}
           <Link className="btn-texto" to="/clave">Contraseña</Link>
           <button className="btn-texto" onClick={() => void salir()}>Salir</button>
