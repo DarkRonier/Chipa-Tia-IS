@@ -36,3 +36,13 @@ export function ahora(): { fecha: string; dia: string } {
 export const marcadores = (n: number) => Array.from({ length: n }, () => '?').join(', ')
 
 export const aBool = (v: unknown) => v === 1 || v === true || v === '1'
+
+/** D1 acepta hasta 100 parámetros por consulta: corre `consulta` por trozos de una lista de ids. */
+export async function todasPorTrozos<T>(db: BaseD1, ids: string[], consulta: (marcas: string) => string): Promise<T[]> {
+  const res: T[] = []
+  for (let i = 0; i < ids.length; i += 90) {
+    const trozo = ids.slice(i, i + 90)
+    res.push(...(await todas<T>(db, consulta(marcadores(trozo.length)), ...trozo)))
+  }
+  return res
+}
