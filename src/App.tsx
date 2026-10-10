@@ -20,7 +20,7 @@ import Catalogos from './pages/admin/Catalogos'
 import Ajustes from './pages/admin/Ajustes'
 import Registros from './pages/admin/Registros'
 import Controles from './pages/admin/Controles'
-import Reportes from './pages/admin/Reportes'
+import Reportes, { RecordarEnlaceReporte } from './pages/admin/Reportes'
 import Datos from './pages/admin/Datos'
 
 export default function App() {
@@ -28,9 +28,13 @@ export default function App() {
   if (cargando) return <div className="login"><Cargando /></div>
   if (!usuario) {
     return (
-      <Routes>
-        <Route path="*" element={<Login />} />
-      </Routes>
+      <>
+        {/* El enlace del correo (H04) abre el reporte después de entrar. */}
+        <RecordarEnlaceReporte />
+        <Routes>
+          <Route path="*" element={<Login />} />
+        </Routes>
+      </>
     )
   }
   if (usuario.debeCambiarClave) return <CambiarClave />

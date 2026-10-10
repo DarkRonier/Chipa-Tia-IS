@@ -74,7 +74,13 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     }
     sql('UPDATE limpiezas SET controlado_en = ? WHERE controlado_en >= ?', fecha, marca)
     sql('UPDATE producciones SET corregido_en = ? WHERE corregido_en >= ?', fecha, marca)
-    sql('UPDATE auditoria SET fecha = ? WHERE fecha >= ?', fecha, marca)
+    // La auditoría guarda también fechas dentro del antes/después (por ejemplo, cuándo se controló).
+    const nuevas = d1.db.exec('SELECT id, antes, despues FROM auditoria WHERE fecha >= ?', [marca])[0]?.values ?? []
+    const correr = (texto: unknown) =>
+      typeof texto === 'string' ? texto.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, (f) => (f >= marca ? fecha : f)) : texto
+    for (const [id, antes, despues] of nuevas) {
+      sql('UPDATE auditoria SET fecha = ?, antes = ?, despues = ? WHERE id = ?', fecha, correr(antes) as string | null, correr(despues) as string | null, id as string)
+    }
     sql('UPDATE lotes_mp SET creado_en = ? WHERE creado_en >= ?', fecha, marca)
     return res
   }

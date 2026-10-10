@@ -1,0 +1,95 @@
+/* Resumen, reportes (H01–H04) y datos (I01–I05) del administrador. */
+
+/* Período: seis atajos en dos filas de tres en el celular, una sola fila en la compu. */
+.segmentado.rep-periodos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 0; }
+.segmentado.rep-periodos button { min-height: 44px; font-size: 0.88rem; padding: 0.3rem 0.25rem; }
+.rep-fechas { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.5rem; }
+.rep-fechas input, .rep-fechas select { min-width: 0; }
+.rep-fechas .rep-sector { grid-column: 1 / -1; }
+.rep-rango { margin: 0 0 0.75rem; }
+.rep-acciones { display: grid; gap: 0.5rem; margin: 0.75rem 0 0.25rem; }
+.rep-acciones .btn-secundario, .rep-acciones .btn-primario { margin: 0; }
+
+/* Enlaces de texto con el color de la marca */
+.rep-pagina a:not([class]) { color: var(--marca); }
+.rep-nota .btn-texto { padding: 0; }
+
+/* Secciones y tablas */
+.rep-seccion { margin-top: 1.5rem; }
+.rep-seccion > h2 { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.rep-seccion > h2 .chico { font-weight: 400; }
+.tabla.rep-tabla { margin-bottom: 0.25rem; }
+.tabla.rep-tabla th.num { white-space: normal; }
+.tabla .rep-grupo td { background: var(--marca-claro); font-weight: 600; color: var(--texto); }
+.tabla .rep-total td { font-weight: 700; border-bottom: none; }
+.rep-muted { color: var(--suave); font-size: 0.82rem; }
+.tabla .rep-nowrap { white-space: nowrap; }
+.rep-negativo { color: var(--error); }
+.rep-etiqueta {
+  display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+  background: var(--marca-claro); color: var(--texto); white-space: nowrap;
+}
+.rep-etiqueta.rep-rojo { background: var(--error-fondo); color: var(--error); }
+.rep-etiqueta.rep-verde { background: var(--ok-fondo); color: var(--ok); }
+
+@media (max-width: 639px) {
+  /* En el celular las tablas anchas se leen como tarjetas: cada dato con su nombre. */
+  .tabla.rep-tarjetas, .tabla.rep-tarjetas tbody { display: block; background: none; border-radius: 0; overflow: visible; }
+  .tabla.rep-tarjetas thead { display: none; }
+  .tabla.rep-tarjetas tr {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.15rem 0.75rem; padding: 0.65rem 0.8rem; margin-bottom: 0.5rem;
+    background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px;
+  }
+  .tabla.rep-tarjetas td { grid-column: 1 / -1; }
+  /* Los datos cortos (día, cantidades) van de a dos por renglón. */
+  .tabla.rep-tarjetas td.rep-medio { grid-column: auto; }
+  .tabla.rep-tarjetas tr.fila-roja { border-color: var(--error); background: var(--error-fondo); }
+  .tabla.rep-tarjetas tr.fila-roja td { background: none; }
+  .tabla.rep-tarjetas td { border: none; padding: 0; text-align: left; white-space: normal; }
+  .tabla.rep-tarjetas td:first-child { font-weight: 600; }
+  .tabla.rep-tarjetas td[data-etiqueta]:not(:first-child)::before {
+    content: attr(data-etiqueta) ': '; color: var(--suave); font-size: 0.82rem;
+  }
+  .tabla.rep-tarjetas .rep-grupo { background: var(--marca-claro); }
+  .tabla.rep-tarjetas .rep-grupo td::before { content: none; }
+  .tabla.rep-tarjetas td.rep-vacia { display: none; }
+}
+
+@media (min-width: 640px) {
+  .segmentado.rep-periodos { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .rep-fechas { grid-template-columns: 1fr 1fr 1.3fr; }
+  .rep-fechas .rep-sector { grid-column: auto; }
+  .rep-acciones { grid-template-columns: auto auto; justify-content: start; }
+  .rep-acciones .btn-primario, .rep-acciones .btn-secundario { width: auto; }
+}
+
+/* Resumen por correo */
+.rep-vista {
+  width: 100%; height: 640px; border: 1px solid var(--borde); border-radius: 10px; background: #ffffff; display: block;
+}
+.rep-aviso { background: var(--aviso); padding: 0.6rem 0.8rem; border-radius: 8px; margin: 0.5rem 0; }
+
+/* Panel del día */
+.rep-alertas { display: grid; gap: 0.5rem; }
+.rep-alertas .item { cursor: default; text-decoration: none; color: inherit; }
+.rep-alertas a.item { cursor: pointer; }
+.rep-alertas .item strong { display: block; }
+
+/* Datos: copias y auditoría */
+.rep-copias { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.rep-copias li {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.25rem 0.75rem;
+  padding: 0.7rem 0.8rem; background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px;
+}
+.rep-copias .btn-secundario { width: auto; min-height: 44px; margin: 0; padding: 0.4rem 0.9rem; }
+.rep-auditoria { display: grid; gap: 0.5rem; }
+.rep-cambio { padding: 0.7rem 0.8rem; background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; display: grid; gap: 0.2rem; }
+.rep-cambio ul { margin: 0.2rem 0 0; padding-left: 1.1rem; font-size: 0.88rem; }
+.rep-cambio li { overflow-wrap: anywhere; }
+.rep-cambio details summary { cursor: pointer; color: var(--marca); font-size: 0.85rem; }
+.rep-cambio pre {
+  margin: 0.4rem 0 0; padding: 0.5rem; background: var(--fondo); border-radius: 6px; font-size: 0.78rem;
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto;
+}
+.rep-nota { font-size: 0.88rem; color: var(--suave); margin: 0; }
+.rep-nota strong { color: var(--texto); }

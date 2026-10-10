@@ -1,146 +1,139 @@
-import { useState } from 'react'
-import { SECTORES } from '../../mock/data'
-import { diaPY, fechaHora, stockDe, useDatos } from '../../mock/store'
+// Pantalla de inicio del administrador: lo de hoy en todos los sectores (producción, envíos, temperaturas
+// fuera de rango, máquinas con fallas y limpiezas por controlar) y accesos rápidos.
+import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { useSectores } from '../../cliente/catalogo'
+import { useConsulta } from '../../cliente/consultas'
+import { Aviso, Cargando, ConDatos } from '../../components/Estado'
+import { diaDeSemana, diaLegible, diaPY, fechaHoraPY } from '../../shared/hora'
+import { NOMBRE_ESTADO, type Limpieza, type Reporte, type SectorId } from '../../shared/tipos'
+import { IrAlEnlacePendiente } from './Reportes'
+import '../../styles/reportes.css'
 
-type Periodo = 'dia' | 'semana' | 'mes' | 'rango'
+const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+const num = (n: number) => n.toLocaleString('es-PY')
+const grados = (t: number | null) => (t === null ? '—' : `${String(t).replace('.', ',').replace('-', '−')} °C`)
+const hora = (iso: string) => fechaHoraPY(iso).slice(11)
 
-const sumarDias = (dia: string, n: number) => {
-  const d = new Date(`${dia}T12:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + n)
-  return d.toISOString().slice(0, 10)
-}
-
-function rangoDe(periodo: Periodo, hoy: string, desde: string, hasta: string): [string, string] {
-  if (periodo === 'dia') return [hoy, hoy]
-  if (periodo === 'semana') {
-    const dow = (new Date(`${hoy}T12:00:00Z`).getUTCDay() + 6) % 7
-    return [sumarDias(hoy, -dow), hoy]
-  }
-  if (periodo === 'mes') return [`${hoy.slice(0, 8)}01`, hoy]
-  return [desde || hoy, hasta || hoy]
-}
-
-function descargarCSV(nombre: string, filas: (string | number)[][]) {
-  const csv = filas.map((f) => f.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(';')).join('\n')
-  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = nombre
-  a.click()
-  URL.revokeObjectURL(url)
-}
+const ATAJOS: [string, string, string][] = [
+  ['/admin/reportes', 'Reportes', 'Por fechas, Excel y resumen por correo'],
+  ['/admin/registros', 'Producción', 'Registros y correcciones'],
+  ['/admin/stock', 'Stock', 'Stock en frío, mermas y ajustes'],
+  ['/admin/controles', 'Limpieza y temperatura', 'Visto bueno y lecturas'],
+  ['/sector/lotes', 'Lotes', 'Materia prima y lotes de chipa'],
+  ['/admin/datos', 'Datos', 'Excel completo, copias y configuración'],
+]
 
 export default function Resumen() {
-  const { datos } = useDatos()
-  const hoy = diaPY(new Date().toISOString())
-  const [periodo, setPeriodo] = useState<Periodo>('dia')
-  const [desde, setDesde] = useState(sumarDias(hoy, -7))
-  const [hasta, setHasta] = useState(hoy)
-  const [ini, fin] = rangoDe(periodo, hoy, desde, hasta)
-  const enRango = (iso: string) => diaPY(iso) >= ini && diaPY(iso) <= fin
-
-  const nombre = (id: string) => datos.productos.find((p) => p.id === id)?.nombre ?? id
-  const producciones = datos.producciones.filter((p) => enRango(p.fecha))
-  const porProducto = new Map<string, { sector: string; cocinado: number; guardado: number }>()
-  for (const p of producciones) {
-    for (const i of p.items) {
-      const v = porProducto.get(i.productoId) ?? { sector: p.sector, cocinado: 0, guardado: 0 }
-      v.cocinado += i.cocinado
-      v.guardado += i.guardado
-      porProducto.set(i.productoId, v)
-    }
-  }
-  const envios = datos.movimientos.filter((m) => m.tipo === 'envio' && enRango(m.fecha))
-  const porSucursal = datos.sucursales.map((s) => ({ s, total: envios.filter((m) => m.sucursalId === s.id).reduce((a, m) => a - m.cantidad, 0) }))
-  const fuera = datos.lecturas.filter((l) => l.fueraDeRango && enRango(l.fecha))
-  const limpiezas = datos.limpiezas.filter((l) => enRango(l.fecha))
-  const lotes = producciones.filter((p) => p.lote)
-  const stockPorSector = SECTORES.map((s) => ({
-    s, total: datos.productos.filter((p) => p.sector === s.id).reduce((a, p) => a + stockDe(datos.movimientos, s.id, p.id), 0),
-  }))
-
-  const exportar = () =>
-    descargarCSV(`reporte-${ini}-a-${fin}.csv`, [
-      ['Reporte Chipa Tía', `${ini} a ${fin}`],
-      [],
-      ['Sector', 'Producto', 'Cocinado / horno', 'Guardado / congelador'],
-      ...[...porProducto].map(([id, v]) => [SECTORES.find((s) => s.id === v.sector)!.nombre, nombre(id), v.cocinado, v.guardado]),
-      [],
-      ['Sucursal', 'Unidades enviadas'],
-      ...porSucursal.map(({ s, total }) => [s.nombre, total]),
-      [],
-      ['Temperaturas fuera de rango', 'Máquina', 'Temperatura'],
-      ...fuera.map((l) => [fechaHora(l.fecha), datos.maquinas.find((m) => m.id === l.maquinaId)?.nombre ?? '', l.temperatura ?? '']),
-    ])
+  const hoy = diaPY()
+  const reporte = useConsulta<Reporte>('/reportes', { desde: hoy, hasta: hoy })
+  const pendientes = useConsulta<Limpieza[]>('/limpiezas', { sinControlar: true })
+  const sectores = useSectores()
 
   return (
-    <>
+    <div className="rep-pagina">
+      <IrAlEnlacePendiente />
       <h1>Resumen</h1>
-      <div className="segmentado">
-        {(['dia', 'semana', 'mes', 'rango'] as Periodo[]).map((p) => (
-          <button key={p} className={periodo === p ? 'activo' : ''} onClick={() => setPeriodo(p)}>
-            {{ dia: 'Hoy', semana: 'Semana', mes: 'Mes', rango: 'Rango' }[p]}
-          </button>
+      <p className="suave rep-rango">Hoy, {DIAS[diaDeSemana(hoy)].toLowerCase()} {diaLegible(hoy)} · todos los sectores · hora de Paraguay</p>
+      <ConDatos consulta={reporte}>
+        {(r) => (
+          <>
+            <div className="cifras">
+              <Cifra n={r.totales.cargasProduccion} texto="cargas de producción" />
+              <Cifra n={r.totales.unidadesCocinadas} texto="unidades cocinadas" />
+              <Cifra n={r.totales.unidadesGuardadas} texto="unidades guardadas en frío" />
+              <Cifra n={r.totales.unidadesEnviadas} texto="unidades enviadas" />
+              <Cifra n={r.totales.temperaturasFueraDeRango} texto="temperaturas fuera de rango" alerta={r.totales.temperaturasFueraDeRango > 0} />
+              <Cifra n={r.totales.limpiezas} texto={`limpiezas hoy (${num(r.totales.limpiezasSinControlar)} sin controlar)`} />
+            </div>
+
+            <h2>Para revisar</h2>
+            <Alertas r={r} pendientes={pendientes} nombre={sectores.nombre} />
+
+            <h2>Producción de hoy por sector</h2>
+            <table className="tabla rep-tabla" aria-label="Producción de hoy por sector">
+              <thead><tr><th>Sector</th><th className="num">Cocinado</th><th className="num">Guardado</th></tr></thead>
+              <tbody>
+                {(sectores.lista.length ? sectores.lista.map((s) => s.id) : ([...new Set(r.produccion.map((p) => p.sector))] as SectorId[])).map((s) => {
+                  const filas = r.produccion.filter((p) => p.sector === s)
+                  return (
+                    <tr key={s}>
+                      <td>{sectores.nombre(s)}{filas.length === 0 && <div className="rep-muted">Sin carga todavía</div>}</td>
+                      <td className="num">{num(filas.reduce((a, f) => a + f.cocinado, 0))}</td>
+                      <td className="num">{num(filas.reduce((a, f) => a + f.guardado, 0))}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            <p className="chico"><Link to={`/admin/reportes?desde=${hoy}&hasta=${hoy}`}>Ver el reporte completo de hoy</Link></p>
+          </>
+        )}
+      </ConDatos>
+
+      <h2>Accesos rápidos</h2>
+      <div className="grilla-botones">
+        {ATAJOS.map(([a, t, d]) => (
+          <Link key={a} to={a} className="boton-grande"><strong>{t}</strong><span>{d}</span></Link>
         ))}
       </div>
-      {periodo === 'rango' && (
-        <div className="filtros">
-          <label className="campo"><span>Desde</span><input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
-          <label className="campo"><span>Hasta</span><input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
-        </div>
+    </div>
+  )
+}
+
+function Cifra({ n, texto, alerta = false }: { n: number; texto: string; alerta?: boolean }) {
+  return <div className={alerta ? 'cifra alerta' : 'cifra'}><strong>{num(n)}</strong><span>{texto}</span></div>
+}
+
+function Alertas({ r, pendientes, nombre }: {
+  r: Reporte
+  pendientes: { datos: Limpieza[] | undefined; error: string | null }
+  nombre: (s: SectorId) => string
+}) {
+  const items: ReactNode[] = []
+  for (const l of r.temperaturasFueraDeRango) {
+    items.push(
+      <Link key={l.id} to="/admin/controles?ver=temperaturas" className="item alerta">
+        <strong>{grados(l.temperatura)} en N° {l.maquinaNumero} · {l.maquinaNombre}</strong>
+        <span className="chico">{nombre(l.sector)} · {hora(l.fecha)} · {l.usuarioNombre}{l.observacion ? ` · ${l.observacion}` : ''}</span>
+      </Link>,
+    )
+  }
+  for (const l of r.maquinasConFallas) {
+    items.push(
+      <Link key={l.id} to="/admin/controles?ver=temperaturas" className="item alerta">
+        <strong>{NOMBRE_ESTADO[l.estado]}: N° {l.maquinaNumero} · {l.maquinaNombre}</strong>
+        <span className="chico">{nombre(l.sector)} · {hora(l.fecha)}{l.observacion ? ` · ${l.observacion}` : ''}</span>
+      </Link>,
+    )
+  }
+  const sinHacer = r.limpiezas.reduce((a, l) => a + l.tareasNoHechas, 0)
+  if (sinHacer > 0) {
+    items.push(
+      <Link key="sin-hacer" to="/admin/controles" className="item">
+        <strong>{sinHacer === 1 ? '1 tarea de limpieza no se hizo hoy' : `${num(sinHacer)} tareas de limpieza no se hicieron hoy`}</strong>
+        <span className="chico">{r.limpiezas.filter((l) => l.tareasNoHechas > 0).map((l) => `${l.areaNombre} (${nombre(l.sector)})`).join(' · ')}</span>
+      </Link>,
+    )
+  }
+  const lista = pendientes.datos
+  if (lista && lista.length > 0) {
+    const masVieja = lista.reduce((a, l) => (l.dia < a ? l.dia : a), lista[0].dia)
+    items.push(
+      <Link key="pendientes" to="/admin/controles" className="item">
+        <strong>{lista.length === 1 ? '1 limpieza espera el visto bueno' : `${num(lista.length)} limpiezas esperan el visto bueno`}</strong>
+        <span className="chico">{masVieja < diaPY() ? `La más vieja es del ${diaLegible(masVieja)}.` : 'Todas de hoy.'} Tocá para controlarlas.</span>
+      </Link>,
+    )
+  }
+  return (
+    <div className="rep-alertas">
+      {items}
+      {pendientes.error && <Aviso>{pendientes.error}</Aviso>}
+      {!pendientes.error && lista === undefined && <Cargando texto="Buscando limpiezas sin controlar…" />}
+      {items.length === 0 && lista !== undefined && (
+        <p className="ok" role="status">Todo en orden: sin temperaturas fuera de rango, máquinas con fallas ni limpiezas por controlar.</p>
       )}
-      <p className="suave">Del {ini.split('-').reverse().join('/')} al {fin.split('-').reverse().join('/')} · hora de Paraguay</p>
-
-      <div className="cifras">
-        <div className="cifra"><strong>{producciones.length}</strong><span>cargas de producción</span></div>
-        <div className="cifra"><strong>{envios.reduce((a, m) => a - m.cantidad, 0)}</strong><span>unidades enviadas</span></div>
-        <div className={fuera.length ? 'cifra alerta' : 'cifra'}><strong>{fuera.length}</strong><span>temperaturas fuera de rango</span></div>
-        <div className="cifra"><strong>{limpiezas.length}</strong><span>limpiezas ({limpiezas.filter((l) => !l.controladoPor).length} sin controlar)</span></div>
-      </div>
-
-      <h2>Producción por producto</h2>
-      {porProducto.size === 0 ? <p className="suave">Sin producción en el período.</p> : (
-        <table className="tabla">
-          <thead><tr><th>Producto</th><th className="num">Cocinado</th><th className="num">Guardado</th></tr></thead>
-          <tbody>
-            {[...porProducto].map(([id, v]) => (
-              <tr key={id}><td>{nombre(id)}<div className="suave chico">{SECTORES.find((s) => s.id === v.sector)!.nombre}</div></td><td className="num">{v.cocinado}</td><td className="num">{v.guardado}</td></tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <h2>Stock en frío actual</h2>
-      <table className="tabla">
-        <tbody>{stockPorSector.map(({ s, total }) => <tr key={s.id}><td>{s.nombre}</td><td className="num">{total}</td></tr>)}</tbody>
-      </table>
-
-      <h2>Envíos por sucursal</h2>
-      <table className="tabla">
-        <tbody>{porSucursal.map(({ s, total }) => <tr key={s.id}><td>{s.nombre}</td><td className="num">{total}</td></tr>)}</tbody>
-      </table>
-
-      <h2>Lotes de Chipería</h2>
-      {lotes.length === 0 ? <p className="suave">Sin lotes en el período.</p> : (
-        <ul>{lotes.map((p) => <li key={p.id}>{p.lote!.codigo}: {p.lote!.horno} al horno, {p.lote!.congelador} al congelador</li>)}</ul>
-      )}
-
-      <h2>Temperaturas fuera de rango</h2>
-      {fuera.length === 0 ? <p className="suave">Ninguna.</p> : (
-        <table className="tabla">
-          <tbody>
-            {fuera.map((l) => {
-              const m = datos.maquinas.find((x) => x.id === l.maquinaId)!
-              return <tr key={l.id} className="fila-roja"><td>{fechaHora(l.fecha)}</td><td>{m.nombre}<div className="suave chico">{SECTORES.find((s) => s.id === m.sector)!.nombre}</div></td><td className="num">{l.temperatura} °C</td></tr>
-            })}
-          </tbody>
-        </table>
-      )}
-
-      <div className="fila-acciones">
-        <button className="btn-secundario" onClick={exportar}>Exportar a Excel</button>
-        <span className="suave chico">En el prototipo se descarga un CSV que abre en Excel; la versión final genera .xlsx.</span>
-      </div>
-    </>
+    </div>
   )
 }
