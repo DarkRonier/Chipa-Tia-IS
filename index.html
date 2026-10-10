@@ -7,12 +7,13 @@
     <link rel="icon" type="image/png" href="./logo.png" />
     <link rel="apple-touch-icon" href="./logo.png" />
     <script>
-      // Tema elegido en Configuración, aplicado antes del primer render para que no parpadee.
+      // Tema elegido en Configuración (claro si no se eligió nada), aplicado antes del primer render para que no parpadee.
+      document.documentElement.dataset.theme = 'light'
       try {
         var t = localStorage.getItem('chipa-tia-tema')
-        if (t === 'claro') document.documentElement.dataset.theme = 'light'
-        else if (t === 'oscuro') document.documentElement.dataset.theme = 'dark'
-        var oscuro = t === 'oscuro' || (t !== 'claro' && matchMedia('(prefers-color-scheme: dark)').matches)
+        if (t === 'oscuro') document.documentElement.dataset.theme = 'dark'
+        else if (t === 'sistema') delete document.documentElement.dataset.theme
+        var oscuro = t === 'oscuro' || (t === 'sistema' && matchMedia('(prefers-color-scheme: dark)').matches)
         document.querySelector('meta[name="theme-color"]').setAttribute('content', oscuro ? '#c8102e' : '#b8001a')
       } catch (e) {}
     </script>
