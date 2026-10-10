@@ -273,5 +273,6 @@ El Excel (H03, I03) se arma en el navegador con `write-excel-file` a partir de e
 La vuelta atrás a cualquier minuto de los últimos 7 días (I02) es D1 Time Travel de Cloudflare
 (ver `docs/despliegue.md`): no pasa por esta API.
 
-Tareas automáticas (`src/server/programado.ts`, cron diario 09:00 UTC = 06:00 Paraguay): resumen diario,
-semanal los lunes, mensual el día 1, y copia semanal (I05) los lunes.
+Tareas automáticas (`src/server/programado.ts`, dos disparadores en `wrangler.jsonc`): `0 9 * * *` (06:00 Paraguay)
+manda los resúmenes (diario; semanal los lunes; mensual el día 1), y `30 9 * * 1` (lunes 06:30 Paraguay) hace la
+copia semanal (I05) y borra las sesiones vencidas.

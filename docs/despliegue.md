@@ -48,21 +48,67 @@ Después, entrando como `admin`:
 
 - Resend necesita un dominio propio verificado (registros DNS que indica Resend). Con el dominio comprado,
   cambiar `CORREO_REMITENTE` en `wrangler.jsonc` (por ejemplo `Chipa Tía <reportes@chipatia.com>`) y volver a publicar.
-- El cron `0 9 * * *` (06:00 en Paraguay) envía el resumen diario de ayer; los lunes además el semanal y la copia
-  semanal; el día 1 además el mensual. "Reportes → Enviar resumen de prueba" lo manda en el momento.
+- El resumen diario de ayer sale a las 06:00 (Paraguay); los lunes además el semanal, y el día 1 el mensual
+  (ver "Tareas automáticas" más abajo). "Reportes → Enviar resumen de prueba" lo manda en el momento.
 
 ### Copias de seguridad
 
 - **I02, últimos 7 días**: Cloudflare D1 Time Travel viene activo en todas las bases y no hay que configurarlo.
   Para volver a un minuto: `npx wrangler d1 time-travel restore chipa-tia --timestamp=<fecha ISO>`
   (`npx wrangler d1 time-travel info chipa-tia` muestra el punto disponible).
-- **I05, copia semanal**: los lunes el Worker guarda en R2 (`copias/`) un JSON con todas las tablas.
+- **I05, copia semanal**: los lunes, a las 06:30 (Paraguay), el Worker guarda en R2 (`copias/`) un JSON con todas las tablas.
   "Datos → Hacer copia ahora" genera una a mano y se puede descargar.
 
 ### Dominio
 
 Comprar el dominio (Porkbun u otro), apuntarlo a Cloudflare y agregarlo como *Custom Domain* del Worker
 `chipa-tia` (Workers & Pages → chipa-tia → Settings → Domains & Routes).
+
+### Tareas automáticas
+
+El Worker tiene dos disparadores, definidos en `wrangler.jsonc` (`triggers.crons`). Las horas son de Paraguay (UTC-3):
+
+| Disparador | Hora | Qué hace |
+|---|---|---|
+| `0 9 * * *` | 06:00, todos los días | Resúmenes por correo: el diario siempre, el semanal los lunes y el mensual el día 1. |
+| `30 9 * * 1` | 06:30, los lunes | Copia semanal de la base a R2 (I05) y borrado de las sesiones vencidas. |
+
+Están separados a propósito: Workers Free permite 50 consultas a D1 por ejecución, y juntos, un lunes que cae día 1,
+pasaban ese límite. Si se cambia un horario, cambiar la expresión en `wrangler.jsonc` y las constantes
+`CRON_RESUMENES` y `CRON_COPIA` de `src/server/programado.ts` a la vez (tienen que quedar iguales), y volver a publicar.
+Si no coinciden, el disparador nuevo no hace nada.
+
+### Límites del plan gratuito
+
+Workers Free da 10 ms de CPU por pedido. La entrada usa PBKDF2-SHA256 con 100.000 iteraciones
+(`src/server/clave.ts`, constante `ITERACIONES`). Cada contraseña guarda su número de iteraciones dentro del hash
+(`pbkdf2$iteraciones$sal$hash`).
+
+Cómo se nota: al entrar aparece el error 1102 ("Worker exceeded resource limits").
+
+Qué hacer, una de estas dos opciones:
+
+- **Bajar las iteraciones.** Cambiar `ITERACIONES` en `src/server/clave.ts` (por ejemplo, a 50.000) y volver a publicar
+  con `npm run deploy`. Las contraseñas ya guardadas siguen funcionando, porque cada una usa el número que tiene
+  guardado. Las nuevas o las cambiadas usan el nuevo. Costo: con menos iteraciones, el hash resiste menos si alguien
+  llega a la base; por eso conviene el límite de pedidos de más abajo.
+- **Pasar a Workers Paid** (US$ 5 por mes, 30 s de CPU por pedido). Solo con aprobación del cliente. Cambia la fila
+  "Costo" de la tabla del principio.
+
+Después de publicar, probar la entrada enseguida, como `admin` y como un usuario común.
+
+**Límite de pedidos para la entrada.** Recomendamos una regla de límite de pedidos de Cloudflare para
+`/api/auth/login`, para frenar intentos de adivinar contraseñas. Las reglas son del dominio, así que se crean una vez
+que el dominio propio está en Cloudflare (no aplican a la dirección `workers.dev`). En el panel del dominio, ir a
+**Security → WAF → Rate limiting rules** y crear una regla:
+
+- Si la ruta (*URI Path*) es igual a `/api/auth/login`.
+- Contar por IP; en el plan gratuito el período es de 10 segundos: poner 3 pedidos cada 10 segundos.
+- Acción: bloquear (*Block*). En el plan gratuito el bloqueo dura 10 segundos, que alcanza para frenar
+  un programa que prueba contraseñas sin molestar a quien se equivocó al escribir.
+
+El plan gratuito permite una sola regla de este tipo, así que conviene reservarla para esta. Si el panel ofrece
+otros períodos o duraciones (planes pagos), 10 pedidos por minuto y 10 minutos de bloqueo es una buena medida.
 
 ## Desarrollo local
 
