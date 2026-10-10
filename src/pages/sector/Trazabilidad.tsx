@@ -6,6 +6,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useConsulta } from '../../cliente/consultas'
 import { useUsuario } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
+import { IconoTrazabilidad } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaLegible, diaPY, fechaHoraPY, sumarDias } from '../../shared/hora'
 import {
@@ -31,7 +32,7 @@ export default function Trazabilidad() {
   const esAdmin = usuario.rol === 'admin'
   return (
     <>
-      <Volver titulo="Trazabilidad" a={esAdmin ? '/admin' : '/sector'} />
+      <Volver titulo="Trazabilidad" a={esAdmin ? '/admin' : '/sector'} icono={<IconoTrazabilidad />} />
       {esAdmin || usuario.rol === 'chiperia' ? <PantallaTrazabilidad /> : <Aviso>Los lotes y la trazabilidad son solo de Chipería.</Aviso>}
     </>
   )

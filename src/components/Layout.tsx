@@ -53,7 +53,7 @@ export default function Layout() {
     <SectorActivo.Provider value={sector}>
       {esDemo && <div className="aviso">Demo · los datos se guardan solo en este navegador</div>}
       <header className="barra">
-        <Link to="/" className="marca">Chipa Tía</Link>
+        <Link to="/" className="marca"><img className="logo" src="./logo.png" alt="Chipa Tía" width="50" height="40" /></Link>
         <div className="barra-der">
           {esAdmin ? (
             <select aria-label="Sector a ver" title={sector.nombre} value={elegido} onChange={(e) => elegir(e.target.value as SectorId)}>
@@ -62,7 +62,12 @@ export default function Layout() {
           ) : (
             <span className="chip" title={sector.nombre}>{sector.nombre}</span>
           )}
-          <Link className="btn-texto" to="/clave">Contraseña</Link>
+          <NavLink className="btn-texto btn-icono" to="/configuracion" aria-label="Configuración" title="Configuración">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </NavLink>
           <button className="btn-texto" onClick={() => void salir()}>Salir</button>
         </div>
       </header>

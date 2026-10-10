@@ -34,21 +34,21 @@
 .lot-mp-usados li { background: var(--fondo); border: 1px solid var(--borde); border-radius: 6px; padding: 0.1rem 0.4rem; }
 .lot-tabla tr.lot-fila-lote td { border-bottom: none; padding-bottom: 0.3rem; }
 .lot-tabla tr.lot-fila-mp td { padding-top: 0; }
-.lot-tabla a, .lot-cadena a { color: var(--marca); }
+.lot-tabla a, .lot-cadena a { color: var(--marca-texto); }
 .lot-codigo { font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
-a.lot-codigo { color: var(--marca); display: inline-block; padding: 0.15rem 0; }
+a.lot-codigo { color: var(--marca-texto); display: inline-block; padding: 0.15rem 0; }
 .lot-fechas { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem; }
 .lot-mas { margin-top: 0.5rem; }
 
 /* Trazabilidad: la cadena materia prima → lotes de chipa → sucursales. */
 .lot-cadena { display: grid; gap: 0; }
 .lot-paso { margin-bottom: 0; }
-.lot-paso.principal { border: 2px solid var(--marca); }
+.lot-paso.principal { border: 2px solid var(--acento); }
 .lot-flecha {
   display: flex; align-items: center; gap: 0.5rem; color: var(--suave); font-size: 0.85rem;
-  padding: 0.35rem 0 0.35rem 1.1rem; border-left: 3px solid var(--marca-claro); margin-left: 1rem;
+  padding: 0.35rem 0 0.35rem 1.1rem; border-left: 3px solid var(--acento); margin-left: 1rem;
 }
-.lot-flecha::before { content: '↓'; font-size: 1.1rem; color: var(--marca); margin-left: -1.65rem; background: var(--fondo); padding: 0 0.2rem; }
+.lot-flecha::before { content: '↓'; font-size: 1.1rem; color: var(--marca-texto); margin-left: -1.65rem; background: var(--fondo); padding: 0 0.2rem; }
 .lot-flecha.arriba::before { content: '↑'; }
 .lot-grupo { display: grid; gap: 0.5rem; }
 .lot-cabeza { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
@@ -74,5 +74,5 @@ a.lot-codigo { color: var(--marca); display: inline-block; padding: 0.15rem 0; }
 .lot-vacio { padding: 0.75rem; background: var(--superficie); border: 1px dashed var(--borde); border-radius: 10px; color: var(--suave); }
 .lot-lista-mp { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
 .lot-lista-mp li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.25rem 0.5rem; }
-.lot-lista-mp a { color: var(--marca); font-weight: 600; }
+.lot-lista-mp a { color: var(--marca-texto); font-weight: 600; }
 .lot-modos button { font-size: 0.9rem; line-height: 1.15; padding: 0.3rem 0.2rem; }

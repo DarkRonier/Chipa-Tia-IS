@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { useConsulta } from '../../cliente/consultas'
 import { ConDatos } from '../../components/Estado'
 import { useSectorActivo } from '../../components/Layout'
+import { IconoStock } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import type { SectorId, StockFila } from '../../shared/tipos'
 import '../../styles/stock.css'
@@ -61,7 +62,7 @@ export default function Stock() {
   const stock = useStock(sector)
   return (
     <>
-      <Volver titulo="Stock en frío" />
+      <Volver titulo="Stock en frío" icono={<IconoStock />} />
       <ConDatos consulta={stock}>
         {(filas) => (
           <>

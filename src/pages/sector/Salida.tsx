@@ -6,6 +6,7 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector, useSectorActivo } from '../../components/Layout'
 import Numero from '../../components/Numero'
+import { IconoVenta } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY } from '../../shared/hora'
 import type { Movimiento, PedidoSalida } from '../../shared/tipos'
@@ -75,7 +76,7 @@ function Formulario() {
 
   return (
     <>
-      <Volver titulo="Sacar para la venta" />
+      <Volver titulo="Sacar para la venta" icono={<IconoVenta />} />
       <ConDatos consulta={stock}>
         {() => conStock.length === 0 && !listo ? (
           <p className="suave">No hay nada guardado en frío para sacar.</p>

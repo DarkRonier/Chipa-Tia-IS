@@ -5,23 +5,25 @@ import { Link } from 'react-router-dom'
 import { useSectores } from '../../cliente/catalogo'
 import { useConsulta } from '../../cliente/consultas'
 import { Aviso, Cargando, ConDatos } from '../../components/Estado'
+import { Icono, type NombreIcono } from '../../components/Iconos'
 import { diaDeSemana, diaLegible, diaPY, fechaHoraPY } from '../../shared/hora'
 import { NOMBRE_ESTADO, type Limpieza, type Reporte, type SectorId } from '../../shared/tipos'
 import { IrAlEnlacePendiente } from './Reportes'
 import '../../styles/reportes.css'
+import '../../styles/iconos.css'
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 const num = (n: number) => n.toLocaleString('es-PY')
 const grados = (t: number | null) => (t === null ? '—' : `${String(t).replace('.', ',').replace('-', '−')} °C`)
 const hora = (iso: string) => fechaHoraPY(iso).slice(11)
 
-const ATAJOS: [string, string, string][] = [
-  ['/admin/reportes', 'Reportes', 'Por fechas, Excel y resumen por correo'],
-  ['/admin/registros', 'Producción', 'Registros y correcciones'],
-  ['/admin/stock', 'Stock', 'Stock en frío, mermas y ajustes'],
-  ['/admin/controles', 'Limpieza y temperatura', 'Visto bueno y lecturas'],
-  ['/sector/lotes', 'Lotes', 'Materia prima y lotes de chipa'],
-  ['/admin/datos', 'Datos', 'Excel completo, copias y configuración'],
+const ATAJOS: [string, NombreIcono, string, string][] = [
+  ['/admin/reportes', 'reportes', 'Reportes', 'Por fechas, Excel y resumen por correo'],
+  ['/admin/registros', 'registros', 'Producción', 'Registros y correcciones'],
+  ['/admin/stock', 'ajustes', 'Stock', 'Stock en frío, mermas y ajustes'],
+  ['/admin/controles', 'controles', 'Limpieza y temperatura', 'Visto bueno y lecturas'],
+  ['/sector/lotes', 'lotes', 'Lotes', 'Materia prima y lotes de chipa'],
+  ['/admin/datos', 'datos', 'Datos', 'Excel completo, copias y configuración'],
 ]
 
 export default function Resumen() {
@@ -72,9 +74,11 @@ export default function Resumen() {
       </ConDatos>
 
       <h2>Accesos rápidos</h2>
-      <div className="grilla-botones">
-        {ATAJOS.map(([a, t, d]) => (
-          <Link key={a} to={a} className="boton-grande"><strong>{t}</strong><span>{d}</span></Link>
+      <div className="grilla-botones con-iconos">
+        {ATAJOS.map(([a, i, t, d]) => (
+          <Link key={a} to={a} className="boton-grande con-icono">
+            <div className="icono-caja"><Icono nombre={i} /></div><strong>{t}</strong><span>{d}</span>
+          </Link>
         ))}
       </div>
     </div>

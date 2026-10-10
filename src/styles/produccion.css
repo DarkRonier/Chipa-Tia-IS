@@ -17,7 +17,7 @@
 .prod-registro li { margin: 0.1rem 0; }
 .prod-corregido { color: var(--suave); font-size: 0.82rem; font-style: italic; }
 .prod-total td { font-weight: 600; }
-.prod-editando { border-color: var(--marca); }
+.prod-editando { border-color: var(--acento); box-shadow: 0 0 0 1px var(--acento); }
 .prod-editando .tabla input { min-height: 44px; max-width: 96px; text-align: right; margin-left: auto; display: block; }
 .prod-efecto { background: var(--aviso); border-radius: 8px; padding: 0.5rem 0.7rem; font-size: 0.9rem; }
 .prod-efecto ul { margin: 0.2rem 0 0; padding-left: 1.1rem; }

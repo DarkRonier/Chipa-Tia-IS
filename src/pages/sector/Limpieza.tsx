@@ -8,6 +8,7 @@ import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSectorActivo } from '../../components/Layout'
+import { IconoLimpieza } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY, fechaHoraPY, sumarDias } from '../../shared/hora'
 import {
@@ -94,7 +95,7 @@ function Pantalla({ sector, nombreSector }: { sector: SectorId; nombreSector: st
 
   return (
     <>
-      <Volver titulo="Limpieza y desinfección" />
+      <Volver titulo="Limpieza y desinfección" icono={<IconoLimpieza />} />
       <ConDatos consulta={areas}>
         {(lista) => {
           if (lista.length === 0) {

@@ -31,9 +31,9 @@ export default function Login() {
 
   return (
     <div className="login">
+      <img className="logo-grande" src="./logo.png" alt="Chipa Tía" />
       <form onSubmit={enviar} className="tarjeta">
-        <h1 className="marca-grande">Chipa Tía</h1>
-        <p className="suave">Registro de producción</p>
+        <h1>Registro de producción</h1>
         <label className="campo">
           <span>Usuario</span>
           <input value={usuario} onChange={(e) => setUsuario(e.target.value)} autoCapitalize="none" autoComplete="username" required />

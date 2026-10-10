@@ -8,6 +8,7 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, Cargando, ConDatos } from '../../components/Estado'
 import { useSector, useSectorActivo } from '../../components/Layout'
 import Numero from '../../components/Numero'
+import { IconoProduccion } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY, fechaHoraPY, turnoActual } from '../../shared/hora'
 import type { LoteMP, PedidoProduccion, Produccion as Registro, Producto, Turno } from '../../shared/tipos'
@@ -84,7 +85,7 @@ function Formulario() {
 
   return (
     <>
-      <Volver titulo="Registrar producción" />
+      <Volver titulo="Registrar producción" icono={<IconoProduccion />} />
       {listo && (
         <div className="ok prod-confirmacion" role="status">
           <div>

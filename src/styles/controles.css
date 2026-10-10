@@ -23,7 +23,7 @@
 .btn-secundario.ctl-archivo {
   display: flex; align-items: center; justify-content: center; text-align: center; margin: 0; position: relative;
 }
-.ctl-archivo:focus-within { outline: 2px solid var(--marca); outline-offset: 2px; }
+.ctl-archivo:focus-within { outline: 2px solid var(--acento); outline-offset: 2px; }
 .ctl-oculto { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; opacity: 0; overflow: hidden; pointer-events: none; }
 .ctl-foto-vista { display: grid; gap: 0.3rem; justify-items: start; }
 .ctl-foto-vista .foto { max-height: 320px; }
@@ -76,18 +76,18 @@
 .ctl-cuentas { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .ctl-cuenta { padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; background: var(--marca-claro); }
 .ctl-cuenta.marca-X { background: var(--ok-fondo); color: var(--ok); }
-.ctl-cuenta.marca-XX { background: var(--ok); color: var(--sobre-marca); }
+.ctl-cuenta.marca-XX { background: var(--ok); color: var(--sobre-ok); }
 .ctl-cuenta.marca-no { background: var(--error-fondo); color: var(--error); }
 .ctl-no-hechas { color: var(--error); }
 .ctl-comentario { font-style: italic; }
-.ctl-detalle summary { cursor: pointer; color: var(--marca); min-height: 32px; display: flex; align-items: center; }
+.ctl-detalle summary { cursor: pointer; color: var(--marca-texto); min-height: 32px; display: flex; align-items: center; }
 .ctl-detalle ul { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.15rem; font-size: 0.9rem; }
 .ctl-detalle li { display: flex; gap: 0.6rem; align-items: baseline; }
 .ctl-detalle li b { width: 2rem; flex: none; text-align: center; }
 .ctl-detalle li.marca-no { color: var(--error); }
 .ctl-controlado { color: var(--ok); font-size: 0.85rem; }
 .ctl-pendiente { color: var(--suave); font-size: 0.85rem; }
-.tarjeta.ctl-sin-controlar { border-left: 4px solid var(--marca); }
+.tarjeta.ctl-sin-controlar { border-left: 4px solid var(--acento); }
 .ctl-limpieza .btn-secundario { margin: 0.25rem 0 0; }
 
 /* ---------- Filtros ---------- */
@@ -120,6 +120,6 @@
 }
 
 /* Confirmación en la pantalla (sin diálogos del navegador). */
-.tarjeta.ctl-confirmar { border-color: var(--marca); background: var(--marca-claro); }
+.tarjeta.ctl-confirmar { border-color: var(--acento); background: var(--marca-claro); }
 .ctl-confirmar p { margin: 0; }
 .ctl-confirmar .fila-acciones { margin: 0; }

@@ -8,6 +8,7 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { achicarFoto, useFotoLectura } from '../../cliente/foto'
 import { Aviso, Cargando, ConDatos } from '../../components/Estado'
 import { useSector } from '../../components/Layout'
+import { IconoMaquinas } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY, fechaHoraPY, horaPY, sumarDias } from '../../shared/hora'
 import {
@@ -105,7 +106,7 @@ function Pantalla({ sector }: { sector: SectorId }) {
   const ultima = (id: string) => recientes.datos?.find((l) => l.maquinaId === id)
   return (
     <>
-      <Volver titulo="Máquinas y temperatura" />
+      <Volver titulo="Máquinas y temperatura" icono={<IconoMaquinas />} />
       <ConDatos consulta={maquinas}>
         {(lista) =>
           lista.length === 0 ? (

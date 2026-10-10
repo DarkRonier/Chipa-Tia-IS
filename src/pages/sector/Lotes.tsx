@@ -6,6 +6,7 @@ import { patch, post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { useUsuario } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
+import { IconoLotes } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaLegible, diaPY, sumarDias } from '../../shared/hora'
 import type { LoteChipa, LoteMP } from '../../shared/tipos'
@@ -44,7 +45,7 @@ export default function Lotes() {
   const esAdmin = usuario.rol === 'admin'
   return (
     <>
-      <Volver titulo="Materia prima y lotes" a={esAdmin ? '/admin' : '/sector'} />
+      <Volver titulo="Materia prima y lotes" a={esAdmin ? '/admin' : '/sector'} icono={<IconoLotes />} />
       {esAdmin || usuario.rol === 'chiperia' ? <PantallaLotes esAdmin={esAdmin} /> : <Aviso>Los lotes y la trazabilidad son solo de Chipería.</Aviso>}
     </>
   )

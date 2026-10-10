@@ -11,7 +11,7 @@
 .rep-acciones .btn-secundario, .rep-acciones .btn-primario { margin: 0; }
 
 /* Enlaces de texto con el color de la marca */
-.rep-pagina a:not([class]) { color: var(--marca); }
+.rep-pagina a:not([class]) { color: var(--marca-texto); }
 .rep-nota .btn-texto { padding: 0; }
 
 /* Secciones y tablas */
@@ -86,7 +86,7 @@
 .rep-cambio { padding: 0.7rem 0.8rem; background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; display: grid; gap: 0.2rem; }
 .rep-cambio ul { margin: 0.2rem 0 0; padding-left: 1.1rem; font-size: 0.88rem; }
 .rep-cambio li { overflow-wrap: anywhere; }
-.rep-cambio details summary { cursor: pointer; color: var(--marca); font-size: 0.85rem; }
+.rep-cambio details summary { cursor: pointer; color: var(--marca-texto); font-size: 0.85rem; }
 .rep-cambio pre {
   margin: 0.4rem 0 0; padding: 0.5rem; background: var(--fondo); border-radius: 6px; font-size: 0.78rem;
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto;

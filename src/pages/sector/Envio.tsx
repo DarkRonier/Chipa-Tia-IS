@@ -6,6 +6,7 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector, useSectorActivo } from '../../components/Layout'
 import Numero from '../../components/Numero'
+import { IconoEnvio } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { fechaHoraPY } from '../../shared/hora'
 import type { PedidoEnvio, RespuestaEnvio, StockFila, Sucursal } from '../../shared/tipos'
@@ -110,7 +111,7 @@ function Formulario() {
 
   return (
     <>
-      <Volver titulo="Envío a sucursal" />
+      <Volver titulo="Envío a sucursal" icono={<IconoEnvio />} />
       {listo && (
         <div className="ok stk-listo" role="status">
           <strong>Envío a {listo.movimientos[0]?.sucursalNombre} registrado.</strong>

@@ -4,6 +4,7 @@ import { Cargando } from './components/Estado'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import CambiarClave from './pages/CambiarClave'
+import Configuracion from './pages/Configuracion'
 import InicioSector from './pages/sector/Inicio'
 import Produccion from './pages/sector/Produccion'
 import Stock from './pages/sector/Stock'
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="sector/lotes" element={<Lotes />} />
         <Route path="trazabilidad" element={<Trazabilidad />} />
         <Route path="clave" element={<CambiarClave />} />
+        <Route path="configuracion" element={<Configuracion />} />
         {esAdmin && (
           <>
             <Route path="admin" element={<Resumen />} />
