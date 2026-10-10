@@ -1,0 +1,125 @@
+/* Máquinas y temperaturas (F01–F05), limpieza (G01–G03) y controles del administrador. */
+
+/* ---------- Lectura de una máquina ---------- */
+.ctl-rango { margin: 0; }
+.ctl-rango strong { color: var(--texto); }
+.segmentado.ctl-sin-margen { margin-bottom: 0; }
+.ctl-etiqueta { font-size: 0.9rem; color: var(--suave); }
+.segmentado.ctl-estados button.activo.ctl-estado-funciona { background: var(--ok-fondo); color: var(--ok); }
+.segmentado.ctl-estados button.activo.ctl-estado-con_fallas { background: var(--aviso); color: var(--texto); }
+.segmentado.ctl-estados button.activo.ctl-estado-fuera_de_servicio { background: var(--error-fondo); color: var(--error); }
+
+.ctl-temp { display: flex; align-items: stretch; gap: 0.5rem; }
+.ctl-temp input { font-size: 1.6rem; font-weight: 600; text-align: center; min-height: 56px; min-width: 0; flex: 1; }
+.ctl-signo {
+  width: 56px; min-height: 56px; flex: none; border-radius: 8px; border: 1px solid var(--borde);
+  background: var(--marca-claro); font-size: 1.6rem; font-weight: 700; cursor: pointer;
+}
+.ctl-unidad { align-self: center; font-size: 1.2rem; color: var(--suave); }
+.ctl-temp-fuera .ctl-signo { border-color: var(--error); color: var(--error); }
+
+/* Foto: dos botones grandes (cámara y galería) con el input de archivo escondido adentro. */
+.ctl-foto-botones { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.5rem; }
+.btn-secundario.ctl-archivo {
+  display: flex; align-items: center; justify-content: center; text-align: center; margin: 0; position: relative;
+}
+.ctl-archivo:focus-within { outline: 2px solid var(--marca); outline-offset: 2px; }
+.ctl-oculto { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; opacity: 0; overflow: hidden; pointer-events: none; }
+.ctl-foto-vista { display: grid; gap: 0.3rem; justify-items: start; }
+.ctl-foto-vista .foto { max-height: 320px; }
+.ctl-foto-mini { background: none; border: none; padding: 0; cursor: zoom-in; display: block; }
+.ctl-foto-cargando { display: block; margin-top: 0.3rem; }
+.ctl-visor {
+  position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.85);
+  display: grid; grid-template-rows: 1fr auto; gap: 0.75rem; padding: 1rem calc(1rem + env(safe-area-inset-right, 0px)) calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+.ctl-visor img { max-width: 100%; max-height: 100%; object-fit: contain; align-self: center; justify-self: center; border-radius: 8px; }
+.ctl-visor .btn-primario { max-width: 420px; justify-self: center; }
+
+.ctl-guardado-rojo {
+  background: var(--error-fondo); color: var(--error); border: 1px solid var(--error);
+  padding: 0.6rem 0.8rem; border-radius: 8px; margin: 0; font-weight: 600;
+}
+
+/* ---------- Historial de lecturas ---------- */
+.ctl-tabla td:first-child { min-width: 7.5rem; }
+.ctl-maquina { font-weight: 600; margin-top: 0.15rem; }
+.ctl-temp-roja { color: var(--error); font-size: 1.1rem; }
+.ctl-estado-mal { font-weight: 700; }
+.ctl-aviso { margin: 0; font-size: 0.9rem; }
+
+/* ---------- Limpieza ---------- */
+.ctl-areas .chip { min-height: 44px; }
+.ctl-progreso { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.25rem 0 0.5rem; }
+.ctl-todo { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+.ctl-todo .btn-texto { min-height: 40px; }
+.fila-limpieza.ctl-falta { border-color: var(--error); box-shadow: 0 0 0 1px var(--error); }
+.fila-limpieza .ctl-tarea { font-weight: 600; }
+.ctl-marcas button { display: grid; justify-items: center; line-height: 1.1; padding: 0.35rem 0.25rem; }
+.ctl-marcas button strong { font-size: 1.1rem; }
+.ctl-marcas button small { font-size: 0.72rem; }
+.segmentado.chico.ctl-marcas button { min-height: 52px; }
+.fila-limpieza .nro { max-width: none; }
+@media (min-width: 640px) {
+  .fila-limpieza .nro { max-width: 320px; }
+}
+.accion-fija .ctl-barra { max-width: 928px; margin: 0 auto; }
+.ctl-barra .error, .ctl-barra .ok { margin: 0 0 0.5rem; }
+/* Lugar para que la barra fija de "Guardar" no tape el final del historial. */
+.ctl-espacio { height: 3rem; }
+
+/* Reporte de limpieza en el historial y en los controles. */
+.ctl-limpieza { gap: 0.4rem; }
+.ctl-limpieza .cabeza { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
+.ctl-limpieza h3 { margin: 0; font-size: 1rem; }
+.ctl-limpieza p { margin: 0; }
+.ctl-cuentas { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.ctl-cuenta { padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; background: var(--marca-claro); }
+.ctl-cuenta.marca-X { background: var(--ok-fondo); color: var(--ok); }
+.ctl-cuenta.marca-XX { background: var(--ok); color: var(--sobre-marca); }
+.ctl-cuenta.marca-no { background: var(--error-fondo); color: var(--error); }
+.ctl-no-hechas { color: var(--error); }
+.ctl-comentario { font-style: italic; }
+.ctl-detalle summary { cursor: pointer; color: var(--marca); min-height: 32px; display: flex; align-items: center; }
+.ctl-detalle ul { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.15rem; font-size: 0.9rem; }
+.ctl-detalle li { display: flex; gap: 0.6rem; align-items: baseline; }
+.ctl-detalle li b { width: 2rem; flex: none; text-align: center; }
+.ctl-detalle li.marca-no { color: var(--error); }
+.ctl-controlado { color: var(--ok); font-size: 0.85rem; }
+.ctl-pendiente { color: var(--suave); font-size: 0.85rem; }
+.tarjeta.ctl-sin-controlar { border-left: 4px solid var(--marca); }
+.ctl-limpieza .btn-secundario { margin: 0.25rem 0 0; }
+
+/* ---------- Filtros ---------- */
+.ctl-filtros { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem; }
+.ctl-filtros input, .ctl-filtros select { min-width: 0; }
+.ctl-filtros .ctl-ancho { grid-column: 1 / -1; }
+.ctl-filtros .segmentado { margin-bottom: 0; }
+.ctl-resumen { margin: 0.25rem 0 0.5rem; }
+.ctl-resumen strong { color: var(--texto); }
+.ctl-resumen .rojo { color: var(--error); font-weight: 600; }
+@media (min-width: 760px) {
+  .ctl-filtros.ctl-cuatro { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .ctl-filtros.ctl-cuatro .ctl-ancho { grid-column: span 2; }
+}
+
+@media (max-width: 639px) {
+  /* En el celular cada lectura es una tarjeta: fecha y temperatura arriba, estado y observación abajo. */
+  .tabla.ctl-tabla, .tabla.ctl-tabla tbody { display: block; background: none; border-radius: 0; overflow: visible; }
+  .tabla.ctl-tabla thead { display: none; }
+  .tabla.ctl-tabla tr {
+    display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.75rem; padding: 0.7rem 0.8rem; margin-bottom: 0.5rem;
+    background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px;
+  }
+  .tabla.ctl-tabla tr.fila-roja { background: var(--error-fondo); border-color: var(--error); }
+  .tabla.ctl-tabla td { border: none; padding: 0; background: none; }
+  .tabla.ctl-tabla td:first-child { grid-column: 1; grid-row: 1; min-width: 0; }
+  .tabla.ctl-tabla td.num { grid-column: 2; grid-row: 1; }
+  .tabla.ctl-tabla td:last-child { grid-column: 1 / -1; grid-row: 2; }
+  .ctl-temp-roja { font-size: 1.35rem; }
+}
+
+/* Confirmación en la pantalla (sin diálogos del navegador). */
+.tarjeta.ctl-confirmar { border-color: var(--marca); background: var(--marca-claro); }
+.ctl-confirmar p { margin: 0; }
+.ctl-confirmar .fila-acciones { margin: 0; }
