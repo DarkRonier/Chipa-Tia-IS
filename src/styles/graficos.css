@@ -1,0 +1,114 @@
+/* Gráficos del Resumen (historial y comparación). Colores de las series por sector: cuatro tonos que se
+   distinguen entre sí en claro y oscuro (validados con scripts/validate_palette.js de la guía dataviz:
+   claro, las seis parejas pasan; oscuro, las parejas vecinas del orden de los sectores). Cada sector tiene
+   siempre el mismo color. El resto sale de las variables del tema de styles.css. */
+:root {
+  --serie-chiperia: #b8001a;
+  --serie-chipitas: #d98200;
+  --serie-panaderia: #2a78d6;
+  --serie-cocina: #0f9d7a;
+  --graf-previo: #aaa2a0;   /* período anterior: gris que cede el paso al color del sector */
+  --graf-grilla: #e6e2e1;
+  --graf-guia: #8a8180;     /* línea guía del día que se mira */
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --serie-chiperia: #e0475a;
+    --serie-chipitas: #c98500;
+    --serie-panaderia: #3987e5;
+    --serie-cocina: #199e70;
+    --graf-previo: #7f7775;
+    --graf-grilla: #332e2d;
+    --graf-guia: #8f8684;
+  }
+}
+:root[data-theme="dark"] {
+  --serie-chiperia: #e0475a;
+  --serie-chipitas: #c98500;
+  --serie-panaderia: #3987e5;
+  --serie-cocina: #199e70;
+  --graf-previo: #7f7775;
+  --graf-grilla: #332e2d;
+  --graf-guia: #8f8684;
+}
+
+.graf-seccion { margin-top: 1.5rem; }
+.graf-seccion > h2 { margin-bottom: 0.25rem; }
+.graf-sub { margin: 0 0 0.6rem; }
+.graf-filtros { display: grid; gap: 0.5rem; margin-bottom: 0.6rem; }
+.graf-filtros .segmentado { margin: 0; }
+.graf-filtros .segmentado button { min-height: 42px; font-size: 0.88rem; padding: 0.3rem 0.25rem; }
+.graf-tarjeta {
+  background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; box-shadow: var(--sombra);
+  padding: 0.75rem 0.75rem 0.6rem;
+}
+
+/* Leyenda: una marca por sector (forma + color) y su total */
+.graf-leyenda { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; list-style: none; margin: 0 0 0.5rem; padding: 0; font-size: 0.85rem; }
+.graf-leyenda li { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--texto); }
+.graf-leyenda .graf-dato { color: var(--suave); }
+.graf-clave { display: inline-block; flex: none; }
+.graf-leyenda svg { display: block; flex: none; }
+
+/* Lienzo de los gráficos */
+.graf-lienzo { position: relative; width: 100%; touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
+.graf-lienzo:focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; border-radius: 8px; }
+.graf-lienzo svg { display: block; overflow: visible; }
+.graf-eje text, .graf-svg-texto { fill: var(--suave); font-size: 11.5px; font-family: inherit; }
+.graf-eje .graf-linea-eje { stroke: var(--graf-grilla); stroke-width: 1; }
+.graf-cero { stroke: var(--borde); stroke-width: 1; }
+.graf-superficie { fill: var(--superficie); }
+.graf-guia { stroke: var(--graf-guia); stroke-width: 1; }
+.graf-svg-texto.graf-fuerte { fill: var(--texto); font-weight: 700; font-size: 13px; }
+.graf-svg-texto.graf-nombre { fill: var(--texto); font-weight: 700; font-size: 14px; }
+.graf-svg-texto.graf-sube { fill: var(--ok); font-weight: 800; font-size: 13px; }
+.graf-svg-texto.graf-baja { fill: var(--error); font-weight: 800; font-size: 13px; }
+.graf-svg-texto.graf-igual { fill: var(--suave); font-weight: 800; font-size: 13px; }
+
+/* Detalle al tocar o pasar sobre un día */
+.graf-detalle {
+  position: absolute; top: 0; z-index: 2; min-width: 168px; max-width: 230px; pointer-events: none;
+  background: var(--superficie); color: var(--texto); border: 1px solid var(--borde); border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18); padding: 0.5rem 0.65rem; font-size: 0.85rem;
+}
+.graf-detalle strong { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--suave); font-weight: 700; }
+.graf-detalle ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.graf-detalle li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.4rem; }
+.graf-detalle li b { font-weight: 800; font-variant-numeric: tabular-nums; }
+.graf-detalle .graf-total { border-top: 1px solid var(--borde); margin-top: 0.2rem; padding-top: 0.2rem; }
+.graf-detalle .graf-sube { color: var(--ok); font-weight: 800; }
+.graf-detalle .graf-baja { color: var(--error); font-weight: 800; }
+.graf-pista { margin: 0.35rem 0 0; color: var(--suave); }
+
+/* Comparación: cifra de todos los sectores */
+.graf-total-fila {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.2rem 0.75rem;
+  padding: 0 0 0.6rem; margin-bottom: 0.4rem; border-bottom: 1px solid var(--borde);
+}
+.graf-total-fila strong { font-size: 1.5rem; font-weight: 800; line-height: 1.1; }
+.graf-total-fila .graf-sube { color: var(--ok); font-weight: 800; }
+.graf-total-fila .graf-baja { color: var(--error); font-weight: 800; }
+.graf-total-fila .graf-igual { color: var(--suave); font-weight: 800; }
+.graf-fila-hover { fill: var(--neutro); opacity: 0; }
+.graf-fila:hover .graf-fila-hover, .graf-fila:focus .graf-fila-hover, .graf-fila.activa .graf-fila-hover { opacity: 0.6; }
+.graf-fila { outline: none; cursor: pointer; }
+.graf-fila:focus-visible .graf-fila-hover { stroke: var(--acento); stroke-width: 2; opacity: 0.6; }
+
+/* Tabla equivalente */
+.graf-tabla { margin-top: 0.5rem; }
+.graf-tabla summary { cursor: pointer; color: var(--marca-texto); font-size: 0.88rem; padding: 0.35rem 0; min-height: 32px; }
+.graf-tabla-corre { overflow-x: auto; max-height: 340px; }
+.graf-tabla-corre .tabla { font-size: 0.85rem; }
+.graf-tabla-corre th, .graf-tabla-corre td { padding: 0.4rem 0.5rem; }
+.graf-tabla-corre thead th { position: sticky; top: 0; }
+
+@media (min-width: 640px) {
+  .graf-filtros { grid-template-columns: auto auto; justify-content: space-between; align-items: center; }
+  .graf-filtros .segmentado button { padding: 0.3rem 1rem; flex: none; }
+  .graf-tarjeta { padding: 1rem 1rem 0.75rem; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .graf-fila-hover { transition: opacity 0.12s; }
+}
+
+.graf-solo-voz { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

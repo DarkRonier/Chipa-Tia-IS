@@ -233,11 +233,19 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | Método | Ruta | Cuerpo / consulta | Respuesta |
 |---|---|---|---|
 | GET | `/reportes` | `?desde&hasta&sector` | `Reporte` |
+| GET | `/reportes/serie` | `?desde&hasta` | `SerieReporte` |
 | POST | `/reportes/enviar` | `{ periodo? }` | `ResumenCorreo` |
 
 - `/reportes`: sin fechas, el día de hoy; con solo `desde`, ese día. Hasta 1100 días por pedido (unos tres años;
   `400` si es más). `stock` es el stock actual, no el del período; `salidas` es lo que salió del frío en el
   período por sector y tipo, en unidades positivas; `lotesChipa` viene solo sin `sector` o con Chipería.
+- `/reportes/serie`: para los gráficos de historial y comparación del Resumen. Mismas reglas de fechas que
+  `/reportes` (sin fechas, hoy; hasta 1100 días; `400` si el rango es inválido). Devuelve `dias`, un elemento por
+  cada día del rango (también los que no tuvieron nada, en cero) con, por cada sector, `cocinado`, `guardado`
+  (unidades guardadas en frío), `enviado` (a sucursales) y `vendido` (sacado a la venta, `salida_venta`), todo en
+  unidades positivas. Usa las definiciones de `/reportes`, así que la suma de un rango coincide con
+  `totales.unidadesCocinadas`, `unidadesGuardadas`, `unidadesEnviadas` y con la salida `salida_venta` de `salidas`.
+  Son dos consultas agrupadas por día y sector, sin importar el largo del rango (`src/server/serie.ts`).
 - `/reportes/enviar`: `periodo` `diario` (por defecto), `semanal`, `mensual` u `hoy`. Arma el resumen del período
   que corresponde a hoy, como el envío automático: **diario = ayer**, semanal = de lunes a domingo de la semana
   pasada, mensual = el mes pasado (`rangoResumen` en `src/shared/hora.ts`). `hoy` es solo para la prueba manual

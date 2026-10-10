@@ -257,6 +257,29 @@ export interface Configuracion {
 
 // ---------- Reporte (H01–H03) ----------
 
+/** Las cuatro medidas por día y sector de GET /reportes/serie (las mismas definiciones que el reporte). */
+export interface MedidasSerie {
+  cocinado: number
+  guardado: number
+  enviado: number
+  /** Unidades sacadas del frío para la venta (salida_venta). */
+  vendido: number
+}
+export type MedidaSerie = keyof MedidasSerie
+
+/** Un día de la serie, con todos los sectores (en cero si no hubo nada). */
+export interface DiaSerie {
+  dia: string
+  sectores: Record<SectorId, MedidasSerie>
+}
+
+/** GET /reportes/serie: un elemento por cada día del rango, también los días sin datos. */
+export interface SerieReporte {
+  desde: string
+  hasta: string
+  dias: DiaSerie[]
+}
+
 export interface Reporte {
   desde: string
   hasta: string

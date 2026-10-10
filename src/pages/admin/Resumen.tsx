@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { useSectores } from '../../cliente/catalogo'
 import { useConsulta } from '../../cliente/consultas'
 import { Aviso, Cargando, ConDatos } from '../../components/Estado'
+import GraficosResumen from '../../components/graficos/GraficosResumen'
 import { Icono, type NombreIcono } from '../../components/Iconos'
 import { diaDeSemana, diaLegible, diaPY, fechaHoraPY } from '../../shared/hora'
 import { NOMBRE_ESTADO, type Limpieza, type Reporte, type SectorId } from '../../shared/tipos'
@@ -72,6 +73,8 @@ export default function Resumen() {
           </>
         )}
       </ConDatos>
+
+      <GraficosResumen />
 
       <h2>Accesos rápidos</h2>
       <div className="grilla-botones con-iconos">
