@@ -1,5 +1,6 @@
 // A01–A04: usuarios y accesos. Solo el administrador gestiona usuarios; nada se borra.
 import { describe, expect, it } from 'vitest'
+import { hashClave } from '../src/server/clave'
 import { nuevaPrueba } from './ayuda'
 
 const nuevo = { nombre: 'Rosa Benítez', usuario: 'Rosa.B', rol: 'cocina', clave: 'empanada1' }
@@ -176,5 +177,66 @@ describe('usuarios', () => {
     // Otro administrador sí puede pasar a ser operador.
     const otro = await p.pedir(admin, 'POST', '/usuarios', { nombre: 'Otra admin', usuario: 'admin2', rol: 'admin', clave: 'segura123' })
     expect((await p.pedir(admin, 'PATCH', `/usuarios/${otro.body.id}`, { rol: 'chiperia' })).body.rol).toBe('chiperia')
+  })
+
+  it('rechaza contraseñas con espacios al principio o al final al crear, restablecer y cambiar la propia (T8)', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const op = await p.entrar('panaderia')
+    const msg = 'La contraseña no puede empezar ni terminar con espacios.'
+    for (const clave of [' empanada1', 'empanada1 ', '   ', ' ab']) {
+      const crear = await p.pedir(admin, 'POST', '/usuarios', { ...nuevo, clave })
+      expect(crear.status, JSON.stringify(clave)).toBe(400)
+      expect(crear.body.error).toEqual({ codigo: 'datos_invalidos', mensaje: msg })
+    }
+    expect(await p.sql("SELECT id FROM usuarios WHERE usuario = 'rosa.b'")).toHaveLength(0)
+
+    const reset = await p.pedir(admin, 'POST', '/usuarios/usr-panaderia/clave', { clave: ' temporal9' })
+    expect(reset.status).toBe(400)
+    expect(reset.body.error).toEqual({ codigo: 'datos_invalidos', mensaje: msg })
+    expect((await p.pedir(op, 'GET', '/auth/yo')).status).toBe(200)
+    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'panaderia', clave: '1234' })).status).toBe(200)
+
+    const cambio = await p.pedir(op, 'POST', '/auth/clave', { actual: '1234', nueva: ' pan-nuevo' })
+    expect(cambio.status).toBe(400)
+    expect(cambio.body.error).toEqual({ codigo: 'datos_invalidos', mensaje: msg })
+    const cambio2 = await p.pedir(op, 'POST', '/auth/clave', { actual: '1234', nueva: 'pan-nuevo ' })
+    expect(cambio2.status).toBe(400)
+    expect(cambio2.body.error.mensaje).toBe(msg)
+    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'panaderia', clave: '1234' })).status).toBe(200)
+  })
+
+  it('no recorta la contraseña al entrar ni al verificar la actual, pero sí el usuario (T8)', async () => {
+    const p = await nuevaPrueba()
+    // Una contraseña con espacios de los bordes guardada antes de esta regla.
+    await p.sql('UPDATE usuarios SET clave_hash = ? WHERE id = ?', await hashClave(' espacio '), 'usr-panaderia')
+    const sinRecortar = await p.pedir(null, 'POST', '/auth/login', { usuario: 'panaderia', clave: ' espacio ' })
+    expect(sinRecortar.status).toBe(200)
+    expect(sinRecortar.body.usuario.usuario).toBe('panaderia')
+    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'panaderia', clave: 'espacio' })).status).toBe(401)
+    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'panaderia', clave: 'espacio ' })).status).toBe(401)
+    // El usuario sí se recorta.
+    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: '  Panaderia ', clave: ' espacio ' })).status).toBe(200)
+
+    const cambio = await p.pedir(sinRecortar.body.token, 'POST', '/auth/clave', { actual: ' espacio ', nueva: 'pan-nuevo' })
+    expect(cambio.status).toBe(200)
+  })
+
+  it('una contraseña con un espacio en el medio se crea, se restablece y entra (T8)', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const creado = await p.pedir(admin, 'POST', '/usuarios', { ...nuevo, clave: 'hola mundo' })
+    expect(creado.status).toBe(200)
+    const login = await p.pedir(null, 'POST', '/auth/login', { usuario: 'rosa.b', clave: 'hola mundo' })
+    expect(login.status).toBe(200)
+    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'rosa.b', clave: 'holamundo' })).status).toBe(401)
+
+    const reset = await p.pedir(admin, 'POST', '/usuarios/usr-panaderia/clave', { clave: 'pan dulce' })
+    expect(reset.status).toBe(200)
+    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'panaderia', clave: 'pan dulce' })).status).toBe(200)
+
+    const cambio = await p.pedir(login.body.token, 'POST', '/auth/clave', { actual: 'hola mundo', nueva: 'la casa grande' })
+    expect(cambio.status).toBe(200)
+    await p.entrar('rosa.b', 'la casa grande')
   })
 })

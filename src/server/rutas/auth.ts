@@ -14,7 +14,8 @@ export const rutasAuth = new Hono<Entorno>()
 rutasAuth.post('/login', async (c) => {
   const b = await cuerpo(c)
   const usuario = texto(b.usuario, 'el usuario', { max: 60 }).toLowerCase()
-  const clave = texto(b.clave, 'la contraseña', { max: 200 })
+  // La contraseña no se recorta: la que se guardó es la que se escribe.
+  const clave = texto(b.clave, 'la contraseña', { max: 200, recortar: false })
   const fila = await una<FilaUsuario & { clave_hash: string }>(
     c.env.DB, `SELECT ${COLUMNAS_USUARIO}, clave_hash FROM usuarios WHERE usuario = ?`, usuario,
   )
@@ -42,8 +43,11 @@ rutasAuth.use('/clave', conSesion)
 rutasAuth.post('/clave', async (c) => {
   const b = await cuerpo(c)
   const u = c.get('usuario')
-  const actual = texto(b.actual, 'la contraseña actual', { max: 200 })
-  const nueva = texto(b.nueva, 'la contraseña nueva', { min: CLAVE_MINIMA, max: 200 })
+  const actual = texto(b.actual, 'la contraseña actual', { max: 200, recortar: false })
+  // Sin recortar: la nueva se valida como se va a guardar. Los espacios de los bordes se rechazan antes del largo.
+  const nueva = texto(b.nueva, 'la contraseña nueva', { min: 0, max: 200, recortar: false })
+  if (/^\s|\s$/.test(nueva)) throw invalido('La contraseña no puede empezar ni terminar con espacios.')
+  if (nueva.length < CLAVE_MINIMA) throw invalido(`La contraseña nueva tiene que tener al menos ${CLAVE_MINIMA} caracteres.`)
   const fila = await una<{ clave_hash: string }>(c.env.DB, 'SELECT clave_hash FROM usuarios WHERE id = ?', u.id)
   if (!fila || !(await verificarClave(actual, fila.clave_hash))) throw invalido('La contraseña actual no es correcta.')
   if (actual === nueva) throw invalido('La contraseña nueva tiene que ser distinta de la actual.')

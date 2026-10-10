@@ -2,7 +2,7 @@
 // El Excel (H03) se arma en el navegador a partir de este mismo reporte.
 import { Hono } from 'hono'
 import { diaPY } from '../../shared/hora'
-import type { Periodo, Reporte, ResumenCorreo } from '../../shared/tipos'
+import type { PeriodoResumen, Reporte, ResumenCorreo } from '../../shared/tipos'
 import { enviarResumen } from '../correo'
 import type { Entorno } from '../entorno'
 import { invalido } from '../errores'
@@ -12,7 +12,7 @@ import { cuerpo, diaOpcional, opcion } from '../validar'
 
 export const rutasReportes = new Hono<Entorno>()
 
-const PERIODOS: Periodo[] = ['diario', 'semanal', 'mensual']
+const PERIODOS: PeriodoResumen[] = ['hoy', 'diario', 'semanal', 'mensual']
 /** Hasta unos tres años por pedido: alcanza para comparar dos años completos (I04: 24 meses). */
 const MAX_DIAS = 1100
 

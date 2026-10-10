@@ -21,9 +21,10 @@ export async function cuerpo<T = Record<string, unknown>>(c: Context): Promise<T
   }
 }
 
-export function texto(v: unknown, campo: string, { min = 1, max = 200 } = {}): string {
+/** Con `recortar: false` el texto llega tal cual (las contraseñas: los espacios de los bordes cuentan). */
+export function texto(v: unknown, campo: string, { min = 1, max = 200, recortar = true } = {}): string {
   if (typeof v !== 'string') throw invalido(`Falta ${campo}.`)
-  const t = v.trim()
+  const t = recortar ? v.trim() : v
   if (t.length < min) throw invalido(min === 1 ? `Falta ${campo}.` : `${campo} debe tener al menos ${min} caracteres.`)
   if (t.length > max) throw invalido(`${campo} es demasiado largo (máximo ${max} caracteres).`)
   return t

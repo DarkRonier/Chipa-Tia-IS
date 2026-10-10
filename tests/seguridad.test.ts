@@ -690,7 +690,8 @@ describe('límites de D1', () => {
     }
     expect((await p.pedir(admin, 'GET', '/producciones')).body).toHaveLength(230)
     expect((await p.pedir(ch, 'GET', '/trazabilidad/mp/mp-1')).body.envios).toHaveLength(115)
-    expect(maximo()).toBeGreaterThan(80)
+    // Las listas de ids viajan como un único parámetro JSON (json_each), así que ninguna consulta se acerca al límite.
+    expect(maximo()).toBeGreaterThan(0)
     expect(maximo()).toBeLessThanOrEqual(100)
   }, 60_000)
 })

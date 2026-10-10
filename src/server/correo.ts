@@ -1,8 +1,8 @@
-// H04: resumen por correo (diario, semanal y mensual) con enlace al reporte completo. Se envía con Resend.
+// H04: resumen por correo (diario, semanal y mensual; y 'hoy' para la prueba, con lo cargado hasta ahora) con enlace al reporte completo. Se envía con Resend.
 // Todas las fechas y horas van en hora de Paraguay (I04). En la demo, o si falta configurar algo,
 // no se envía nada: se devuelve la vista previa y el motivo.
 import { diaDeSemana, diaLegible, fechaHoraPY, rangoResumen } from '../shared/hora'
-import type { Periodo, Reporte, ResumenCorreo, SectorId } from '../shared/tipos'
+import type { PeriodoResumen, Reporte, ResumenCorreo, SectorId } from '../shared/tipos'
 import { NOMBRE_ESTADO, NOMBRE_TIPO_MOVIMIENTO } from '../shared/tipos'
 import { todas } from './db'
 import type { Env } from './entorno'
@@ -11,7 +11,7 @@ import { leerConfiguracion } from './rutas/datos'
 
 const DIAS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-export const NOMBRE_PERIODO: Record<Periodo, string> = { diario: 'diario', semanal: 'semanal', mensual: 'mensual' }
+export const NOMBRE_PERIODO: Record<PeriodoResumen, string> = { hoy: 'de hoy', diario: 'diario', semanal: 'semanal', mensual: 'mensual' }
 
 const esc = (v: unknown) =>
   String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
@@ -21,7 +21,7 @@ const grados = (t: number | null) => (t === null ? 'sin temperatura' : `${String
 const conDia = (dia: string) => `${DIAS[diaDeSemana(dia)]} ${diaLegible(dia)}`
 
 /** "viernes 09/10/2026", "del lunes 28/09/2026 al domingo 04/10/2026" o "septiembre de 2026". */
-export function textoPeriodo(periodo: Periodo, desde: string, hasta: string): string {
+export function textoPeriodo(periodo: PeriodoResumen, desde: string, hasta: string): string {
   if (periodo === 'mensual' && desde.endsWith('-01') && desde.slice(0, 7) === hasta.slice(0, 7)) {
     return `${MESES[Number(desde.slice(5, 7)) - 1]} de ${desde.slice(0, 4)}`
   }
@@ -34,12 +34,17 @@ export function enlaceReporte(urlPublica: string, desde: string, hasta: string):
   return `${urlPublica.replace(/\/+$/, '')}/#/admin/reportes?desde=${desde}&hasta=${hasta}`
 }
 
-export function asuntoResumen(periodo: Periodo, r: Reporte): string {
-  const cuando = periodo === 'diario'
-    ? `del ${diaLegible(r.desde)}`
-    : periodo === 'semanal'
-      ? `del ${r.desde.slice(0, 4) === r.hasta.slice(0, 4) ? diaLegible(r.desde).slice(0, 5) : diaLegible(r.desde)} al ${diaLegible(r.hasta)}`
-      : `de ${textoPeriodo('mensual', r.desde, r.hasta)}`
+/** Hora de corte del resumen de hoy ("15:40"), en hora de Paraguay. */
+const horaDeCorte = (r: Reporte) => fechaHoraPY(r.generadoEn).slice(-5)
+
+export function asuntoResumen(periodo: PeriodoResumen, r: Reporte): string {
+  const cuando = periodo === 'hoy'
+    ? `hasta las ${horaDeCorte(r)}`
+    : periodo === 'diario'
+      ? `del ${diaLegible(r.desde)}`
+      : periodo === 'semanal'
+        ? `del ${r.desde.slice(0, 4) === r.hasta.slice(0, 4) ? diaLegible(r.desde).slice(0, 5) : diaLegible(r.desde)} al ${diaLegible(r.hasta)}`
+        : `de ${textoPeriodo('mensual', r.desde, r.hasta)}`
   const alertas = r.totales.temperaturasFueraDeRango
   const extra = alertas ? ` · ${alertas} ${alertas === 1 ? 'temperatura fuera de rango' : 'temperaturas fuera de rango'}` : ''
   return `Chipa Tía · Resumen ${NOMBRE_PERIODO[periodo]} ${cuando}${extra}`
@@ -65,7 +70,7 @@ const titulo = (t: string, rojo = false) =>
 const nada = (t: string) => `<p style="margin:0 0 8px;color:${C.suave};font-size:14px">${esc(t)}</p>`
 
 export function htmlResumen(o: {
-  periodo: Periodo
+  periodo: PeriodoResumen
   reporte: Reporte
   sectores: Record<string, string>
   enlace: string | null
@@ -162,7 +167,9 @@ export function htmlResumen(o: {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border:1px solid ${C.borde};border-radius:12px">
 <tr><td style="background:${C.marca};color:#ffffff;padding:16px 14px;border-radius:12px 12px 0 0">
 <div style="font-size:20px;font-weight:700">Chipa Tía</div>
-<div style="font-size:14px">Resumen ${NOMBRE_PERIODO[o.periodo]} · ${esc(textoPeriodo(o.periodo, r.desde, r.hasta))}</div>
+<div style="font-size:14px">${o.periodo === 'hoy'
+    ? `Resumen parcial de hoy · ${esc(textoPeriodo('hoy', r.desde, r.hasta))} · lo cargado hasta las ${horaDeCorte(r)}`
+    : `Resumen ${NOMBRE_PERIODO[o.periodo]} · ${esc(textoPeriodo(o.periodo, r.desde, r.hasta))}`}</div>
 </td></tr>
 <tr><td style="padding:16px 12px">
 <p style="margin:0 0 12px;font-size:13px;color:${C.suave}">Todos los sectores · fechas y horas de Paraguay</p>
@@ -176,9 +183,9 @@ ${boton}
 
 // ---------- Armado y envío ----------
 
-/** Arma el resumen del período que corresponde a `hoy` (día de Paraguay), sin enviarlo. */
-export async function prepararResumen(env: Env, periodo: Periodo, hoy: string) {
-  const { desde, hasta } = rangoResumen(periodo, hoy)
+/** Arma el resumen del período que corresponde a `hoy` (día de Paraguay), sin enviarlo. 'hoy' cubre solo el día de hoy, hasta ahora. */
+export async function prepararResumen(env: Env, periodo: PeriodoResumen, hoy: string) {
+  const { desde, hasta } = periodo === 'hoy' ? { desde: hoy, hasta: hoy } : rangoResumen(periodo, hoy)
   const [config, reporte, sectores] = await Promise.all([
     leerConfiguracion(env.DB),
     armarReporte(env.DB, { desde, hasta, sector: null }),
@@ -195,7 +202,7 @@ export async function prepararResumen(env: Env, periodo: Periodo, hoy: string) {
 }
 
 /** Arma y envía el resumen. Nunca lanza por un problema de envío: lo devuelve en `motivo`. */
-export async function enviarResumen(env: Env, periodo: Periodo, hoy: string): Promise<ResumenCorreo> {
+export async function enviarResumen(env: Env, periodo: PeriodoResumen, hoy: string): Promise<ResumenCorreo> {
   const r = await prepararResumen(env, periodo, hoy)
   const base = { destino: r.destino, asunto: r.asunto, html: r.html }
   const motivo = env.MODO_DEMO

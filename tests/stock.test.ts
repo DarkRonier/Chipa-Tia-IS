@@ -226,6 +226,21 @@ describe('POST /salidas (D02, D04)', () => {
     expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 300 }])
   })
 
+  it('normaliza el lote en salidas y envíos: espacios y minúsculas no cambian el stock del lote (E05)', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('chiperia')
+    await loteChipa(p, 'CH-261009-1', '2026-10-09', 1, 10)
+    const salida = await p.pedir<Movimiento>(t, 'POST', '/salidas', { productoId: CHIPA, lote: 'ch-261009-1 ', cantidad: 3 })
+    expect(salida.status).toBe(200)
+    expect(salida.body).toMatchObject({ lote: 'CH-261009-1', cantidad: -3 })
+    const envio = await p.pedir(t, 'POST', '/envios', {
+      sucursalId: 'suc-centro', items: [{ productoId: CHIPA, lote: ' ch-261009-1', cantidad: 4 }],
+    })
+    expect(envio.status).toBe(200)
+    expect(envio.body.movimientos[0]).toMatchObject({ lote: 'CH-261009-1', cantidad: -4 })
+    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 3 }])
+  })
+
   it('en un sector sin lotes ignora el lote', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('cocina')

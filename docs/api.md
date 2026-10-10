@@ -236,9 +236,11 @@ Los `PATCH` sin ningún campo editable dan `400`.
 - `/reportes`: sin fechas, el día de hoy; con solo `desde`, ese día. Hasta 1100 días por pedido (unos tres años;
   `400` si es más). `stock` es el stock actual, no el del período; `salidas` es lo que salió del frío en el
   período por sector y tipo, en unidades positivas; `lotesChipa` viene solo sin `sector` o con Chipería.
-- `/reportes/enviar`: `periodo` `diario` (por defecto), `semanal` o `mensual`. Arma el resumen del período que
-  corresponde a hoy, como el envío automático: **diario = ayer**, semanal = de lunes a domingo de la semana
-  pasada, mensual = el mes pasado (`rangoResumen` en `src/shared/hora.ts`). Lo manda con Resend a
+- `/reportes/enviar`: `periodo` `diario` (por defecto), `semanal`, `mensual` u `hoy`. Arma el resumen del período
+  que corresponde a hoy, como el envío automático: **diario = ayer**, semanal = de lunes a domingo de la semana
+  pasada, mensual = el mes pasado (`rangoResumen` en `src/shared/hora.ts`). `hoy` es solo para la prueba manual
+  (el envío automático no lo usa): resumen parcial del día de hoy en hora de Paraguay, con lo cargado hasta ese
+  momento; el asunto es `Chipa Tía · Resumen de hoy hasta las HH:MM` y el enlace abre `desde=<hoy>&hasta=<hoy>`. Lo manda con Resend a
   `correoReportes`, con el enlace `<urlPublica>/#/admin/reportes?desde=…&hasta=…`. Nunca falla por el envío:
   devuelve `enviado: false` y el `motivo` (demo, falta el correo, falta `RESEND_API_KEY` o `CORREO_REMITENTE`,
   Resend no lo aceptó o no hubo conexión), con el `asunto` y el `html` para la vista previa.

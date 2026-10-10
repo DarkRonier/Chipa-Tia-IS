@@ -37,12 +37,13 @@ export const marcadores = (n: number) => Array.from({ length: n }, () => '?').jo
 
 export const aBool = (v: unknown) => v === 1 || v === true || v === '1'
 
-/** D1 acepta hasta 100 parámetros por consulta: corre `consulta` por trozos de una lista de ids. */
+/**
+ * Corre `consulta` una sola vez para una lista de ids, sin importar su largo (Workers Free permite
+ * 50 consultas a D1 por pedido, y D1 acepta hasta 100 parámetros por consulta). La lista viaja como
+ * un único parámetro JSON: `consulta` recibe `SELECT value FROM json_each(?)` para ponerlo en un
+ * `IN (...)`, y los ids se pasan con ese único `?`. Lista vacía: devuelve [] sin consultar.
+ */
 export async function todasPorTrozos<T>(db: BaseD1, ids: string[], consulta: (marcas: string) => string): Promise<T[]> {
-  const res: T[] = []
-  for (let i = 0; i < ids.length; i += 90) {
-    const trozo = ids.slice(i, i + 90)
-    res.push(...(await todas<T>(db, consulta(marcadores(trozo.length)), ...trozo)))
-  }
-  return res
+  if (!ids.length) return []
+  return todas<T>(db, consulta('SELECT value FROM json_each(?)'), JSON.stringify(ids))
 }

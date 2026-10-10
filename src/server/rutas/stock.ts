@@ -70,12 +70,15 @@ function leerProductoId(v: unknown): string {
   return texto(v, 'el producto', { max: 100 })
 }
 
-/** Lote opcional: en sectores sin lotes se ignora; en Chipería es obligatorio (`siFalta` = mensaje). */
+/**
+ * Lote opcional: en sectores sin lotes se ignora; en Chipería es obligatorio (`siFalta` = mensaje).
+ * Se guarda sin espacios y en mayúsculas, así un lote escrito "ch-261009-1 " encuentra su stock.
+ */
 function leerLote(v: unknown, conLotes: boolean, siFalta: string): string | null {
   if (!conLotes) return null
   if (vacio(v)) throw invalido(siFalta)
   if (typeof v !== 'string' || !v.trim()) throw invalido(siFalta)
-  return texto(v, 'El lote', { max: MAX_LOTE })
+  return texto(v, 'El lote', { max: MAX_LOTE }).toUpperCase()
 }
 
 async function stockActual(db: BaseD1, sector: SectorId, productoId: string, lote: string | null): Promise<number> {
@@ -299,7 +302,7 @@ rutasStock.post('/ajustes', soloAdmin, async (c) => {
   const tipo = b.tipo as TipoAjuste
   const productoId = leerProductoId(b.productoId)
   const conLotes = await sectorConLotes(db, sector)
-  const lote = leerLote(b.lote, conLotes, 'Indicá el lote.')?.toUpperCase() ?? null
+  const lote = leerLote(b.lote, conLotes, 'Indicá el lote.')
   const cantidad = cantidadPositiva(b.cantidad)
   let signo: 1 | -1
   if (tipo === 'ajuste') {

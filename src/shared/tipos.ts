@@ -14,6 +14,8 @@ export type EstadoMaquina = 'funciona' | 'con_fallas' | 'fuera_de_servicio'
 export type Momento = 'inicio' | 'fin' | 'inicial' | 'intermedia' | 'otro'
 export type TipoMaquina = 'heladera' | 'congelador' | 'exhibidora_fria' | 'exhibidora_caliente' | 'otra'
 export type Periodo = 'diario' | 'semanal' | 'mensual'
+/** Lo que acepta el resumen por correo: los períodos automáticos y 'hoy' (parcial, solo para la prueba manual). */
+export type PeriodoResumen = Periodo | 'hoy'
 
 export const NOMBRE_TIPO_MOVIMIENTO: Record<TipoMovimiento, string> = {
   produccion: 'Producción',

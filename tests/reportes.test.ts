@@ -14,6 +14,7 @@ const CHIPA = 'prod-chiperia-01' // Chipa tradicional
 const CHIPITAS = 'prod-chipitas-01'
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -391,6 +392,55 @@ describe('resumen por correo (H04)', () => {
     await sinClave.pedir(t, 'PATCH', '/config', { correoReportes: 'a@chipatia.com' })
     const r = await sinClave.pedir<ResumenCorreo>(t, 'POST', '/reportes/enviar', { periodo: 'diario' })
     expect(r.body.motivo).toMatch(/RESEND_API_KEY/)
+  })
+
+  it("el resumen 'hoy' trae lo cargado hoy hasta ahora (hora de Paraguay) y no toca los demás períodos", async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-10T18:40:00Z') }) // 15:40 en Paraguay
+    const f = simularResend()
+    const p = await nuevaPrueba({ RESEND_API_KEY: 're_prueba', CORREO_REMITENTE: 'Chipa Tía <reportes@chipatia.com>' })
+    const admin = await p.entrar('admin')
+    await p.pedir(admin, 'PATCH', '/config', { correoReportes: 'admin@chipatia.com', urlPublica: 'https://chipatia.com' })
+    await produccion(p, { sector: 'cocina', dia: '2026-10-10', items: [[EMPANADA, 41, 0]] })
+    await produccion(p, { sector: 'cocina', dia: '2026-10-09', items: [[EMPANADA, 77, 0]] })
+
+    const r = await p.pedir<ResumenCorreo>(admin, 'POST', '/reportes/enviar', { periodo: 'hoy' })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ enviado: true, destino: 'admin@chipatia.com', asunto: 'Chipa Tía · Resumen de hoy hasta las 15:40' })
+    const pedido = pedidoDe(f)
+    expect(pedido.body.subject).toBe('Chipa Tía · Resumen de hoy hasta las 15:40')
+    const html: string = pedido.body.html
+    expect(html).toContain('Resumen parcial de hoy · sábado 10/10/2026 · lo cargado hasta las 15:40')
+    expect(html).toContain('https://chipatia.com/#/admin/reportes?desde=2026-10-10&amp;hasta=2026-10-10')
+    expect(html).toContain('>41<')
+    expect(html).not.toContain('>77<')
+    expect(html).not.toContain('>118<')
+
+    // Pasadas las 21 h en Paraguay ya es otro día en UTC: 'hoy' sigue siendo el día de Paraguay.
+    vi.setSystemTime(new Date('2026-10-11T01:30:00Z')) // 22:30 del 10/10 en Paraguay
+    const noche = await p.pedir<ResumenCorreo>(admin, 'POST', '/reportes/enviar', { periodo: 'hoy' })
+    expect(noche.body.asunto).toBe('Chipa Tía · Resumen de hoy hasta las 22:30')
+    expect(noche.body.html).toContain('desde=2026-10-10&amp;hasta=2026-10-10')
+
+    // Los demás períodos siguen igual: diario = ayer.
+    const diario = await p.pedir<ResumenCorreo>(admin, 'POST', '/reportes/enviar', { periodo: 'diario' })
+    expect(diario.body.asunto).toBe('Chipa Tía · Resumen diario del 09/10/2026')
+  })
+
+  it("en la demo el resumen 'hoy' devuelve la vista previa sin enviar", async () => {
+    const f = simularResend()
+    const p = await nuevaPrueba({ MODO_DEMO: '1', RESEND_API_KEY: 're_x', CORREO_REMITENTE: 'Chipa Tía <r@chipatia.com>' })
+    const admin = await p.entrar('admin')
+    await p.pedir(admin, 'PATCH', '/config', { correoReportes: 'admin@chipatia.com', urlPublica: 'https://usuario.github.io/Chipa-Tia-IS/' })
+    const hoy = diaPY()
+    await produccion(p, { sector: 'cocina', dia: hoy, items: [[EMPANADA, 12, 0]] })
+    const r = await p.pedir<ResumenCorreo>(admin, 'POST', '/reportes/enviar', { periodo: 'hoy' })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ enviado: false, destino: 'admin@chipatia.com' })
+    expect(r.body.motivo).toMatch(/demo/i)
+    expect(r.body.asunto).toMatch(/^Chipa Tía · Resumen de hoy hasta las \d{2}:\d{2}$/)
+    expect(r.body.html).toContain(`https://usuario.github.io/Chipa-Tia-IS/#/admin/reportes?desde=${hoy}&amp;hasta=${hoy}`)
+    expect(r.body.html).toContain('>12<')
+    expect(f).not.toHaveBeenCalled()
   })
 
   it('el resumen mensual del día 1 cubre el mes anterior completo', async () => {

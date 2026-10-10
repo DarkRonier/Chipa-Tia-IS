@@ -29,8 +29,12 @@ function rol(v: unknown): Rol {
   return v as Rol
 }
 
+/** Espacios al principio o al final: la entrada no los recorta, así que una contraseña así nunca funcionaría. */
+const BORDE_ESPACIO = /^\s|\s$/
+
 function clave(v: unknown): string {
   if (typeof v !== 'string' || !v) throw invalido('Escribí la contraseña.')
+  if (BORDE_ESPACIO.test(v)) throw invalido('La contraseña no puede empezar ni terminar con espacios.')
   if (v.length < CLAVE_MINIMA) throw invalido(`La contraseña tiene que tener al menos ${CLAVE_MINIMA} caracteres.`)
   if (v.length > 200) throw invalido('La contraseña es demasiado larga.')
   return v
