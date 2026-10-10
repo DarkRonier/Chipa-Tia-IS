@@ -1,0 +1,28 @@
+/* Producción (C01–C04, E02–E04): carga del sector, registros de hoy y correcciones del administrador. */
+.prod-confirmacion { display: grid; gap: 0.4rem; }
+.prod-confirmacion ul { margin: 0; padding-left: 1.2rem; }
+.prod-lote {
+  display: inline-flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;
+  background: var(--superficie); color: var(--texto); border: 2px dashed var(--ok);
+  border-radius: 10px; padding: 0.5rem 0.8rem; justify-self: start;
+}
+.prod-lote strong { font-size: 1.5rem; letter-spacing: 0.04em; }
+.prod-lotes-mp .chip { min-height: 44px; text-align: left; }
+.prod-lotes-mp .chip.activo::before { content: '✓ '; }
+.prod-sin-resultados { padding: 0.75rem; }
+.prod-dia { display: grid; gap: 0.5rem; }
+.prod-registro { display: grid; gap: 0.35rem; padding: 0.75rem; background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; }
+.prod-registro .cabeza { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; }
+.prod-registro ul { margin: 0; padding-left: 1.1rem; }
+.prod-registro li { margin: 0.1rem 0; }
+.prod-corregido { color: var(--suave); font-size: 0.82rem; font-style: italic; }
+.prod-total td { font-weight: 600; }
+.prod-editando { border-color: var(--marca); }
+.prod-editando .tabla input { min-height: 44px; max-width: 96px; text-align: right; margin-left: auto; display: block; }
+.prod-efecto { background: var(--aviso); border-radius: 8px; padding: 0.5rem 0.7rem; font-size: 0.9rem; }
+.prod-efecto ul { margin: 0.2rem 0 0; padding-left: 1.1rem; }
+.accion-fija .error { max-width: 928px; margin: 0 auto 0.5rem; }
+.prod-fechas { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.prod-cabeza { margin: 0; }
+.prod-turno .segmentado, .prod-turno .chips { margin-bottom: 0; }
+.prod-codigo { white-space: nowrap; font-weight: 600; }

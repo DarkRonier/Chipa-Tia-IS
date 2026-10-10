@@ -1,0 +1,74 @@
+/* Stock en frío (D01–D07): stock por producto y lote, salidas, envíos, historial y ajustes del administrador. */
+
+/* Tabla de stock */
+.stk-total { font-weight: 700; font-size: 1.1rem; }
+.stk-desactivado {
+  display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.45rem; border-radius: 999px;
+  border: 1px solid var(--borde); color: var(--suave); font-size: 0.75rem; vertical-align: middle;
+}
+.stk-lotes { list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 0.15rem; font-size: 0.85rem; color: var(--suave); }
+.stk-lotes li {
+  display: flex; justify-content: space-between; gap: 0.75rem; max-width: 260px;
+  border-left: 3px solid var(--marca-claro); padding-left: 0.5rem;
+}
+.stk-lotes strong { color: var(--texto); font-weight: 600; }
+.check.stk-filtro { margin: 0 0 0.75rem; }
+.stk-atajos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem; margin-top: 1rem; }
+
+/* Historial y movimientos */
+.filtros.stk-filtros { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.filtros.stk-filtros input, .filtros.stk-filtros select { min-width: 0; }
+.filtros.stk-filtros .campo:nth-child(n+3) { grid-column: 1 / -1; }
+.stk-limpiar { justify-self: start; grid-column: 1 / -1; }
+.stk-resumen { margin: 0.25rem 0 0.5rem; }
+.stk-resumen strong { color: var(--texto); }
+.stk-etiqueta {
+  display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600;
+  background: var(--marca-claro); color: var(--texto);
+}
+.stk-etiqueta.stk-merma, .stk-etiqueta.stk-vencimiento { background: var(--error-fondo); color: var(--error); }
+.stk-etiqueta.stk-ajuste { background: var(--aviso); }
+.stk-etiqueta.stk-stock_inicial, .stk-etiqueta.stk-produccion { background: var(--ok-fondo); color: var(--ok); }
+.stk-etiqueta.stk-salida_venta { background: var(--fondo); border: 1px solid var(--borde); }
+.stk-cant { font-weight: 700; }
+.stk-cant.stk-suma { color: var(--ok); }
+.stk-tipo .chico { margin-top: 0.15rem; }
+
+@media (max-width: 639px) {
+  /* En el celular cada movimiento es una tarjeta: producto y cantidad arriba, tipo, y fecha con usuario abajo. */
+  .tabla.stk-movs, .tabla.stk-movs tbody { display: block; background: none; border-radius: 0; overflow: visible; }
+  .tabla.stk-movs thead { display: none; }
+  .tabla.stk-movs tr {
+    display: grid; grid-template-columns: 1fr auto; gap: 0.2rem 0.75rem; padding: 0.7rem 0.8rem; margin-bottom: 0.5rem;
+    background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px;
+  }
+  .tabla.stk-movs td { border: none; padding: 0; }
+  .tabla.stk-movs .stk-que { grid-column: 1; grid-row: 1; font-weight: 600; }
+  .tabla.stk-movs .stk-que div { font-weight: 400; }
+  .tabla.stk-movs .stk-tipo { grid-column: 1; grid-row: 2; }
+  .tabla.stk-movs .stk-cant { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 1.35rem; }
+  .tabla.stk-movs .stk-cuando { grid-column: 1 / -1; grid-row: 3; font-size: 0.82rem; color: var(--suave); }
+  .tabla.stk-movs .stk-cuando div { display: inline; }
+  .tabla.stk-movs .stk-cuando div::before { content: ' · '; }
+}
+
+/* Envío */
+.stk-linea-cabeza { display: flex; justify-content: space-between; align-items: center; min-height: 32px; }
+.tarjeta.stk-linea-mal { border-color: var(--error); }
+.stk-listo { display: grid; gap: 0.3rem; }
+.stk-listo ul { margin: 0; padding-left: 1.2rem; }
+.stk-barra { max-width: 928px; margin: 0 auto; }
+.stk-barra .error { margin: 0 0 0.5rem; }
+.stk-confirmar p { margin: 0 0 0.5rem; }
+.stk-botones { display: grid; grid-template-columns: 1fr 2fr; gap: 0.5rem; }
+.stk-botones .btn-secundario { margin-bottom: 0; }
+
+/* Ajustes del administrador */
+.segmentado.stk-tipos { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 0; }
+.stk-ayuda { margin: 0; }
+
+@media (min-width: 640px) {
+  .filtros.stk-filtros { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .filtros.stk-filtros .campo:nth-child(n+3) { grid-column: auto; }
+  .segmentado.stk-tipos { grid-template-columns: repeat(4, 1fr); }
+}

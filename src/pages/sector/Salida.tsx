@@ -1,62 +1,126 @@
+// D02, D04: sacar del frío para reponer la venta. Muestra lo que hay y no deja sacar de más.
+// En Chipería se elige el lote (aparece primero el más viejo).
 import { useState } from 'react'
-import Volver from '../../components/Volver'
+import { post } from '../../cliente/api'
+import { useAccion, useConsulta } from '../../cliente/consultas'
+import { Aviso, ConDatos } from '../../components/Estado'
+import { useSector, useSectorActivo } from '../../components/Layout'
 import Numero from '../../components/Numero'
-import { useSector } from '../../components/Layout'
-import { SECTORES } from '../../mock/data'
-import { nuevoId, stockDe, stockPorLote, useDatos } from '../../mock/store'
+import Volver from '../../components/Volver'
+import { diaPY } from '../../shared/hora'
+import type { Movimiento, PedidoSalida } from '../../shared/tipos'
+import { TablaMovimientos } from './Historial'
+import { useStock } from './Stock'
+import '../../styles/stock.css'
 
 export default function Salida() {
-  const { datos, actualizar, usuario } = useDatos()
+  // Al cambiar de sector (administrador) el formulario empieza de cero.
   const sector = useSector()
-  const conLotes = SECTORES.find((s) => s.id === sector)!.conLotes
-  const productos = datos.productos.filter((p) => p.sector === sector && stockDe(datos.movimientos, sector, p.id) > 0)
+  return <Formulario key={sector} />
+}
+
+function Formulario() {
+  const { id: sector, conLotes } = useSectorActivo()
+  const stock = useStock(sector)
+  const hoy = diaPY()
+  const deHoy = useConsulta<Movimiento[]>('/movimientos', { sector, desde: hoy, hasta: hoy, tipo: 'salida_venta' })
   const [productoId, setProductoId] = useState('')
   const [lote, setLote] = useState('')
   const [cantidad, setCantidad] = useState(0)
-  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
+  const [listo, setListo] = useState<string | null>(null)
+  const registrar = useAccion((p: PedidoSalida) => post<Movimiento>('/salidas', p))
 
-  const lotes = productoId && conLotes ? stockPorLote(datos.movimientos, sector, productoId) : []
-  const disponible = productoId ? stockDe(datos.movimientos, sector, productoId, conLotes ? lote || undefined : undefined) : 0
+  const filas = stock.datos ?? []
+  const fila = filas.find((f) => f.productoId === productoId)
+  // Se listan los productos con stock (y el elegido, aunque se haya quedado en 0).
+  const conStock = filas.filter((f) => f.total > 0 || f.productoId === productoId)
+  const lotes = fila?.lotes ?? []
+  const disponible = !fila ? 0 : conLotes ? (lotes.find((l) => l.lote === lote)?.cantidad ?? 0) : fila.total
 
-  const guardar = () => {
-    if (!productoId || cantidad <= 0) return setMsg({ ok: false, t: 'Elegí el producto y la cantidad.' })
-    if (conLotes && !lote) return setMsg({ ok: false, t: 'Elegí de qué lote sale.' })
-    if (cantidad > disponible) return setMsg({ ok: false, t: `Solo hay ${disponible} en stock.` })
-    actualizar((d) => ({
-      ...d,
-      movimientos: [...d.movimientos, {
-        id: nuevoId(), sector, productoId, lote: lote || undefined, tipo: 'salida_venta', cantidad: -cantidad,
-        usuarioId: usuario!.id, fecha: new Date().toISOString(),
-      }],
-    }))
-    setMsg({ ok: true, t: `Listo: salieron ${cantidad}. Quedan ${disponible - cantidad}.` })
-    setCantidad(0)
+  const limpiarMensajes = () => {
+    setAviso(null)
+    setListo(null)
+    registrar.limpiarError()
   }
+
+  const elegirProducto = (id: string) => {
+    limpiarMensajes()
+    setProductoId(id)
+    // Sugiere el lote más viejo: es el que conviene sacar primero.
+    setLote(filas.find((f) => f.productoId === id)?.lotes[0]?.lote ?? '')
+  }
+
+  const guardar = async () => {
+    limpiarMensajes()
+    if (!fila) return setAviso('Elegí el producto.')
+    if (conLotes && !lote) return setAviso('Elegí de qué lote sale.')
+    if (cantidad <= 0) return setAviso('Cargá la cantidad que sale.')
+    if (cantidad > disponible) {
+      return setAviso(disponible === 0 ? 'No queda stock de eso.' : `Solo hay ${disponible} en stock${conLotes ? ' en ese lote' : ''}.`)
+    }
+    const r = await registrar.ejecutar({ sector, productoId, lote: conLotes ? lote : null, cantidad })
+    if (r) {
+      const quedan = disponible - cantidad
+      setListo(`Listo: salieron ${cantidad} de ${r.productoNombre}${r.lote ? ` (lote ${r.lote})` : ''}. Quedan ${quedan}${r.lote ? ' en ese lote' : ''}.`)
+      setCantidad(0)
+      if (quedan === 0) {
+        setProductoId('')
+        setLote('')
+      }
+    }
+  }
+
+  const error = aviso ?? registrar.error
 
   return (
     <>
       <Volver titulo="Sacar para la venta" />
-      <div className="tarjeta">
-        <label className="campo">
-          <span>Producto</span>
-          <select value={productoId} onChange={(e) => { setProductoId(e.target.value); setLote(''); setMsg(null) }}>
-            <option value="">Elegí un producto</option>
-            {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre} ({stockDe(datos.movimientos, sector, p.id)})</option>)}
-          </select>
-        </label>
-        {conLotes && productoId && (
-          <label className="campo">
-            <span>Lote</span>
-            <select value={lote} onChange={(e) => setLote(e.target.value)}>
-              <option value="">Elegí un lote</option>
-              {lotes.map(([l, n]) => <option key={l} value={l}>{l} ({n})</option>)}
-            </select>
-          </label>
+      <ConDatos consulta={stock}>
+        {() => conStock.length === 0 && !listo ? (
+          <p className="suave">No hay nada guardado en frío para sacar.</p>
+        ) : (
+          <div className="tarjeta">
+            <label className="campo">
+              <span>Producto</span>
+              <select value={productoId} onChange={(e) => elegirProducto(e.target.value)}>
+                <option value="">Elegí un producto</option>
+                {conStock.map((f) => <option key={f.productoId} value={f.productoId}>{f.productoNombre} ({f.total})</option>)}
+              </select>
+            </label>
+            {conLotes && fila && (
+              <label className="campo">
+                <span>Lote</span>
+                <select value={lote} onChange={(e) => { limpiarMensajes(); setLote(e.target.value) }}>
+                  <option value="">Elegí un lote</option>
+                  {lotes.map((l, i) => (
+                    <option key={l.lote} value={l.lote}>{l.lote} ({l.cantidad}){i === 0 && lotes.length > 1 ? ' · el más viejo' : ''}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <Numero
+              etiqueta={fila && (!conLotes || lote) ? `Cantidad (hay ${disponible})` : 'Cantidad'}
+              valor={cantidad}
+              onChange={(n) => { limpiarMensajes(); setCantidad(n) }}
+            />
+            {fila && cantidad > disponible && !error && (
+              <p className="error">Es más de lo que hay ({disponible}).</p>
+            )}
+            <Aviso>{error}</Aviso>
+            <Aviso tipo="ok">{listo}</Aviso>
+            <button className="btn-primario" onClick={() => void guardar()} disabled={registrar.enviando}>
+              {registrar.enviando ? 'Registrando…' : 'Registrar salida'}
+            </button>
+          </div>
         )}
-        <Numero etiqueta={productoId ? `Cantidad (hay ${disponible})` : 'Cantidad'} valor={cantidad} onChange={setCantidad} />
-        {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
-        <button className="btn-primario" onClick={guardar}>Registrar salida</button>
-      </div>
+      </ConDatos>
+      {!!deHoy.datos?.length && (
+        <>
+          <h2>Salidas de hoy</h2>
+          <TablaMovimientos movimientos={deHoy.datos} />
+        </>
+      )}
     </>
   )
 }

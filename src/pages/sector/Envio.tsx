@@ -1,88 +1,218 @@
+// D03, D04, E05: un envío a una sucursal con varios productos (y en Chipería, el lote de cada uno).
+// Se confirma una sola vez y se registra todo junto: si una línea no alcanza, no se registra nada.
 import { useState } from 'react'
-import Volver from '../../components/Volver'
+import { post } from '../../cliente/api'
+import { useAccion, useConsulta } from '../../cliente/consultas'
+import { Aviso, ConDatos } from '../../components/Estado'
+import { useSector, useSectorActivo } from '../../components/Layout'
 import Numero from '../../components/Numero'
-import { useSector } from '../../components/Layout'
-import { SECTORES } from '../../mock/data'
-import { nuevoId, stockDe, stockPorLote, useDatos, type Movimiento } from '../../mock/store'
+import Volver from '../../components/Volver'
+import { fechaHoraPY } from '../../shared/hora'
+import type { PedidoEnvio, RespuestaEnvio, StockFila, Sucursal } from '../../shared/tipos'
+import { useStock } from './Stock'
+import '../../styles/stock.css'
 
-interface Linea { productoId: string; lote: string; cantidad: number }
+interface Linea { clave: number; productoId: string; lote: string; cantidad: number }
+
+let siguiente = 0
+const lineaVacia = (): Linea => ({ clave: ++siguiente, productoId: '', lote: '', cantidad: 0 })
 
 export default function Envio() {
-  const { datos, actualizar, usuario } = useDatos()
+  // Al cambiar de sector (administrador) el formulario empieza de cero.
   const sector = useSector()
-  const conLotes = SECTORES.find((s) => s.id === sector)!.conLotes
-  const productos = datos.productos.filter((p) => p.sector === sector && stockDe(datos.movimientos, sector, p.id) > 0)
+  return <Formulario key={sector} />
+}
+
+function Formulario() {
+  const { id: sector, conLotes } = useSectorActivo()
+  const stock = useStock(sector)
+  const sucursales = useConsulta<Sucursal[]>('/sucursales')
   const [sucursalId, setSucursalId] = useState('')
-  const [lineas, setLineas] = useState<Linea[]>([{ productoId: '', lote: '', cantidad: 0 }])
-  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null)
+  const [lineas, setLineas] = useState<Linea[]>(() => [lineaVacia()])
+  const [aviso, setAviso] = useState<string | null>(null)
+  const [confirmando, setConfirmando] = useState(false)
+  const [listo, setListo] = useState<RespuestaEnvio | null>(null)
+  const registrar = useAccion((p: PedidoEnvio) => post<RespuestaEnvio>('/envios', p))
 
-  const cambiar = (i: number, cambio: Partial<Linea>) =>
-    setLineas((ls) => ls.map((l, j) => (j === i ? { ...l, ...cambio } : l)))
+  const filas = stock.datos ?? []
+  const filaDe = (id: string): StockFila | undefined => filas.find((f) => f.productoId === id)
+  const activas = (sucursales.datos ?? []).filter((s) => s.activo)
+  const sucursal = activas.find((s) => s.id === sucursalId)
 
-  const disponible = (l: Linea) =>
-    l.productoId ? stockDe(datos.movimientos, sector, l.productoId, conLotes ? l.lote || undefined : undefined) : 0
-
-  const guardar = () => {
-    const validas = lineas.filter((l) => l.productoId && l.cantidad > 0)
-    if (!sucursalId) return setMsg({ ok: false, t: 'Elegí la sucursal.' })
-    if (validas.length === 0) return setMsg({ ok: false, t: 'Cargá al menos un producto.' })
-    for (const l of validas) {
-      const nombre = datos.productos.find((p) => p.id === l.productoId)!.nombre
-      if (conLotes && !l.lote) return setMsg({ ok: false, t: `Elegí el lote de ${nombre}.` })
-      if (l.cantidad > disponible(l)) return setMsg({ ok: false, t: `No alcanza ${nombre}: hay ${disponible(l)}.` })
-    }
-    const envioId = nuevoId()
-    const fecha = new Date().toISOString()
-    const movs: Movimiento[] = validas.map((l) => ({
-      id: nuevoId(), sector, productoId: l.productoId, lote: l.lote || undefined, tipo: 'envio',
-      cantidad: -l.cantidad, sucursalId, envioId, usuarioId: usuario!.id, fecha,
-    }))
-    actualizar((d) => ({ ...d, movimientos: [...d.movimientos, ...movs] }))
-    const suc = datos.sucursales.find((s) => s.id === sucursalId)!.nombre
-    setMsg({ ok: true, t: `Envío a ${suc} registrado con ${validas.length} producto(s).` })
-    setLineas([{ productoId: '', lote: '', cantidad: 0 }])
+  /** Lo que hay del producto (o del lote, en Chipería). */
+  const hay = (l: Linea) => {
+    const f = filaDe(l.productoId)
+    if (!f) return 0
+    return conLotes ? (f.lotes.find((x) => x.lote === l.lote)?.cantidad ?? 0) : f.total
   }
+  const listaParaHay = (l: Linea) => !!l.productoId && (!conLotes || !!l.lote)
+  const conCantidad = lineas.filter((l) => l.productoId && l.cantidad > 0)
+  const unidades = conCantidad.reduce((s, l) => s + l.cantidad, 0)
+
+  const limpiarMensajes = () => {
+    setAviso(null)
+    setListo(null)
+    setConfirmando(false)
+    registrar.limpiarError()
+  }
+
+  const cambiar = (clave: number, cambio: Partial<Linea>) => {
+    limpiarMensajes()
+    setLineas((ls) => ls.map((l) => (l.clave === clave ? { ...l, ...cambio } : l)))
+  }
+
+  /** Lotes del producto que todavía no están en otra línea. */
+  const lotesLibres = (l: Linea) =>
+    (filaDe(l.productoId)?.lotes ?? []).filter((x) => x.lote === l.lote || !lineas.some((o) => o.clave !== l.clave && o.productoId === l.productoId && o.lote === x.lote))
+
+  const elegirProducto = (l: Linea, productoId: string) => {
+    const libres = lotesLibres({ ...l, productoId, lote: '' })
+    cambiar(l.clave, { productoId, lote: conLotes ? (libres[0]?.lote ?? '') : '' })
+  }
+
+  /** Productos para elegir en una línea: con stock y que no estén ya en otra (en Chipería, con algún lote libre). */
+  const opciones = (l: Linea) =>
+    filas.filter((f) => {
+      if (f.productoId === l.productoId) return true
+      if (f.total <= 0) return false
+      if (!conLotes) return !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId)
+      return f.lotes.some((x) => !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId && o.lote === x.lote))
+    })
+
+  const revisar = () => {
+    limpiarMensajes()
+    if (!sucursal) return setAviso('Elegí la sucursal.')
+    if (conCantidad.length === 0) return setAviso('Cargá al menos un producto con su cantidad.')
+    for (const l of conCantidad) {
+      const nombre = filaDe(l.productoId)?.productoNombre ?? 'un producto'
+      if (conLotes && !l.lote) return setAviso(`Elegí el lote de ${nombre}.`)
+      if (l.cantidad > hay(l)) return setAviso(`No alcanza ${nombre}${conLotes ? ` del lote ${l.lote}` : ''}: hay ${hay(l)}.`)
+    }
+    setConfirmando(true)
+  }
+
+  const enviar = async () => {
+    const r = await registrar.ejecutar({
+      sector,
+      sucursalId,
+      items: conCantidad.map((l) => ({ productoId: l.productoId, lote: conLotes ? l.lote : null, cantidad: l.cantidad })),
+    })
+    setConfirmando(false)
+    if (r) {
+      setListo(r)
+      setLineas([lineaVacia()])
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
+  const error = aviso ?? registrar.error
+  const hayParaEnviar = filas.some((f) => f.total > 0)
 
   return (
     <>
       <Volver titulo="Envío a sucursal" />
-      <div className="tarjeta">
-        <label className="campo">
-          <span>Sucursal</span>
-          <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
-            <option value="">Elegí la sucursal</option>
-            {datos.sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-          </select>
-        </label>
-      </div>
-      {lineas.map((l, i) => (
-        <div className="tarjeta" key={i}>
-          <label className="campo">
-            <span>Producto {i + 1}</span>
-            <select value={l.productoId} onChange={(e) => cambiar(i, { productoId: e.target.value, lote: '' })}>
-              <option value="">Elegí un producto</option>
-              {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-            </select>
-          </label>
-          {conLotes && l.productoId && (
-            <label className="campo">
-              <span>Lote</span>
-              <select value={l.lote} onChange={(e) => cambiar(i, { lote: e.target.value })}>
-                <option value="">Elegí un lote</option>
-                {stockPorLote(datos.movimientos, sector, l.productoId).map(([lt, n]) => <option key={lt} value={lt}>{lt} ({n})</option>)}
-              </select>
-            </label>
-          )}
-          <Numero etiqueta={l.productoId ? `Cantidad (hay ${disponible(l)})` : 'Cantidad'} valor={l.cantidad} onChange={(n) => cambiar(i, { cantidad: n })} />
+      {listo && (
+        <div className="ok stk-listo" role="status">
+          <strong>Envío a {listo.movimientos[0]?.sucursalNombre} registrado.</strong>
+          <span>{fechaHoraPY(listo.movimientos[0]?.fecha ?? new Date().toISOString())} · {listo.movimientos[0]?.usuarioNombre}</span>
+          <ul>
+            {listo.movimientos.map((m) => (
+              <li key={m.id}>{-m.cantidad} × {m.productoNombre}{m.lote ? ` · lote ${m.lote}` : ''}</li>
+            ))}
+          </ul>
         </div>
-      ))}
-      <button className="btn-secundario" onClick={() => setLineas((ls) => [...ls, { productoId: '', lote: '', cantidad: 0 }])}>
-        + Agregar otro producto
-      </button>
-      {msg && <p className={msg.ok ? 'ok' : 'error'}>{msg.t}</p>}
-      <div className="accion-fija">
-        <button className="btn-primario" onClick={guardar}>Registrar envío</button>
-      </div>
+      )}
+      <ConDatos consulta={stock}>
+        {() => !hayParaEnviar ? (
+          <p className="suave">No hay nada guardado en frío para enviar.</p>
+        ) : (
+          <>
+            <div className="tarjeta">
+              <label className="campo">
+                <span>Sucursal</span>
+                <select value={sucursalId} onChange={(e) => { limpiarMensajes(); setSucursalId(e.target.value) }}>
+                  <option value="">{sucursales.datos ? 'Elegí la sucursal' : 'Cargando…'}</option>
+                  {activas.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                </select>
+              </label>
+              {sucursales.error && <Aviso>{sucursales.error}</Aviso>}
+              {sucursales.datos && activas.length === 0 && (
+                <p className="suave chico">No hay sucursales cargadas. El administrador las agrega en Catálogos.</p>
+              )}
+            </div>
+            {lineas.map((l, i) => {
+              const f = filaDe(l.productoId)
+              const pasa = listaParaHay(l) && l.cantidad > hay(l)
+              return (
+                <div className={`tarjeta stk-linea${pasa ? ' stk-linea-mal' : ''}`} key={l.clave}>
+                  <div className="stk-linea-cabeza">
+                    <strong>Producto {i + 1}</strong>
+                    {lineas.length > 1 && (
+                      <button
+                        type="button"
+                        className="btn-texto"
+                        onClick={() => { limpiarMensajes(); setLineas((ls) => ls.filter((x) => x.clave !== l.clave)) }}
+                      >
+                        Quitar
+                      </button>
+                    )}
+                  </div>
+                  <label className="campo">
+                    <span>Producto</span>
+                    <select value={l.productoId} onChange={(e) => elegirProducto(l, e.target.value)}>
+                      <option value="">Elegí un producto</option>
+                      {opciones(l).map((o) => <option key={o.productoId} value={o.productoId}>{o.productoNombre} ({o.total})</option>)}
+                    </select>
+                  </label>
+                  {conLotes && f && (
+                    <label className="campo">
+                      <span>Lote</span>
+                      <select value={l.lote} onChange={(e) => cambiar(l.clave, { lote: e.target.value })}>
+                        <option value="">Elegí un lote</option>
+                        {lotesLibres(l).map((x) => <option key={x.lote} value={x.lote}>{x.lote} ({x.cantidad})</option>)}
+                      </select>
+                    </label>
+                  )}
+                  <Numero
+                    etiqueta={listaParaHay(l) ? `Cantidad (hay ${hay(l)})` : 'Cantidad'}
+                    valor={l.cantidad}
+                    onChange={(n) => cambiar(l.clave, { cantidad: n })}
+                  />
+                  {pasa && <p className="error">No alcanza: hay {hay(l)}.</p>}
+                </div>
+              )
+            })}
+            <button className="btn-secundario" onClick={() => { limpiarMensajes(); setLineas((ls) => [...ls, lineaVacia()]) }}>
+              + Agregar otro producto
+            </button>
+          </>
+        )}
+      </ConDatos>
+      {hayParaEnviar && (
+        <div className="accion-fija">
+          <div className="stk-barra">
+            <Aviso>{error}</Aviso>
+            {confirmando && sucursal ? (
+              <div className="stk-confirmar" role="group" aria-label="Confirmar envío">
+                <p>
+                  ¿Registrar el envío de <strong>{unidades}</strong> {unidades === 1 ? 'unidad' : 'unidades'}
+                  {conCantidad.length > 1 && ` (${conCantidad.length} productos)`} a <strong>{sucursal.nombre}</strong>?
+                </p>
+                <div className="stk-botones">
+                  <button className="btn-secundario" onClick={() => setConfirmando(false)} disabled={registrar.enviando}>Volver</button>
+                  <button className="btn-primario" onClick={() => void enviar()} disabled={registrar.enviando}>
+                    {registrar.enviando ? 'Registrando…' : 'Sí, registrar envío'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button className="btn-primario" onClick={revisar}>
+                {unidades > 0 ? `Registrar envío (${unidades})` : 'Registrar envío'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </>
   )
 }

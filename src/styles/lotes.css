@@ -1,0 +1,78 @@
+/* Lotes y trazabilidad (E01, E05–E07): materia prima, lotes de chipa y la cadena hasta las sucursales. */
+.lot-estado {
+  display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600;
+  white-space: nowrap; border: 1px solid transparent;
+}
+.lot-estado.disponible { background: var(--ok-fondo); color: var(--ok); }
+.lot-estado.vencido { background: var(--error-fondo); color: var(--error); }
+.lot-estado.bloqueado { background: var(--aviso); color: var(--texto); border-color: var(--borde); }
+.lot-estados { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+
+.lot-form { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
+.lot-form .lot-ancho { grid-column: 1 / -1; }
+.lot-form .chips { margin: 0; }
+.lot-form .chip { min-height: 40px; }
+.lot-etiqueta { font-size: 0.9rem; color: var(--suave); }
+.lot-opcional { font-weight: 400; font-size: 0.8rem; }
+.lot-cantidad { display: grid; grid-template-columns: 1fr 7.5rem; gap: 0.5rem; }
+.lot-cantidad input { font-size: 1.15rem; }
+
+.lot-filtros { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+.lot-filtros .chip { min-height: 40px; }
+
+.lot-tabla td { vertical-align: top; }
+.lot-tabla .lot-col-estado { width: 7.5rem; }
+.lot-tabla .lot-sub { color: var(--suave); font-size: 0.82rem; margin-top: 0.15rem; }
+.lot-tabla .btn-texto { padding: 0.5rem 0.2rem; min-height: 40px; }
+.lot-tabla tr.lot-con-confirmacion td { border-bottom: none; }
+.lot-confirmar td { background: var(--aviso); }
+.lot-confirmar p { margin: 0 0 0.5rem; }
+.lot-confirmar .fila-acciones { margin: 0; }
+.lot-confirmar .btn-primario { min-height: 44px; padding: 0.5rem 1rem; }
+.lot-pronto { color: var(--error); font-weight: 600; }
+.lot-mp-usados { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 0.25rem 0.4rem; font-size: 0.82rem; color: var(--suave); }
+.lot-mp-usados li { background: var(--fondo); border: 1px solid var(--borde); border-radius: 6px; padding: 0.1rem 0.4rem; }
+.lot-tabla tr.lot-fila-lote td { border-bottom: none; padding-bottom: 0.3rem; }
+.lot-tabla tr.lot-fila-mp td { padding-top: 0; }
+.lot-tabla a, .lot-cadena a { color: var(--marca); }
+.lot-codigo { font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
+a.lot-codigo { color: var(--marca); display: inline-block; padding: 0.15rem 0; }
+.lot-fechas { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem; }
+.lot-mas { margin-top: 0.5rem; }
+
+/* Trazabilidad: la cadena materia prima → lotes de chipa → sucursales. */
+.lot-cadena { display: grid; gap: 0; }
+.lot-paso { margin-bottom: 0; }
+.lot-paso.principal { border: 2px solid var(--marca); }
+.lot-flecha {
+  display: flex; align-items: center; gap: 0.5rem; color: var(--suave); font-size: 0.85rem;
+  padding: 0.35rem 0 0.35rem 1.1rem; border-left: 3px solid var(--marca-claro); margin-left: 1rem;
+}
+.lot-flecha::before { content: '↓'; font-size: 1.1rem; color: var(--marca); margin-left: -1.65rem; background: var(--fondo); padding: 0 0.2rem; }
+.lot-flecha.arriba::before { content: '↑'; }
+.lot-grupo { display: grid; gap: 0.5rem; }
+.lot-cabeza { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
+.lot-cabeza h3 { margin: 0; font-size: 1.05rem; }
+.lot-cifras { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.9rem; color: var(--suave); }
+.lot-cifras strong { color: var(--texto); font-size: 1.05rem; }
+.lot-envios { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.15rem; }
+.lot-envios li {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem;
+  border-top: 1px dashed var(--borde); padding: 0.35rem 0;
+}
+.lot-envios li:first-child { border-top: none; }
+.lot-envios .cant { font-weight: 700; white-space: nowrap; }
+.lot-destinos { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.lot-destinos a { text-decoration: none; color: var(--texto); }
+.lot-destinos .chip { cursor: pointer; }
+.lot-destinos .chip strong { margin-left: 0.3rem; }
+.lot-titulo-seccion { font-size: 0.85rem; color: var(--suave); font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.04em; }
+.lot-buscar { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem; align-items: end; }
+.lot-buscar .btn-primario { width: auto; min-height: 48px; }
+.lot-recientes { margin-top: 0.25rem; }
+.lot-recientes .chip { min-height: 40px; }
+.lot-vacio { padding: 0.75rem; background: var(--superficie); border: 1px dashed var(--borde); border-radius: 10px; color: var(--suave); }
+.lot-lista-mp { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.lot-lista-mp li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.25rem 0.5rem; }
+.lot-lista-mp a { color: var(--marca); font-weight: 600; }
+.lot-modos button { font-size: 0.9rem; line-height: 1.15; padding: 0.3rem 0.2rem; }
