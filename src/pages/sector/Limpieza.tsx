@@ -1,5 +1,6 @@
 // G01–G03: el operador elige un área de su sector y marca cada tarea de la planilla con X (diaria),
 // XX (profunda) o - (no se hizo), como en las planillas RE-09: no se dejan cuadros en blanco.
+// Si queda alguna sin marcar, se confirma en la pantalla antes de guardarla como «-».
 // Fecha, hora, sector y usuario los pone el servidor; el comentario es opcional. Debajo, el historial
 // del sector filtrable por área y fechas, con el "Controlado por" del administrador.
 import { useState, type ReactNode } from 'react'
@@ -137,14 +138,16 @@ function Planilla({ area, sector, borrador, cambiar }: {
   cambiar: (f: (b: Borrador) => Borrador) => void
 }) {
   const guardarLimpieza = useAccion((p: PedidoLimpieza) => post<Limpieza>('/limpiezas', p))
-  const [error, setError] = useState<string | null>(null)
   const [resaltar, setResaltar] = useState(false)
+  // Aviso en línea: hay tareas sin marcar y el operador decide si se guardan como «-».
+  const [avisoFaltan, setAvisoFaltan] = useState(false)
   const [listo, setListo] = useState<Limpieza | null>(null)
   const tareas = area.tareas.filter((t) => t.activo)
-  const marcadas = tareas.filter((t) => borrador.marcas[t.id]).length
+  const faltan = tareas.filter((t) => !borrador.marcas[t.id])
+  const marcadas = tareas.length - faltan.length
 
   const tocar = () => {
-    setError(null)
+    setAvisoFaltan(false)
     setListo(null)
     guardarLimpieza.limpiarError()
   }
@@ -157,25 +160,13 @@ function Planilla({ area, sector, borrador, cambiar }: {
     cambiar((b) => ({ ...b, marcas: Object.fromEntries(tareas.map((t) => [t.id, m])) }))
   }
 
-  const guardar = async () => {
-    tocar()
-    // Como en la planilla en papel: no se dejan cuadros en blanco.
-    const faltan = tareas.filter((t) => !borrador.marcas[t.id])
-    if (faltan.length) {
-      setResaltar(true)
-      setError(
-        faltan.length === 1
-          ? `Falta marcar «${faltan[0].nombre}»: elegí X, XX o -.`
-          : `Faltan marcar ${faltan.length} tareas (en rojo): elegí X, XX o - en cada una.`,
-      )
-      document.getElementById(`tarea-${faltan[0].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      return
-    }
+  const enviar = async () => {
     const r = await guardarLimpieza.ejecutar({
       areaId: area.id,
       sector,
       marcas: tareas.map((t) => {
-        const marca = borrador.marcas[t.id]
+        // Las que faltan solo llegan sin marcar si el operador confirmó guardarlas como «-».
+        const marca = borrador.marcas[t.id] ?? '-'
         const numero = t.pideNumero && marca !== '-' ? borrador.numeros[t.id]?.trim() || null : null
         return { tareaId: t.id, marca, numero }
       }),
@@ -187,10 +178,22 @@ function Planilla({ area, sector, borrador, cambiar }: {
     cambiar(() => VACIO)
   }
 
+  const guardar = () => {
+    tocar()
+    // Como en la planilla en papel: si queda alguna sin marcar, se pregunta antes de guardarla como «-».
+    if (faltan.length) {
+      setResaltar(true)
+      setAvisoFaltan(true)
+      document.getElementById(`tarea-${faltan[0].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+    void enviar()
+  }
+
   if (tareas.length === 0) return <p className="suave">Esta área no tiene tareas para marcar. El administrador las agrega en Catálogos.</p>
 
   const enviando = guardarLimpieza.enviando
-  const mensaje = error ?? guardarLimpieza.error
+  const mensaje = guardarLimpieza.error
   return (
     <>
       <div className="ctl-progreso">
@@ -250,6 +253,21 @@ function Planilla({ area, sector, borrador, cambiar }: {
       <p className="suave chico">La fecha, la hora, el sector y tu usuario se guardan solos.</p>
       <div className="accion-fija">
         <div className="ctl-barra">
+          {avisoFaltan && faltan.length > 0 && (
+            <div className="tarjeta ctl-confirmar" role="group" aria-label="Guardar con tareas sin marcar">
+              <p>
+                {faltan.length === 1
+                  ? 'Queda 1 tarea sin marcar. ¿La guardamos como «-» (no se hizo)?'
+                  : `Quedan ${faltan.length} tareas sin marcar. ¿Las guardamos como «-» (no se hizo)?`}
+              </p>
+              <div className="fila-acciones">
+                <button type="button" className="btn-primario" disabled={enviando} onClick={() => { tocar(); void enviar() }}>
+                  Sí, guardar
+                </button>
+                <button type="button" className="btn-secundario" onClick={() => setAvisoFaltan(false)}>Volver a marcar</button>
+              </div>
+            </div>
+          )}
           {mensaje && <p className="error" role="alert">{mensaje}</p>}
           {listo && (
             <p className="ok" role="status">
