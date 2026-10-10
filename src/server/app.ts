@@ -13,7 +13,7 @@ import { rutasProduccion } from './rutas/produccion'
 import { rutasReportes } from './rutas/reportes'
 import { rutasStock } from './rutas/stock'
 import { rutasUsuarios } from './rutas/usuarios'
-import { conSesion } from './sesion'
+import { conClavePropia, conSesion } from './sesion'
 
 export function crearApp() {
   const app = new Hono<Entorno>().basePath('/api')
@@ -36,8 +36,8 @@ export function crearApp() {
   app.get('/salud', (c) => c.json({ ok: true }))
   app.route('/auth', rutasAuth)
 
-  // Todo lo demás requiere sesión.
-  app.use('*', conSesion)
+  // Todo lo demás requiere sesión y una contraseña propia (no la inicial ni una restablecida).
+  app.use('*', conSesion, conClavePropia)
   app.route('/', rutasUsuarios)
   app.route('/', rutasCatalogos)
   app.route('/', rutasProduccion)

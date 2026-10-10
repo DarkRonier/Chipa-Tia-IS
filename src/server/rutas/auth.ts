@@ -1,7 +1,7 @@
 // A01: entrar con usuario y contraseña; cambiar la propia contraseña.
 import { Hono } from 'hono'
 import type { RespuestaLogin } from '../../shared/tipos'
-import { CLAVE_MINIMA, hashClave, verificarClave } from '../clave'
+import { CLAVE_MINIMA, HASH_DE_RELLENO, hashClave, verificarClave } from '../clave'
 import { ejecutar, una } from '../db'
 import type { Entorno } from '../entorno'
 import { ErrorApi, invalido } from '../errores'
@@ -18,8 +18,8 @@ rutasAuth.post('/login', async (c) => {
   const fila = await una<FilaUsuario & { clave_hash: string }>(
     c.env.DB, `SELECT ${COLUMNAS_USUARIO}, clave_hash FROM usuarios WHERE usuario = ?`, usuario,
   )
-  // Mismo mensaje si el usuario no existe o la contraseña está mal.
-  const ok = fila ? await verificarClave(clave, fila.clave_hash) : false
+  // Mismo mensaje y mismo tiempo si el usuario no existe o la contraseña está mal.
+  const ok = (await verificarClave(clave, fila?.clave_hash ?? HASH_DE_RELLENO)) && !!fila
   if (!fila || !ok) throw new ErrorApi(401, 'credenciales', 'Usuario o contraseña incorrectos.')
   if (!fila.activo) throw new ErrorApi(403, 'usuario_inactivo', 'Este usuario está desactivado. Hablá con el administrador.')
   const token = await crearSesion(c.env.DB, fila.id)

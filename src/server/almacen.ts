@@ -31,10 +31,26 @@ export async function leerArchivo(env: Env, clave: string): Promise<{ datos: Uin
   return fila ? { datos: deBase64(fila.datos), tipo: fila.tipo } : null
 }
 
-/** data:image/jpeg;base64,... → bytes y tipo. */
+const ascii = (b: Uint8Array, desde: number, hasta: number) => String.fromCharCode(...b.subarray(desde, hasta))
+
+/** Los primeros bytes de cada formato: un HTML o un SVG con el tipo cambiado no pasa por foto. */
+const FIRMAS: Record<string, (b: Uint8Array) => boolean> = {
+  'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  'image/png': (b) => ascii(b, 0, 8) === '\x89PNG\r\n\x1a\n',
+  'image/webp': (b) => ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 12) === 'WEBP',
+}
+
+/** data:image/jpeg;base64,... → bytes y tipo; null si no es una imagen JPEG, PNG o WEBP de verdad. */
 export function desdeDataUrl(dataUrl: string): { datos: Uint8Array; tipo: string } | null {
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl)
-  return m ? { tipo: m[1], datos: deBase64(m[2]) } : null
+  if (!m) return null
+  let datos: Uint8Array
+  try {
+    datos = deBase64(m[2])
+  } catch {
+    return null // base64 mal formado
+  }
+  return FIRMAS[m[1]](datos) ? { tipo: m[1], datos } : null
 }
 
 export function aDataUrl(datos: Uint8Array, tipo: string) {

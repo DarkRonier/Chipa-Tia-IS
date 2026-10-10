@@ -5,7 +5,7 @@ import { SECTOR_IDS } from '../shared/tipos'
 import { sha256, tokenAleatorio } from './clave'
 import { ejecutar, una } from './db'
 import type { BaseD1, Entorno, UsuarioSesion } from './entorno'
-import { invalido, noAutorizado, prohibido } from './errores'
+import { ErrorApi, invalido, noAutorizado, prohibido } from './errores'
 
 const DURACION_DIAS = 30
 
@@ -67,6 +67,17 @@ export const conSesion: MiddlewareHandler<Entorno> = async (c, next) => {
     sector: fila.rol === 'admin' ? null : fila.rol,
     debeCambiarClave: !!fila.debe_cambiar_clave,
   })
+  await next()
+}
+
+/**
+ * Con la contraseña inicial o una restablecida por el administrador solo se puede cambiarla (/auth/clave):
+ * el resto de la API responde 403 hasta que tenga una propia, igual que la pantalla de la app.
+ */
+export const conClavePropia: MiddlewareHandler<Entorno> = async (c, next) => {
+  if (c.get('usuario').debeCambiarClave) {
+    throw new ErrorApi(403, 'debe_cambiar_clave', 'Antes de seguir, cambiá tu contraseña.')
+  }
   await next()
 }
 

@@ -1,11 +1,19 @@
 // Validación simple de cuerpos JSON. Cada función lanza un 400 con un mensaje para mostrar al usuario.
 import type { Context } from 'hono'
 import { esDiaValido } from '../shared/hora'
-import { invalido } from './errores'
+import { ErrorApi, invalido } from './errores'
+
+/** Lo más grande que se acepta: una foto de 1,5 MB en base64 (unos 2,1 MB) más el resto de la lectura. */
+export const CUERPO_MAXIMO = 3 * 1024 * 1024
+const demasiadoGrande = () => new ErrorApi(413, 'demasiado_grande', 'El pedido es demasiado grande.')
 
 export async function cuerpo<T = Record<string, unknown>>(c: Context): Promise<T> {
+  // Un cuerpo enorme (también en el login, sin sesión) se corta antes de leerlo y de armar el JSON.
+  if (Number(c.req.header('Content-Length')) > CUERPO_MAXIMO) throw demasiadoGrande()
+  const crudo = await c.req.text().catch(() => '')
+  if (crudo.length > CUERPO_MAXIMO) throw demasiadoGrande()
   try {
-    const v = await c.req.json()
+    const v = JSON.parse(crudo)
     if (!v || typeof v !== 'object') throw new Error()
     return v as T
   } catch {

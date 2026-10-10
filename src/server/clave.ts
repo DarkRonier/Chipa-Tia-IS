@@ -35,3 +35,9 @@ export function tokenAleatorio(): string {
 }
 
 export const CLAVE_MINIMA = 6
+
+/**
+ * Hash que no corresponde a ninguna contraseña. El login lo verifica cuando el usuario no existe: así tarda
+ * lo mismo que con una contraseña equivocada y el tiempo de respuesta no delata qué usuarios hay.
+ */
+export const HASH_DE_RELLENO = `pbkdf2$${ITERACIONES}$${'0'.repeat(32)}$${'0'.repeat(64)}`

@@ -177,8 +177,10 @@ rutasMaquinas.post('/lecturas', async (c) => {
   let foto: { datos: Uint8Array; tipo: string } | null = null
   if (b.foto !== undefined && b.foto !== null && b.foto !== '') {
     if (typeof b.foto !== 'string') throw invalido('La foto no es una imagen válida.')
-    // base64 ocupa 4/3 de los bytes: se corta antes de decodificar algo enorme.
-    if (b.foto.length > FOTO_MAXIMA_BYTES * 1.4 + 100) throw invalido('La foto es muy pesada. Sacala de nuevo o elegí otra.')
+    // base64 ocupa 4/3 de los bytes: el peso se calcula antes de decodificar.
+    if (Math.floor(((b.foto.length - b.foto.indexOf(',') - 1) * 3) / 4) > FOTO_MAXIMA_BYTES + 2) {
+      throw invalido('La foto es muy pesada. Sacala de nuevo o elegí otra.')
+    }
     foto = desdeDataUrl(b.foto)
     if (!foto) throw invalido('La foto no es una imagen válida (JPEG, PNG o WEBP).')
     if (foto.datos.length > FOTO_MAXIMA_BYTES) throw invalido('La foto es muy pesada. Sacala de nuevo o elegí otra.')
