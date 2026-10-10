@@ -13,7 +13,7 @@ import {
 } from '../../shared/hora'
 import {
   NOMBRE_ESTADO, NOMBRE_MOMENTO, NOMBRE_TIPO_MOVIMIENTO, SECTOR_IDS,
-  type Configuracion, type Lectura, type Periodo, type Reporte, type ResumenCorreo, type SectorId,
+  type Configuracion, type Lectura, type PeriodoResumen, type Reporte, type ResumenCorreo, type SectorId,
 } from '../../shared/tipos'
 import '../../styles/reportes.css'
 
@@ -447,8 +447,11 @@ function hojasDelReporte(r: Reporte, sector: SectorId | '', nombre: (s: SectorId
 
 // ---------- Resumen por correo (H04) ----------
 
-const PERIODOS: [Periodo, string][] = [['diario', 'Diario'], ['semanal', 'Semanal'], ['mensual', 'Mensual']]
-const QUE_CUBRE: Record<Periodo, string> = {
+const PERIODOS: [PeriodoResumen, string][] = [
+  ['hoy', 'Hoy (lo cargado hasta ahora)'], ['diario', 'Diario'], ['semanal', 'Semanal'], ['mensual', 'Mensual'],
+]
+const QUE_CUBRE: Record<PeriodoResumen, string> = {
+  hoy: 'lo cargado hasta ahora en el día de hoy',
   diario: 'el día de ayer',
   semanal: 'la semana pasada, de lunes a domingo',
   mensual: 'el mes pasado completo',
@@ -456,11 +459,11 @@ const QUE_CUBRE: Record<Periodo, string> = {
 
 function ResumenPorCorreo({ verPeriodo }: { verPeriodo: (desde: string, hasta: string) => void }) {
   const hoy = diaPY()
-  const [periodo, setPeriodo] = useState<Periodo>('diario')
+  const [periodo, setPeriodo] = useState<PeriodoResumen>('hoy')
   const [resultado, setResultado] = useState<ResumenCorreo | null>(null)
   const config = useConsulta<Configuracion>('/config')
-  const enviar = useAccion((p: Periodo) => post<ResumenCorreo>('/reportes/enviar', { periodo: p }))
-  const { desde, hasta } = rangoResumen(periodo, hoy)
+  const enviar = useAccion((p: PeriodoResumen) => post<ResumenCorreo>('/reportes/enviar', { periodo: p }))
+  const { desde, hasta } = periodo === 'hoy' ? { desde: hoy, hasta: hoy } : rangoResumen(periodo, hoy)
   const destino = config.datos?.correoReportes
 
   const mandar = async () => {
