@@ -1,0 +1,71 @@
+/* Pantallas de Usuarios y Catálogos (administrador). Reusa variables y clases de src/styles.css.
+   Esta hoja se carga antes que styles.css: para pisar una regla global hace falta más especificidad. */
+
+.lista-cat { display: grid; gap: 0.5rem; margin-bottom: 0.75rem; }
+.fila-cat {
+  /* Nombre y acciones en la misma línea si entran; si no, las acciones bajan. Editor y avisos ocupan todo el ancho. */
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.75rem; padding: 0.6rem 0.8rem;
+  background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px;
+}
+.fila-cat > :first-child { flex: 1 1 8rem; min-width: 0; }
+.fila-cat > .acciones-cat { flex: 0 1 auto; margin-left: auto; justify-content: flex-end; }
+.fila-cat > .editor, .fila-cat > .confirmar-cat, .fila-cat > p, .fila-cat > .ancho { flex: 1 1 100%; }
+.fila-cat.inactiva { background: transparent; border-style: dashed; }
+.fila-cat.inactiva .nombre { color: var(--suave); }
+.fila-cat .cabeza { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; }
+.fila-cat .nombre { font-weight: 600; overflow-wrap: anywhere; }
+.fila-cat .detalle { color: var(--suave); font-size: 0.85rem; overflow-wrap: anywhere; }
+.fila-cat .numero-maq {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 2rem; height: 2rem; padding: 0 0.4rem;
+  border-radius: 8px; background: var(--marca-claro); font-weight: 700; font-size: 0.9rem;
+}
+
+.acciones-cat { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.25rem; margin-right: -0.4rem; }
+.acciones-cat .btn-texto { min-height: 40px; }
+@media (max-width: 480px) { .acciones-cat .btn-texto { font-size: 0.92rem; } }
+
+.etiqueta {
+  display: inline-block; font-size: 0.75rem; line-height: 1.4; padding: 0.1rem 0.55rem; border-radius: 999px;
+  background: var(--marca-claro); color: var(--texto); white-space: nowrap;
+}
+.etiqueta.apagada { background: var(--error-fondo); color: var(--error); }
+.etiqueta.aviso-clave { background: var(--aviso); }
+
+/* Edición en línea dentro de una fila o tarjeta. */
+.editor { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: end; margin-top: 0.3rem; }
+.editor .ancho { grid-column: 1 / -1; }
+.botones-cat { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; grid-column: 1 / -1; }
+.botones-cat .btn-primario { width: auto; min-height: 48px; }
+.botones-cat .btn-texto { min-height: 44px; }
+.pista-campo { font-size: 0.8rem; color: var(--suave); }
+.pista-campo.ancho { grid-column: 1 / -1; margin: 0; }
+.editor.sin-margen { margin-top: 0; }
+
+.confirmar-cat { background: var(--aviso); border-radius: 8px; padding: 0.6rem 0.8rem; display: grid; gap: 0.4rem; }
+.confirmar-cat p { margin: 0; }
+.btn-primario.peligro { background: var(--error); color: var(--superficie); border: none; }
+
+.inactivos { margin: 0.25rem 0 0.75rem; }
+.inactivos > summary { cursor: pointer; color: var(--suave); padding: 0.6rem 0; min-height: 44px; }
+.inactivos > .lista-cat { margin-top: 0.25rem; }
+
+.selector-sector { display: grid; gap: 0.3rem; margin-bottom: 0.75rem; }
+.selector-sector > span { font-size: 0.9rem; color: var(--suave); }
+.selector-sector .chips { margin: 0; }
+.selector-sector .chip { min-height: 40px; }
+
+.segmentado.pestanas-cat button { flex: 1 1 auto; }
+
+.sectores-check { display: flex; flex-wrap: wrap; gap: 0.25rem 0.9rem; }
+.sectores-check .check { min-height: 40px; }
+
+.lista-tareas { display: grid; gap: 0.4rem; margin: 0 0 0.75rem; padding: 0; list-style: none; counter-reset: tarea; }
+.lista-tareas > li { counter-increment: tarea; }
+.lista-tareas > li .nombre::before { content: counter(tarea) ". "; color: var(--suave); font-weight: 400; }
+
+.form-cat { margin-top: 0.5rem; }
+.form-cat.nueva-area, .btn-nueva-area { margin-top: 1rem; }
+.tarjeta-area { margin-top: 0.75rem; }
+.check.pide-numero { min-height: 36px; margin-top: 0.15rem; color: var(--suave); white-space: nowrap; }
+.form-cat h2 { margin-top: 0; }
+.tarjeta-area > .fila-cat { border: none; padding: 0; background: none; }

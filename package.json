@@ -1,0 +1,39 @@
+{
+  "name": "chipa-tia-is",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode demo",
+    "dev:worker": "vite build && wrangler dev",
+    "build": "tsc -b && vite build",
+    "build:pages": "tsc -b && vite build --mode demo",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "catalogo": "node scripts/generar-catalogo.ts",
+    "crear-admin": "node scripts/crear-admin.ts",
+    "db:migrar": "wrangler d1 migrations apply chipa-tia --remote",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "hono": "4.13.9",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "7.18.4",
+    "sql.js": "1.14.2",
+    "write-excel-file": "4.1.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260924.1",
+    "@types/node": "22.18.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/sql.js": "1.4.11",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.9.0",
+    "vite": "^7.1.0",
+    "wrangler": "4.139.0",
+    "vitest": "4.1.9"
+  }
+}
