@@ -1,5 +1,5 @@
 // Punto de entrada en Cloudflare Workers: /api/* va a la API de Hono; el resto son los archivos
-// de la app (dist/) que sirve Workers Assets. El cron dispara resúmenes y copias.
+// de la app (dist/) que sirve Workers Assets. Los disparadores del cron (resúmenes y copia) los resuelve tareasProgramadas.
 import { crearApp } from '../server/app'
 import type { Env } from '../server/entorno'
 import { tareasProgramadas } from '../server/programado'
@@ -26,6 +26,6 @@ export default {
     return env.ASSETS.fetch(pedido)
   },
   scheduled(evento: Programacion, env: EnvWorker, ctx: Contexto) {
-    ctx.waitUntil(tareasProgramadas(env, new Date(evento.scheduledTime)))
+    ctx.waitUntil(tareasProgramadas(env, new Date(evento.scheduledTime), evento.cron))
   },
 }

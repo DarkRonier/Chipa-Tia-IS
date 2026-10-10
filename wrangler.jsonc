@@ -20,8 +20,10 @@
     }
   ],
   "r2_buckets": [{ "binding": "ARCHIVOS", "bucket_name": "chipa-tia-archivos" }],
-  // 09:00 UTC = 06:00 en Paraguay: resumen diario siempre; semanal los lunes; mensual el día 1; copia los lunes.
-  "triggers": { "crons": ["0 9 * * *"] },
+  // Dos disparadores, para no pasar las 50 consultas a D1 por ejecución de Workers Free (ver src/server/programado.ts):
+  //  - 09:00 UTC = 06:00 en Paraguay, todos los días: resúmenes por correo (diario siempre; semanal los lunes; mensual el día 1).
+  //  - 09:30 UTC = 06:30 en Paraguay, los lunes: copia semanal de la base y borrado de sesiones vencidas.
+  "triggers": { "crons": ["0 9 * * *", "30 9 * * 1"] },
   "vars": {
     "CORREO_REMITENTE": "Chipa Tía <reportes@example.com>"
   }
