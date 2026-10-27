@@ -103,20 +103,14 @@ Si no coinciden, el disparador nuevo no hace nada.
 
 ### Límites del plan gratuito
 
-Workers Free da 10 ms de CPU por pedido. La entrada usa PBKDF2-SHA256 con 100.000 iteraciones
-(`src/server/clave.ts`, constante `ITERACIONES`). Cada contraseña guarda su número de iteraciones dentro del hash
-(`pbkdf2$iteraciones$sal$hash`).
+El sistema está pensado para el plan gratuito (Workers Free + D1: 5 GB, 5 millones de lecturas y 100.000 escrituras
+por día). Workers Free da 10 ms de CPU por pedido, así que las contraseñas usan PBKDF2-SHA256 con 10.000 iteraciones
+(`src/server/clave.ts`, constante `ITERACIONES`): con 100.000 la verificación tarda unos 60 ms y la entrada falla con
+el error 1102 ("Worker exceeded resource limits").
 
-Cómo se nota: al entrar aparece el error 1102 ("Worker exceeded resource limits").
-
-Qué hacer, una de estas dos opciones:
-
-- **Bajar las iteraciones.** Cambiar `ITERACIONES` en `src/server/clave.ts` (por ejemplo, a 50.000) y volver a publicar
-  con `npm run deploy`. Las contraseñas ya guardadas siguen funcionando, porque cada una usa el número que tiene
-  guardado. Las nuevas o las cambiadas usan el nuevo. Costo: con menos iteraciones, el hash resiste menos si alguien
-  llega a la base; por eso conviene el límite de pedidos de más abajo.
-- **Pasar a Workers Paid** (US$ 5 por mes, 30 s de CPU por pedido). Solo con aprobación del cliente. Cambia la fila
-  "Costo" de la tabla del principio.
+Si algún día se pasa a **Workers Paid** (US$ 5 por mes), conviene subir `ITERACIONES` a 100.000 y volver a publicar:
+cada contraseña guarda su número de iteraciones dentro del hash (`pbkdf2$iteraciones$sal$hash`), así que las
+guardadas siguen funcionando y las nuevas o restablecidas usan el número nuevo.
 
 Después de publicar, probar la entrada enseguida, como `admin` y como un usuario común.
 

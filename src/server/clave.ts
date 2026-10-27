@@ -1,5 +1,7 @@
-// Contraseñas con PBKDF2-SHA256 (Web Crypto). Workers limita PBKDF2 a 100.000 iteraciones.
-const ITERACIONES = 100_000
+// Contraseñas con PBKDF2-SHA256 (Web Crypto). 10.000 iteraciones: con más, verificar una contraseña pasa los
+// 10 ms de CPU por pedido de Workers Free y la entrada falla (error 1102). Cada hash guarda su número de
+// iteraciones, así que si se sube (Workers Paid permite hasta 100.000) las contraseñas guardadas siguen sirviendo.
+const ITERACIONES = 10_000
 
 const aHex = (b: ArrayBuffer | Uint8Array) =>
   [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('')
