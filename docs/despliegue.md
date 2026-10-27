@@ -14,7 +14,8 @@ Hay dos formas de publicar el sistema. Las dos usan exactamente el mismo código
 
 La demo corre la API completa dentro del navegador (SQLite en WebAssembly), con datos de ejemplo y
 usuarios `chiperia`, `chipitas`, `panaderia`, `cocina` y `admin` (contraseña `1234`). Lo que se carga queda solo
-en ese navegador; "Reiniciar datos de ejemplo" (al pie de la pantalla) vuelve al estado inicial.
+en ese navegador; para volver al estado inicial, borrar los datos del sitio en el navegador. La interfaz es la misma
+que la del sistema real y no muestra avisos de demo.
 
 1. El repositorio tiene que ser público (o la cuenta tener GitHub Pro).
 2. El workflow `.github/workflows/pages.yml` construye la demo (`npm run build:pages`) y la sube a la rama
