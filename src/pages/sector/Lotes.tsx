@@ -104,7 +104,7 @@ function FormLoteMP({ existentes }: { existentes: LoteMP[] }) {
     })
     if (lote) {
       setF((x) => ({ ...x, ...vacio }))
-      setAviso(`Listo: ${lote.descripcion} (${cantidadMP(lote)}) ya se puede elegir al registrar chipas.`)
+      setAviso(`Listo: ${lote.descripcion} (${cantidadMP(lote)}) agregado.`)
     }
   }
 
@@ -173,7 +173,7 @@ function ListaLotesMP({ lotes, esAdmin }: { lotes: LoteMP[]; esAdmin: boolean })
   const [aviso, setAviso] = useState<string | null>(null)
   const cambiar = useAccion((id: string, bloqueado: boolean) => patch<LoteMP>(`/lotes-mp/${encodeURIComponent(id)}`, { bloqueado }))
 
-  if (!lotes.length) return <p className="lot-vacio">Todavía no hay lotes de materia prima. Cargá el primero con el formulario de arriba.</p>
+  if (!lotes.length) return <p className="lot-vacio">Todavía no hay lotes de materia prima.</p>
 
   const grupos: Record<Filtro, LoteMP[]> = {
     todos: lotes,
@@ -246,7 +246,7 @@ function ListaLotesMP({ lotes, esAdmin }: { lotes: LoteMP[]; esAdmin: boolean })
                       <p>
                         {l.bloqueado
                           ? <>¿Desbloquear <strong>{l.descripcion}</strong>? Vuelve a aparecer para elegir al registrar chipas.</>
-                          : <>¿Bloquear <strong>{l.descripcion}</strong>? Ya no se va a poder elegir para producir. Queda en el historial y en la trazabilidad.</>}
+                          : <>¿Bloquear <strong>{l.descripcion}</strong>? Ya no se va a poder elegir para producir.</>}
                       </p>
                       <Aviso>{cambiar.error}</Aviso>
                       <div className="fila-acciones">
@@ -294,7 +294,7 @@ function ListaLotesChipa() {
       </div>
       <ConDatos consulta={lotes}>
         {(lista) => lista.length === 0 ? (
-          <p className="lot-vacio">No hay lotes de chipa en estas fechas. Cada amasada registrada en Producción crea su lote.</p>
+          <p className="lot-vacio">No hay lotes de chipa en estas fechas.</p>
         ) : (
           <>
             <table className="tabla lot-tabla">

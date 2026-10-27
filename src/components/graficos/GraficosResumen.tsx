@@ -27,7 +27,7 @@ export default function GraficosResumen() {
     <>
       <section className="graf-seccion" aria-labelledby="graf-historial">
         <h2 id="graf-historial">Historial</h2>
-        <p className="suave chico graf-sub">Unidades cocinadas por día en cada sector · hora de Paraguay</p>
+        <p className="suave chico graf-sub">Unidades cocinadas por día</p>
         <div className="graf-filtros">
           <Selector<Dias>
             etiqueta="Días del historial" valor={dias} onCambio={setDias}
@@ -41,7 +41,6 @@ export default function GraficosResumen() {
 
       <section className="graf-seccion" aria-labelledby="graf-comparacion">
         <h2 id="graf-comparacion">Comparación</h2>
-        <p className="suave chico graf-sub">Cada sector contra el mismo tramo del período anterior</p>
         <div className="graf-filtros">
           <Selector<TipoComparacion>
             etiqueta="Período a comparar" valor={tipo} onCambio={setTipo}

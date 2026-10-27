@@ -18,9 +18,9 @@ export const USUARIOS_DEMO = [
 ] as const
 
 export const SUCURSALES_DEMO = [
-  { id: 'suc-centro', nombre: 'Sucursal Centro (ejemplo)' },
-  { id: 'suc-ruta1', nombre: 'Sucursal Ruta 1 (ejemplo)' },
-  { id: 'suc-encarnacion', nombre: 'Sucursal Encarnación (ejemplo)' },
+  { id: 'suc-centro', nombre: 'Sucursal Centro' },
+  { id: 'suc-ruta1', nombre: 'Sucursal Ruta 1' },
+  { id: 'suc-encarnacion', nombre: 'Sucursal Encarnación' },
 ] as const
 
 // PBKDF2 es lento a propósito; en la demo todos comparten contraseña, así que se calcula una vez.

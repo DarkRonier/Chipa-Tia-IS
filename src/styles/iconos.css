@@ -16,6 +16,8 @@
 .boton-grande.con-icono .icono-caja { grid-row: 1 / span 2; }
 .boton-grande.con-icono strong { align-self: end; overflow-wrap: anywhere; }
 .boton-grande.con-icono span { align-self: start; }
+/* Sin línea de detalle, el título queda centrado junto al ícono. */
+.boton-grande.con-icono strong:last-child { grid-row: 1 / span 2; align-self: center; }
 .boton-grande.con-icono:hover .icono-caja,
 .boton-grande.con-icono:focus-visible .icono-caja { background: var(--marca); color: var(--sobre-marca); }
 

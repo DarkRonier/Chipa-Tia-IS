@@ -225,8 +225,7 @@ function ControlarTodas({ lista, alTerminar }: { lista: Limpieza[]; alTerminar: 
   return (
     <div className="tarjeta ctl-confirmar">
       <p>
-        ¿Das el visto bueno a las <strong>{n} limpiezas</strong> sin controlar de la lista? Queda tu nombre como
-        «Controlado por» en cada una.
+        ¿Das el visto bueno a las <strong>{n} limpiezas</strong> sin controlar de la lista?
       </p>
       <Aviso>{controlar.error}</Aviso>
       <div className="fila-acciones">

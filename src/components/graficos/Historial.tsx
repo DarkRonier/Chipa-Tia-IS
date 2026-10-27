@@ -128,7 +128,6 @@ export default function Historial({ serie, dias, nombre }: {
         )}
         <div className="graf-solo-voz" role="status">{anuncio}</div>
       </div>
-      <p className="chico graf-pista">Tocá o pasá el puntero sobre un día para ver lo de cada sector.</p>
       <details className="graf-tabla">
         <summary>Ver los números en una tabla</summary>
         <div className="graf-tabla-corre">

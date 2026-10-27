@@ -154,7 +154,7 @@ function Formulario() {
       </div>
 
       <p className="suave">
-        Escribí cuánto se hizo de cada producto. Lo que dejes vacío no se registra.
+        Lo que dejes vacío no se registra.
         {!!deHoy.datos?.length && (
           <>
             {' '}
@@ -167,7 +167,7 @@ function Formulario() {
       <ConDatos consulta={productos}>
         {() =>
           activos.length === 0 ? (
-            <p className="suave">Este sector no tiene productos cargados. El administrador los agrega en Catálogos.</p>
+            <p className="suave">Este sector no tiene productos cargados.</p>
           ) : (
             <>
               {activos.length > 10 && (

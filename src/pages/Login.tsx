@@ -1,10 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { esDemo } from '../cliente/api'
 import { mensajeDe } from '../cliente/consultas'
 import { useSesion } from '../cliente/sesion'
-
-const USUARIOS_DEMO = ['chiperia', 'chipitas', 'panaderia', 'cocina', 'admin']
 
 export default function Login() {
   const { entrar } = useSesion()
@@ -45,16 +42,6 @@ export default function Login() {
         {error && <p className="error" role="alert">{error}</p>}
         <button className="btn-primario" type="submit" disabled={enviando}>{enviando ? 'Entrando…' : 'Entrar'}</button>
       </form>
-      {esDemo && (
-        <div className="tarjeta suave pista">
-          <strong>Demo:</strong> la contraseña de todos es <code>1234</code>. Usuarios:{' '}
-          {USUARIOS_DEMO.map((u) => (
-            <button key={u} type="button" className="btn-texto" onClick={() => { setUsuario(u); setClave('1234') }}>
-              {u}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

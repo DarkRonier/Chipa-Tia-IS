@@ -1,6 +1,6 @@
 // Datos iniciales. El catálogo sale de las planillas en papel de Chipa Tía (productos de Cocina,
-// variedades de chipa, áreas y tareas de limpieza, equipos fríos y sus rangos). Lo marcado
-// "(ejemplo)" se reemplaza después del relevamiento; el administrador lo edita sin programar.
+// variedades de chipa, áreas y tareas de limpieza, equipos fríos y sus rangos).
+// Los productos de Chipitas, Panadería y algunos de Cocina se ajustan después del relevamiento; el administrador los edita sin programar.
 // Este archivo no importa valores de otros módulos para poder ejecutarse con Node directamente:
 // scripts/generar-catalogo.ts arma con él la migración 0002 (`npm run catalogo`).
 import type { SectorId, TipoMaquina } from '../shared/tipos'
@@ -24,11 +24,11 @@ const PRODUCTOS: Record<SectorId, string[]> = {
     'Croquete de salchicha', 'Empanada al horno (carne)', 'Empanada al horno (pollo)', 'Empanada al horno (JyQ)',
     'Empanada frita (carne)', 'Empanada frita (pollo)', 'Empanada frita (JyQ)', 'Empanada frita (choclo)',
     'Marinera de carne', 'Marinera de pollo', 'Mbeju', 'Pollo muslo (frito)', 'Sándwich de verdura',
-    'Sándwich de JyQ', 'Sándwich de milanesa', 'Sándwich de pollo', 'Sopa', 'Fugaza', 'Hamburguesa (ejemplo)',
-    'Menú buffet: plato del día (ejemplo)', 'Menú buffet: guarnición (ejemplo)',
+    'Sándwich de JyQ', 'Sándwich de milanesa', 'Sándwich de pollo', 'Sopa', 'Fugaza', 'Hamburguesa',
+    'Menú buffet: plato del día', 'Menú buffet: guarnición',
   ],
-  chipitas: ['Chipitas 100 g (ejemplo)', 'Chipitas 250 g (ejemplo)', 'Chipitas 500 g (ejemplo)'],
-  panaderia: ['Pan felipe (ejemplo)', 'Pan de leche (ejemplo)', 'Galleta (ejemplo)'],
+  chipitas: ['Chipitas 100 g', 'Chipitas 250 g', 'Chipitas 500 g'],
+  panaderia: ['Pan felipe', 'Pan de leche', 'Galleta'],
 }
 
 const MAQUINAS: [SectorId, number, string, TipoMaquina, number | null, number | null][] = [

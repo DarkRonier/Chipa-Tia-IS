@@ -128,7 +128,6 @@ export default function Comparacion({ serie, hoy, tipo, medida, nombre }: {
           </div>
         )}
       </div>
-      <p className="chico graf-pista">Se comparan tramos iguales, {tipo === 'semana' ? 'de lunes hasta el mismo día de la semana pasada' : 'del 1 hasta el mismo día del mes pasado'}. Tocá un sector para ver el detalle.</p>
       <details className="graf-tabla">
         <summary>Ver los números en una tabla</summary>
         <div className="graf-tabla-corre">

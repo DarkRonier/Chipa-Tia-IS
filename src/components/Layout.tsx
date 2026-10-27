@@ -1,6 +1,5 @@
 import { createContext, useContext, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { esDemo } from '../cliente/api'
 import { useSectores } from '../cliente/catalogo'
 import { useSesion, useUsuario } from '../cliente/sesion'
 import { SECTOR_IDS, type Sector, type SectorId } from '../shared/tipos'
@@ -30,7 +29,6 @@ export default function Layout() {
   // «Lotes» vive bajo /sector pero tiene su propia pestaña: «Vista del sector» no se marca ahí.
   const enLotes = useLocation().pathname.startsWith('/sector/lotes')
   const [elegido, setElegido] = useState<SectorId>(leerElegido)
-  const [confirmar, setConfirmar] = useState(false)
   const id: SectorId = esAdmin ? elegido : (usuario.rol as SectorId)
   const sector: Sector = sectores.lista.find((s) => s.id === id) ?? { id, nombre: '', conLotes: id === 'chiperia' }
 
@@ -43,15 +41,8 @@ export default function Layout() {
     }
   }
 
-  const reiniciar = async () => {
-    const { reiniciarDemo } = await import('../demo/servidor')
-    await reiniciarDemo()
-    location.reload()
-  }
-
   return (
     <SectorActivo.Provider value={sector}>
-      {esDemo && <div className="aviso">Demo · los datos se guardan solo en este navegador</div>}
       <header className="barra">
         <Link to="/" className="marca"><img className="logo" src="./logo.png" alt="Chipa Tía" width="50" height="40" /></Link>
         <div className="barra-der">
@@ -92,20 +83,6 @@ export default function Layout() {
       </main>
       <footer className="pie">
         {usuario.nombre}
-        {esDemo && (
-          <>
-            {' · '}
-            {confirmar ? (
-              <>
-                ¿Borrar lo cargado y volver a los datos de ejemplo?{' '}
-                <button className="btn-texto" onClick={() => void reiniciar()}>Sí, reiniciar</button>
-                <button className="btn-texto" onClick={() => setConfirmar(false)}>Cancelar</button>
-              </>
-            ) : (
-              <button className="btn-texto" onClick={() => setConfirmar(true)}>Reiniciar datos de ejemplo</button>
-            )}
-          </>
-        )}
       </footer>
     </SectorActivo.Provider>
   )

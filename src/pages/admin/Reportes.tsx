@@ -3,7 +3,7 @@
 // ?desde=…&hasta=… (si hace falta entrar primero, se recuerda el enlace hasta después del login).
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { esDemo, post } from '../../cliente/api'
+import { post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
 import { mensajeDe, useAccion, useConsulta } from '../../cliente/consultas'
 import { celdaDia, celdaFechaHora, descargarExcel, negrita, type Celda, type Hoja } from '../../cliente/excel'
@@ -175,7 +175,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
   return (
     <div aria-busy={actualizando}>
       <p className="suave rep-rango">
-        {sector ? nombre(sector) : 'Todos los sectores'} · {periodoLegible(r.desde, r.hasta)} · hora de Paraguay
+        {sector ? nombre(sector) : 'Todos los sectores'} · {periodoLegible(r.desde, r.hasta)}
         <br /><span className="chico">Generado el {fechaHoraPY(r.generadoEn)}{actualizando ? ' · actualizando…' : ''}</span>
       </p>
 
@@ -200,7 +200,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
       {excel?.estado === 'listo' && <Aviso tipo="ok">{excel.texto}</Aviso>}
       {excel?.estado === 'error' && <Aviso>{excel.texto}</Aviso>}
 
-      <Seccion titulo="Producción por producto" detalle="cocinado (venta) contra guardado (frío)">
+      <Seccion titulo="Producción por producto">
         {r.produccion.length === 0 ? <Vacio>No se cargó producción en el período.</Vacio> : (
           <>
             <Tabla etiqueta="Producción por producto" columnas={[{ titulo: 'Producto' }, { titulo: 'Cocinado', num: true }, { titulo: 'Guardado', num: true }]}>
@@ -220,12 +220,11 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
               ])}
               <tr className="rep-total"><td>Total</td><td className="num">{num(t.unidadesCocinadas)}</td><td className="num">{num(t.unidadesGuardadas)}</td></tr>
             </Tabla>
-            {(!sector || sector === 'chiperia') && <p className="suave chico">En Chipería, cocinado = al horno y guardado = al congelador.</p>}
           </>
         )}
       </Seccion>
 
-      <Seccion titulo="Stock en frío actual" detalle="lo que hay hoy, no al cierre del período">
+      <Seccion titulo="Stock en frío actual">
         {r.stock.length === 0 ? <Vacio>No hay stock en frío.</Vacio> : (
           <Tabla etiqueta="Stock en frío actual" columnas={[{ titulo: 'Producto' }, { titulo: 'Unidades', num: true }]}>
             {sectoresCon(r.stock).map(({ s, filas }) => [
@@ -258,7 +257,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
         )}
       </Seccion>
 
-      <Seccion titulo="Salidas del stock" detalle="por tipo, en unidades">
+      <Seccion titulo="Salidas del stock">
         {r.salidas.length === 0 ? <Vacio>No salió nada del frío en el período.</Vacio> : (
           <Tabla etiqueta="Salidas del stock" columnas={[{ titulo: 'Tipo' }, { titulo: 'Unidades', num: true }]}>
             {sectoresCon(r.salidas).map(({ s, filas }) => [
@@ -476,10 +475,7 @@ function ResumenPorCorreo({ verPeriodo }: { verPeriodo: (desde: string, hasta: s
     <section className="rep-seccion">
       <h2>Resumen por correo</h2>
       <div className="tarjeta">
-        <p className="rep-nota">
-          Todos los días a las 06:00 llega el resumen de ayer; los lunes, el de la semana pasada; el día 1, el del mes pasado.
-          Cada correo trae el enlace a este reporte.
-        </p>
+        <p className="rep-nota">Se envía solo a las 06:00: a diario, los lunes y el día 1 de cada mes.</p>
         <div className="segmentado chico" role="group" aria-label="Resumen a enviar">
           {PERIODOS.map(([p, t]) => (
             <button key={p} type="button" className={periodo === p ? 'activo' : ''} aria-pressed={periodo === p}
@@ -496,7 +492,6 @@ function ResumenPorCorreo({ verPeriodo }: { verPeriodo: (desde: string, hasta: s
           {config.datos === undefined ? 'Buscando el correo configurado…'
             : destino ? <>Se envía a <strong>{destino}</strong>. <Link to="/admin/datos">Cambiar</Link></>
               : <>Todavía no hay un correo para los resúmenes. <Link to="/admin/datos">Cargalo en Datos</Link>.</>}
-          {esDemo && ' En la demo no se envían correos: se muestra cómo se vería.'}
         </p>
         <button type="button" className="btn-secundario" onClick={() => void mandar()} disabled={enviar.enviando}>
           {enviar.enviando ? 'Armando el resumen…' : 'Enviar resumen de prueba'}
@@ -505,7 +500,7 @@ function ResumenPorCorreo({ verPeriodo }: { verPeriodo: (desde: string, hasta: s
         {resultado && (
           <>
             {resultado.enviado
-              ? <p className="ok" role="status">Listo: se envió «{resultado.asunto}» a {resultado.destino}. Revisá la bandeja de entrada.</p>
+              ? <p className="ok" role="status">Listo: se envió «{resultado.asunto}» a {resultado.destino}.</p>
               : <p className="rep-aviso" role="status">No se envió: {resultado.motivo}</p>}
             <p className="suave chico">Vista previa · asunto: «{resultado.asunto}»</p>
             <iframe

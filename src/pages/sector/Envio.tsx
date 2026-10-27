@@ -138,7 +138,7 @@ function Formulario() {
               </label>
               {sucursales.error && <Aviso>{sucursales.error}</Aviso>}
               {sucursales.datos && activas.length === 0 && (
-                <p className="suave chico">No hay sucursales cargadas. El administrador las agrega en Catálogos.</p>
+                <p className="suave chico">No hay sucursales cargadas.</p>
               )}
             </div>
             {lineas.map((l, i) => {

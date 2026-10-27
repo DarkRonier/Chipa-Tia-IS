@@ -110,7 +110,7 @@ function Pantalla({ sector }: { sector: SectorId }) {
       <ConDatos consulta={maquinas}>
         {(lista) =>
           lista.length === 0 ? (
-            <p className="suave">Este sector no tiene máquinas cargadas. El administrador las agrega en Catálogos.</p>
+            <p className="suave">Este sector no tiene máquinas cargadas.</p>
           ) : (
             <div className="lista">
               {lista.map((m) => {
@@ -298,7 +298,7 @@ function Formulario({ maquina, deHoy }: { maquina: Maquina; deHoy: Lectura[] | n
             <span className="ctl-unidad">°C</span>
           </div>
           {fuera && t !== null && (
-            <p className="error ctl-aviso" role="alert">{grados(t)} está fuera de rango ({textoRango(maquina)}): el reporte queda marcado en rojo.</p>
+            <p className="error ctl-aviso" role="alert">{grados(t)} está fuera de rango ({textoRango(maquina)}).</p>
           )}
         </div>
       )}
