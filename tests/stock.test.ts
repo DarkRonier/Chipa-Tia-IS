@@ -68,7 +68,7 @@ describe('planilla de comprobación D01–D07', () => {
     expect(envio.body.envioId).toBeTruthy()
     expect(envio.body.movimientos).toHaveLength(1)
     expect(envio.body.movimientos[0]).toMatchObject({
-      tipo: 'envio', cantidad: -2, sucursalId: 'suc-centro', sucursalNombre: 'Sucursal Centro (ejemplo)',
+      tipo: 'envio', cantidad: -2, sucursalId: 'suc-centro', sucursalNombre: 'Sucursal Centro',
       envioId: envio.body.envioId, productoNombre: 'Empanada frita (carne)', usuarioNombre: 'Encargado Cocina', dia: diaPY(),
     })
     expect((await stockDe(p, cocina, EMPANADA))?.total).toBe(3)
@@ -296,7 +296,7 @@ describe('POST /envios (D03, D04, E05)', () => {
     const casos: [unknown, string][] = [
       [{ items: linea }, 'Elegí la sucursal.'],
       [{ sucursalId: 'suc-nada', items: linea }, 'Esa sucursal no existe. Recargá la página y probá de nuevo.'],
-      [{ sucursalId: 'suc-encarnacion', items: linea }, 'La sucursal Sucursal Encarnación (ejemplo) está desactivada. Elegí otra.'],
+      [{ sucursalId: 'suc-encarnacion', items: linea }, 'La sucursal Sucursal Encarnación está desactivada. Elegí otra.'],
       [{ sucursalId: 'suc-centro' }, 'Cargá al menos un producto para enviar.'],
       [{ sucursalId: 'suc-centro', items: [] }, 'Cargá al menos un producto para enviar.'],
       [{ sucursalId: 'suc-centro', items: [{ productoId: EMPANADA, cantidad: 0 }] }, 'Cargá una cantidad mayor que cero.'],
@@ -335,7 +335,7 @@ describe('POST /envios (D03, D04, E05)', () => {
     expect(otra.status).toBe(409)
     expect(otra.body.error.mensaje).toBe('No hay stock de Chipa tradicional del lote CH-261009-2.')
     const historial = await p.pedir<Movimiento[]>(t, 'GET', '/movimientos?lote=CH-261009-1&tipo=envio')
-    expect(historial.body.map((m) => [m.sucursalNombre, m.cantidad])).toEqual([['Sucursal Centro (ejemplo)', -100]])
+    expect(historial.body.map((m) => [m.sucursalNombre, m.cantidad])).toEqual([['Sucursal Centro', -100]])
   })
 })
 
@@ -442,7 +442,7 @@ describe('GET /movimientos (D05)', () => {
     expect(todos.map((m) => m.dia)).toEqual([...todos.map((m) => m.dia)].sort().reverse())
 
     const centro = await pedir('?sucursal=suc-centro&desde=2026-10-03&hasta=2026-10-04')
-    expect(centro.map((m) => [m.productoId, m.cantidad, m.sucursalNombre])).toEqual([[MARINERA, -7, 'Sucursal Centro (ejemplo)']])
+    expect(centro.map((m) => [m.productoId, m.cantidad, m.sucursalNombre])).toEqual([[MARINERA, -7, 'Sucursal Centro']])
     expect((await pedir('?sucursal=suc-centro')).map((m) => m.cantidad)).toEqual([-7, -5])
     expect((await pedir('?producto=prod-cocina-10&tipo=envio')).map((m) => m.cantidad)).toEqual([-6, -5])
     expect((await pedir('?tipo=salida_venta,merma')).map((m) => [m.tipo, m.motivo, m.usuarioNombre])).toEqual([

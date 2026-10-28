@@ -22,10 +22,6 @@ export default function Usuarios() {
   return (
     <>
       <h1>Usuarios</h1>
-      <p className="suave chico">
-        Hay 5 roles: uno por cada sector ({sectores.lista.map((s) => s.nombre).join(', ')}) y el administrador.
-        Cada encargado ve y carga solo los datos de su sector.
-      </p>
       <ConDatos consulta={consulta}>
         {(lista) => (
           // Una sola lista (activos primero, como la ordena la API): al activar o desactivar la fila no se rearma.
@@ -133,7 +129,7 @@ function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolText
             </select>
           </label>
           {esYo && <p className="pista-campo ancho">No podés quitarte el rol de administrador.</p>}
-          {!esYo && rol !== u.rol && <p className="pista-campo ancho">Al cambiarle el rol se cierra su sesión y vuelve a entrar con el sector nuevo.</p>}
+          {!esYo && rol !== u.rol && <p className="pista-campo ancho">Al cambiarle el rol se cierra su sesión.</p>}
           <div className="botones-cat">
             <button className="btn-primario" disabled={enviando}>{enviando ? 'Guardando…' : 'Guardar'}</button>
             <button type="button" className="btn-texto" onClick={() => abrir(null)}>Cancelar</button>
@@ -155,7 +151,7 @@ function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolText
               spellCheck={false}
               minLength={CLAVE_MINIMA}
             />
-            <span className="pista-campo">Mínimo {CLAVE_MINIMA} caracteres. Pasásela a la persona{u.rol === 'admin' ? ': al entrar la va a tener que cambiar' : ''}. Se cierra su sesión abierta.</span>
+            <span className="pista-campo">Mínimo {CLAVE_MINIMA} caracteres. Se cierra su sesión abierta.</span>
           </label>
           <div className="botones-cat">
             <button className="btn-primario" disabled={enviando || clave.length < CLAVE_MINIMA}>
@@ -168,7 +164,7 @@ function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolText
 
       {modo === 'desactivar' && (
         <div className="confirmar-cat">
-          <p>¿Desactivar a <strong>{u.nombre}</strong>? No va a poder entrar y se cierra su sesión. Lo que cargó queda en el historial.</p>
+          <p>¿Desactivar a <strong>{u.nombre}</strong>? No va a poder entrar; lo que cargó queda en el historial.</p>
           <div className="botones-cat">
             <button type="button" className="btn-primario peligro" disabled={enviando} onClick={() => void activar(false)}>
               {enviando ? 'Desactivando…' : 'Sí, desactivar'}
@@ -197,7 +193,7 @@ function NuevoUsuario({ rolTexto }: { rolTexto: NombreDeRol }) {
     setCreado(null)
     const u = await crear.ejecutar()
     if (u) {
-      setCreado(`Usuario ${u.usuario} creado (${rolTexto(u.rol)}). Entra con la contraseña que le diste${u.rol === 'admin' ? ' y al entrar la cambia' : ''}.`)
+      setCreado(`Usuario ${u.usuario} creado (${rolTexto(u.rol)}).`)
       setNombre('')
       setUsuario('')
       setRol('')

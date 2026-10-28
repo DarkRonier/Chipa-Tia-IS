@@ -14,7 +14,8 @@ Hay dos formas de publicar el sistema. Las dos usan exactamente el mismo código
 
 La demo corre la API completa dentro del navegador (SQLite en WebAssembly), con datos de ejemplo y
 usuarios `chiperia`, `chipitas`, `panaderia`, `cocina` y `admin` (contraseña `1234`). Lo que se carga queda solo
-en ese navegador; "Reiniciar datos de ejemplo" (al pie de la pantalla) vuelve al estado inicial.
+en ese navegador; para volver al estado inicial, borrar los datos del sitio en el navegador. La interfaz es la misma
+que la del sistema real y no muestra avisos de demo.
 
 1. El repositorio tiene que ser público (o la cuenta tener GitHub Pro).
 2. El workflow `.github/workflows/pages.yml` construye la demo (`npm run build:pages`) y la sube a la rama
@@ -26,13 +27,35 @@ en ese navegador; "Reiniciar datos de ejemplo" (al pie de la pantalla) vuelve al
 
 Las cuentas se crean a nombre de Chipa Tía EAS (sección 7 del presupuesto).
 
+### Publicación automática desde GitHub (recomendada)
+
+El workflow `.github/workflows/cloudflare.yml` publica el sistema en cada push a `main`: corre las pruebas,
+crea la base D1 y el bucket R2 si no existen, aplica las migraciones y publica el Worker. Una sola vez:
+
+1. Crear la cuenta de Cloudflare y activar R2 (**R2 Object Storage → Activar**; el plan gratuito alcanza).
+2. Crear un token en **My Profile → API Tokens → Create Token → plantilla "Edit Cloudflare Workers"**, agregándole
+   el permiso **Account → D1 → Edit**. Copiar también el **Account ID** (aparece en la página de inicio de Workers).
+3. En GitHub, **Settings → Secrets and variables → Actions**:
+   - *Secrets*: `CLOUDFLARE_API_TOKEN` (el token), `ADMIN_CLAVE_INICIAL` (contraseña inicial del admin, mínimo 6
+     caracteres) y, para los correos, `RESEND_API_KEY`.
+   - *Variables*: `CLOUDFLARE_ACCOUNT_ID` y, para los correos, `CORREO_REMITENTE` (por ejemplo
+     `Chipa Tía <reportes@chipatia.com>`).
+4. **Actions → Publicar en Cloudflare → Run workflow**, marcando "Crear o reiniciar el usuario admin". Queda en
+   `https://chipa-tia.<subdominio>.workers.dev` hasta conectar el dominio. El admin entra con `ADMIN_CLAVE_INICIAL`
+   y elige su propia contraseña.
+
+Sin `CLOUDFLARE_ACCOUNT_ID` el workflow no hace nada. Para reiniciar la contraseña del admin, cambiar el secreto y
+volver a correrlo con la casilla marcada.
+
+### Publicación a mano
+
 ```bash
 npm install
 npx wrangler login                          # con la cuenta de Cloudflare de Chipa Tía
 npx wrangler d1 create chipa-tia            # copiar el database_id que devuelve a wrangler.jsonc
 npx wrangler r2 bucket create chipa-tia-archivos
 npm run db:migrar                           # crea las tablas y el catálogo inicial (migrations/)
-npm run crear-admin -- 'una-clave-segura' --remoto   # usuario "admin"; pide cambiarla al entrar
+npm run crear-admin -- 'una-clave-segura' --remoto   # usuario "admin"; elige la suya al entrar
 npx wrangler secret put RESEND_API_KEY      # clave de Resend para los correos (H04)
 npm run deploy                              # compila y publica el Worker con la app
 ```
@@ -40,7 +63,8 @@ npm run deploy                              # compila y publica el Worker con la
 Después, entrando como `admin`:
 
 - **Datos → Configuración**: correo que recibe los resúmenes y la dirección pública del sistema (para el enlace del correo).
-- **Usuarios**: crear un usuario por sector con contraseña inicial (cada uno la cambia al entrar).
+- **Usuarios**: crear un usuario por sector con su contraseña. Solo el administrador cambia contraseñas: si alguien
+  la olvida, se la restablece desde Usuarios.
 - **Catálogos**: ajustar productos, máquinas y rangos, áreas y tareas de limpieza y sucursales según el relevamiento.
 - **Stock**: cargar el stock en frío existente como "Stock inicial" (D07).
 
@@ -80,20 +104,14 @@ Si no coinciden, el disparador nuevo no hace nada.
 
 ### Límites del plan gratuito
 
-Workers Free da 10 ms de CPU por pedido. La entrada usa PBKDF2-SHA256 con 100.000 iteraciones
-(`src/server/clave.ts`, constante `ITERACIONES`). Cada contraseña guarda su número de iteraciones dentro del hash
-(`pbkdf2$iteraciones$sal$hash`).
+El sistema está pensado para el plan gratuito (Workers Free + D1: 5 GB, 5 millones de lecturas y 100.000 escrituras
+por día). Workers Free da 10 ms de CPU por pedido, así que las contraseñas usan PBKDF2-SHA256 con 10.000 iteraciones
+(`src/server/clave.ts`, constante `ITERACIONES`): con 100.000 la verificación tarda unos 60 ms y la entrada falla con
+el error 1102 ("Worker exceeded resource limits").
 
-Cómo se nota: al entrar aparece el error 1102 ("Worker exceeded resource limits").
-
-Qué hacer, una de estas dos opciones:
-
-- **Bajar las iteraciones.** Cambiar `ITERACIONES` en `src/server/clave.ts` (por ejemplo, a 50.000) y volver a publicar
-  con `npm run deploy`. Las contraseñas ya guardadas siguen funcionando, porque cada una usa el número que tiene
-  guardado. Las nuevas o las cambiadas usan el nuevo. Costo: con menos iteraciones, el hash resiste menos si alguien
-  llega a la base; por eso conviene el límite de pedidos de más abajo.
-- **Pasar a Workers Paid** (US$ 5 por mes, 30 s de CPU por pedido). Solo con aprobación del cliente. Cambia la fila
-  "Costo" de la tabla del principio.
+Si algún día se pasa a **Workers Paid** (US$ 5 por mes), conviene subir `ITERACIONES` a 100.000 y volver a publicar:
+cada contraseña guarda su número de iteraciones dentro del hash (`pbkdf2$iteraciones$sal$hash`), así que las
+guardadas siguen funcionando y las nuevas o restablecidas usan el número nuevo.
 
 Después de publicar, probar la entrada enseguida, como `admin` y como un usuario común.
 

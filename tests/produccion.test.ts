@@ -6,7 +6,7 @@ import { nuevaPrueba, type Prueba } from './ayuda'
 
 const EMPANADA = 'prod-cocina-10' // Empanada frita (carne)
 const MARINERA = 'prod-cocina-14' // Marinera de carne
-const HAMBURGUESA = 'prod-cocina-24' // Hamburguesa (ejemplo)
+const HAMBURGUESA = 'prod-cocina-24' // Hamburguesa
 const CHIPA = 'prod-chiperia-01' // Chipa tradicional
 const QUESU = 'prod-chiperia-03' // Chipa quesú
 
@@ -62,7 +62,7 @@ describe('registrar producción (C01–C03)', () => {
     expect(r.body.items).toEqual([
       { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 30, guardado: 8 },
       { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0 },
-      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa (ejemplo)', cocinado: 3, guardado: 0 },
+      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0 },
     ])
     const lista = await p.pedir<Produccion[]>(t, 'GET', '/producciones')
     expect(lista.body).toHaveLength(1)
@@ -328,7 +328,7 @@ describe('corrección del administrador (C04)', () => {
     expect(r.body.items).toEqual([
       { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 32, guardado: 6 },
       { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0 },
-      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa (ejemplo)', cocinado: 3, guardado: 0 },
+      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0 },
     ])
 
     const ajustes = await p.sql("SELECT * FROM movimientos WHERE tipo = 'ajuste'")

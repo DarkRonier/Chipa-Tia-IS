@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { useSectores } from '../../cliente/catalogo'
 import { useConsulta } from '../../cliente/consultas'
 import { Aviso, Cargando, ConDatos } from '../../components/Estado'
+import GraficosResumen from '../../components/graficos/GraficosResumen'
 import { Icono, type NombreIcono } from '../../components/Iconos'
 import { diaDeSemana, diaLegible, diaPY, fechaHoraPY } from '../../shared/hora'
 import { NOMBRE_ESTADO, type Limpieza, type Reporte, type SectorId } from '../../shared/tipos'
@@ -17,13 +18,13 @@ const num = (n: number) => n.toLocaleString('es-PY')
 const grados = (t: number | null) => (t === null ? '—' : `${String(t).replace('.', ',').replace('-', '−')} °C`)
 const hora = (iso: string) => fechaHoraPY(iso).slice(11)
 
-const ATAJOS: [string, NombreIcono, string, string][] = [
-  ['/admin/reportes', 'reportes', 'Reportes', 'Por fechas, Excel y resumen por correo'],
-  ['/admin/registros', 'registros', 'Producción', 'Registros y correcciones'],
-  ['/admin/stock', 'ajustes', 'Stock', 'Stock en frío, mermas y ajustes'],
-  ['/admin/controles', 'controles', 'Limpieza y temperatura', 'Visto bueno y lecturas'],
-  ['/sector/lotes', 'lotes', 'Lotes', 'Materia prima y lotes de chipa'],
-  ['/admin/datos', 'datos', 'Datos', 'Excel completo, copias y configuración'],
+const ATAJOS: [string, NombreIcono, string][] = [
+  ['/admin/reportes', 'reportes', 'Reportes'],
+  ['/admin/registros', 'registros', 'Producción'],
+  ['/admin/stock', 'ajustes', 'Stock'],
+  ['/admin/controles', 'controles', 'Limpieza y temperatura'],
+  ['/sector/lotes', 'lotes', 'Lotes'],
+  ['/admin/datos', 'datos', 'Datos'],
 ]
 
 export default function Resumen() {
@@ -36,7 +37,7 @@ export default function Resumen() {
     <div className="rep-pagina">
       <IrAlEnlacePendiente />
       <h1>Resumen</h1>
-      <p className="suave rep-rango">Hoy, {DIAS[diaDeSemana(hoy)].toLowerCase()} {diaLegible(hoy)} · todos los sectores · hora de Paraguay</p>
+      <p className="suave rep-rango">Hoy, {DIAS[diaDeSemana(hoy)].toLowerCase()} {diaLegible(hoy)} · todos los sectores</p>
       <ConDatos consulta={reporte}>
         {(r) => (
           <>
@@ -73,11 +74,13 @@ export default function Resumen() {
         )}
       </ConDatos>
 
+      <GraficosResumen />
+
       <h2>Accesos rápidos</h2>
       <div className="grilla-botones con-iconos">
-        {ATAJOS.map(([a, i, t, d]) => (
+        {ATAJOS.map(([a, i, t]) => (
           <Link key={a} to={a} className="boton-grande con-icono">
-            <div className="icono-caja"><Icono nombre={i} /></div><strong>{t}</strong><span>{d}</span>
+            <div className="icono-caja"><Icono nombre={i} /></div><strong>{t}</strong>
           </Link>
         ))}
       </div>
@@ -126,7 +129,7 @@ function Alertas({ r, pendientes, nombre }: {
     items.push(
       <Link key="pendientes" to="/admin/controles" className="item">
         <strong>{lista.length === 1 ? '1 limpieza espera el visto bueno' : `${num(lista.length)} limpiezas esperan el visto bueno`}</strong>
-        <span className="chico">{masVieja < diaPY() ? `La más vieja es del ${diaLegible(masVieja)}.` : 'Todas de hoy.'} Tocá para controlarlas.</span>
+        <span className="chico">{masVieja < diaPY() ? `La más vieja es del ${diaLegible(masVieja)}.` : 'Todas de hoy.'}</span>
       </Link>,
     )
   }

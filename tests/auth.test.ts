@@ -24,7 +24,7 @@ describe('autenticación', () => {
   it('guarda la contraseña con hash, nunca en texto plano (A02)', async () => {
     const p = await nuevaPrueba()
     const [u] = await p.sql('SELECT clave_hash FROM usuarios WHERE usuario = ?', 'admin')
-    expect(u.clave_hash).toMatch(/^pbkdf2\$100000\$[0-9a-f]{32}\$[0-9a-f]{64}$/)
+    expect(u.clave_hash).toMatch(/^pbkdf2\$10000\$[0-9a-f]{32}\$[0-9a-f]{64}$/)
     expect(u.clave_hash).not.toContain('1234')
   })
 

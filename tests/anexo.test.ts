@@ -24,7 +24,7 @@ const EMPANADA = 'prod-cocina-10' // Empanada frita (carne)
 const MARINERA = 'prod-cocina-14' // Marinera de carne
 const CROQUETE = 'prod-cocina-04' // Croquete de carne
 const CHIPA = 'prod-chiperia-01' // Chipa tradicional
-const PAN = 'prod-panaderia-01' // Pan felipe (ejemplo)
+const PAN = 'prod-panaderia-01' // Pan felipe
 const HORNO_COCINA = 'maq-cocina-5' // Horno: tipo «otra», sin temperatura
 
 // JPEG mínimo de 1×1 px (válido) como data URL: la foto ya achicada que manda el navegador.
@@ -582,7 +582,7 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     const rep = r.body
     expect(rep.produccion.map((f) => [f.sector, f.productoNombre, f.cocinado, f.guardado])).toEqual([
       ['chiperia', 'Chipa tradicional', 200, 300],
-      ['panaderia', 'Pan felipe (ejemplo)', 40, 0],
+      ['panaderia', 'Pan felipe', 40, 0],
       ['cocina', 'Empanada frita (carne)', 30, 8],
       ['cocina', 'Marinera de carne', 14, 0],
       ['cocina', 'Hamburguesa casera', 3, 0],

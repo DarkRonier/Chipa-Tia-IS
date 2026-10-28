@@ -221,7 +221,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
     setOk(null)
     const p = await crear.ejecutar()
     if (p) {
-      setOk(`«${p.nombre}» agregado a ${nombreSector}. Ya aparece al cargar producción.`)
+      setOk(`«${p.nombre}» agregado a ${nombreSector}.`)
       setNombre('')
       setUnidad('')
     }
@@ -229,7 +229,6 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
 
   return (
     <>
-      <p className="suave chico">Productos que el sector elige al cargar producción. Desactivar lo saca de esa lista; el historial lo sigue mostrando.</p>
       <ConDatos consulta={c}>
         {(lista) => (
           <ListaConInactivos
@@ -336,9 +335,6 @@ function CamposMaquina({ d, set, conNumero, siguiente }: {
             <span>T° máxima °C (vacío = sin máximo)</span>
             <input type="number" step="any" value={d.max} onChange={(e) => set({ ...d, max: e.target.value })} />
           </label>
-          <p className="pista-campo ancho">
-            Ejemplos: heladera 1 a 5 · freezer: mínima vacía y máxima −18 · bufetera caliente: mínima 63 y máxima vacía.
-          </p>
         </>
       )}
     </>
@@ -364,7 +360,6 @@ function Maquinas({ sector, nombreSector }: { sector: SectorId; nombreSector: st
 
   return (
     <>
-      <p className="suave chico">Máquinas a las que el sector les toma la temperatura, con su rango aceptable. Fuera de ese rango, la lectura queda marcada.</p>
       <ConDatos consulta={c}>
         {(lista) => (
           <ListaConInactivos
@@ -450,7 +445,6 @@ function Limpieza({ sector, sectores }: { sector: SectorId; sectores: Sector[] }
 
   return (
     <>
-      <p className="suave chico">Áreas y tareas de las planillas de limpieza. El sector ve las tareas activas en este orden al reportar una limpieza.</p>
       <ConDatos consulta={c}>
         {(areas) => {
           if (!areas.length) return <p className="suave">Este sector no tiene áreas de limpieza.</p>
@@ -681,13 +675,12 @@ function Sucursales() {
     setOk(null)
     const s = await crear.ejecutar()
     if (s) {
-      setOk(`«${s.nombre}» agregada. Ya aparece como destino al registrar un envío.`)
+      setOk(`«${s.nombre}» agregada.`)
       setNombre('')
     }
   }
   return (
     <>
-      <p className="suave chico">Destinos de los envíos, para todos los sectores.</p>
       <ConDatos consulta={c}>
         {(lista) => (
           <ListaConInactivos
@@ -723,7 +716,6 @@ function Sectores() {
   const c = useConsulta<Sector[]>('/sectores')
   return (
     <>
-      <p className="suave chico">Los cuatro sectores son fijos (cada uno es un rol). Acá solo cambiás el nombre que se ve en el sistema.</p>
       <ConDatos consulta={c}>
         {(lista) => (
           <div className="lista-cat">

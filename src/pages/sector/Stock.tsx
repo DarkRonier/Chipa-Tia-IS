@@ -66,11 +66,10 @@ export default function Stock() {
       <ConDatos consulta={stock}>
         {(filas) => (
           <>
-            {conLotes && <p className="suave chico">Debajo de cada producto, lo que queda de cada lote, del más viejo al más nuevo.</p>}
             <TablaStock filas={filas} conLotes={conLotes} />
             <div className="stk-atajos">
-              <Link className="boton-grande" to="/sector/salida"><strong>Sacar para la venta</strong><span>Descuenta del stock</span></Link>
-              <Link className="boton-grande" to="/sector/envio"><strong>Envío a sucursal</strong><span>Productos, cantidades y lote</span></Link>
+              <Link className="boton-grande" to="/sector/salida"><strong>Sacar para la venta</strong></Link>
+              <Link className="boton-grande" to="/sector/envio"><strong>Envío a sucursal</strong></Link>
             </div>
           </>
         )}

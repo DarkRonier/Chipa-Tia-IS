@@ -99,7 +99,7 @@ function Pantalla({ sector, nombreSector }: { sector: SectorId; nombreSector: st
       <ConDatos consulta={areas}>
         {(lista) => {
           if (lista.length === 0) {
-            return <p className="suave">Este sector no tiene áreas de limpieza cargadas. El administrador las agrega en Catálogos.</p>
+            return <p className="suave">Este sector no tiene áreas de limpieza cargadas.</p>
           }
           const area = lista.find((a) => a.id === areaId) ?? lista[0]
           const empezadas = (id: string) => Object.keys(borradores[id]?.marcas ?? {}).length > 0
@@ -191,7 +191,7 @@ function Planilla({ area, sector, borrador, cambiar }: {
     void enviar()
   }
 
-  if (tareas.length === 0) return <p className="suave">Esta área no tiene tareas para marcar. El administrador las agrega en Catálogos.</p>
+  if (tareas.length === 0) return <p className="suave">Esta área no tiene tareas para marcar.</p>
 
   const enviando = guardarLimpieza.enviando
   const mensaje = guardarLimpieza.error
@@ -251,7 +251,6 @@ function Planilla({ area, sector, borrador, cambiar }: {
           }}
         />
       </label>
-      <p className="suave chico">La fecha, la hora, el sector y tu usuario se guardan solos.</p>
       <div className="accion-fija">
         <div className="ctl-barra">
           {avisoFaltan && faltan.length > 0 && (

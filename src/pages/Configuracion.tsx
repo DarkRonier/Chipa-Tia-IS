@@ -9,12 +9,13 @@ type Tema = 'claro' | 'oscuro' | 'sistema'
 const CLAVE_TEMA = 'chipa-tia-tema'
 const COLOR_BARRA = { light: '#b8001a', dark: '#c8102e' }
 
+/** Sin elección guardada el tema es claro (también lo aplica el script de index.html antes del primer render). */
 function leerTema(): Tema {
   try {
     const v = localStorage.getItem(CLAVE_TEMA)
-    return v === 'claro' || v === 'oscuro' ? v : 'sistema'
+    return v === 'oscuro' || v === 'sistema' ? v : 'claro'
   } catch {
-    return 'sistema'
+    return 'claro'
   }
 }
 
@@ -34,17 +35,17 @@ const icono = (trazo: ReactNode) => (
   </svg>
 )
 
-const OPCIONES: { valor: Tema; nombre: string; detalle: string; icono: ReactNode }[] = [
+const OPCIONES: { valor: Tema; nombre: string; icono: ReactNode }[] = [
   {
-    valor: 'claro', nombre: 'Claro', detalle: 'Fondo claro, el de siempre.',
+    valor: 'claro', nombre: 'Claro',
     icono: icono(<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>),
   },
   {
-    valor: 'oscuro', nombre: 'Oscuro', detalle: 'Fondo oscuro, más cómodo con poca luz.',
+    valor: 'oscuro', nombre: 'Oscuro',
     icono: icono(<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />),
   },
   {
-    valor: 'sistema', nombre: 'Como el celular', detalle: 'Sigue el modo claro u oscuro del aparato.',
+    valor: 'sistema', nombre: 'Como el celular',
     icono: icono(<><rect x="7" y="2" width="10" height="20" rx="2" /><path d="M11 18h2" /></>),
   },
 ]
@@ -57,8 +58,7 @@ export default function Configuracion() {
     setTema(t)
     aplicarTema(t)
     try {
-      if (t === 'sistema') localStorage.removeItem(CLAVE_TEMA)
-      else localStorage.setItem(CLAVE_TEMA, t)
+      localStorage.setItem(CLAVE_TEMA, t)
     } catch {
       // sin almacenamiento: el tema vale hasta que se cierre la pestaña
     }
@@ -74,10 +74,7 @@ export default function Configuracion() {
             <label key={o.valor} className="opcion-tema">
               <input type="radio" name="tema" checked={tema === o.valor} onChange={() => elegir(o.valor)} />
               {o.icono}
-              <span>
-                {o.nombre}
-                <small>{o.detalle}</small>
-              </span>
+              <span>{o.nombre}</span>
             </label>
           ))}
         </fieldset>

@@ -18,10 +18,10 @@ const MOTIVO_INICIAL = 'Stock existente al empezar a usar el sistema'
 const RECIENTES = 15
 
 const AYUDA: Record<TipoAjuste, string> = {
-  merma: 'Se rompió, se cayó o no sirve: resta del stock.',
-  vencimiento: 'Se venció: resta del stock.',
-  ajuste: 'Corrige el stock después de un conteo: suma o resta.',
-  stock_inicial: 'Lo que ya había en frío al empezar a usar el sistema: suma al stock.',
+  merma: 'Resta del stock.',
+  vencimiento: 'Resta del stock.',
+  ajuste: 'Corrige el stock: suma o resta.',
+  stock_inicial: 'Suma al stock lo que ya había.',
 }
 
 const EJEMPLO_MOTIVO: Record<TipoAjuste, string> = {
@@ -173,7 +173,7 @@ function Pantalla() {
       <h2>Últimos ajustes · {nombre}</h2>
       <ConDatos consulta={recientes}>
         {(lista) => lista.length === 0 ? (
-          <p className="suave">Todavía no hay mermas, vencimientos, ajustes ni stock inicial en este sector.</p>
+          <p className="suave">Todavía no hay ajustes en este sector.</p>
         ) : (
           <>
             <TablaMovimientos movimientos={lista.slice(0, RECIENTES)} />

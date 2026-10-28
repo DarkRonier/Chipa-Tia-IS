@@ -4,9 +4,9 @@ Web app para que cada sector de Chipa Tía (Chipería, Chipitas, Panadería y Co
 producción, el stock en frío, los envíos a sucursales, las máquinas y la limpieza, y para que el
 administrador vea reportes, los exporte a Excel y los reciba por correo. Reemplaza las planillas en papel.
 
-- **Demo**: https://darkronier.github.io/Chipa-Tia-IS/ (usuarios `chiperia`, `chipitas`, `panaderia`, `cocina`,
-  `admin`; contraseña `1234`; los datos quedan solo en tu navegador).
-- **Puesta en línea** en Cloudflare: [docs/despliegue.md](docs/despliegue.md).
+- **Sistema**: Cloudflare Workers + D1 (plan gratuito), publicado desde GitHub Actions en cada push a `main`:
+  [docs/despliegue.md](docs/despliegue.md).
+- **Vista previa**: https://darkronier.github.io/Chipa-Tia-IS/ (con datos de prueba que quedan solo en el navegador).
 - **API**: [docs/api.md](docs/api.md).
 
 ## Qué hace
@@ -27,9 +27,9 @@ administrador vea reportes, los exporte a Excel y los reciba por correo. Reempla
 
 ```bash
 npm install
-npm run dev          # app + API dentro del navegador, con datos de ejemplo
+npm run dev          # app + API dentro del navegador, con datos de prueba
 npm test             # pruebas de la API
-npm run build:pages  # build de la demo para GitHub Pages
+npm run build:pages  # build de la vista previa para GitHub Pages
 npm run deploy       # build y publicación en Cloudflare Workers
 ```
 

@@ -1,7 +1,7 @@
 // I01–I05: descargar todos los datos en Excel, configurar los correos de resumen, copias de seguridad
 // y registro de cambios del administrador (auditoría).
 import { useEffect, useState, type FormEvent } from 'react'
-import { esDemo, get, patch, post } from '../../cliente/api'
+import { get, patch, post } from '../../cliente/api'
 import { mensajeDe, useAccion, useConsulta } from '../../cliente/consultas'
 import { celdaDeValor, descargarExcel, descargarTexto, negrita, type Hoja } from '../../cliente/excel'
 import { Aviso, ConDatos } from '../../components/Estado'
@@ -91,10 +91,7 @@ function Exportar() {
     <section className="rep-seccion">
       <h2>Todos los datos</h2>
       <div className="tarjeta">
-        <p className="rep-nota">
-          Un Excel con una hoja por tabla: producción, stock, lotes, temperaturas, limpiezas, catálogos, usuarios
-          (sin contraseñas) y el registro de cambios. Las fechas y horas están en hora de Paraguay.
-        </p>
+        <p className="rep-nota">Un Excel con una hoja por tabla, sin contraseñas.</p>
         <button type="button" className="btn-primario" onClick={() => void descargar()} disabled={estado?.tipo === 'armando'}>
           {estado?.tipo === 'armando' ? estado.texto : 'Descargar todos los datos en Excel'}
         </button>
@@ -163,7 +160,7 @@ function FormularioConfig({ actual }: { actual: Configuracion }) {
           value={url} onChange={(e) => { setUrl(e.target.value); setGuardado(false) }}
         />
         <span className="chico suave">
-          Es la que se abre en el navegador; el enlace del correo lleva al reporte completo.{' '}
+          Se usa en el enlace de los correos.{' '}
           {url.trim() !== estaPagina && (
             <button type="button" className="btn-texto" onClick={() => { setUrl(estaPagina); setGuardado(false) }}>Usar la de esta página</button>
           )}
@@ -212,15 +209,7 @@ function Copias() {
     <section className="rep-seccion">
       <h2>Copias de seguridad</h2>
       <div className="tarjeta">
-        <p className="rep-nota">
-          <strong>Últimos 7 días:</strong> Cloudflare guarda cada cambio y la base se puede volver a cualquier minuto
-          de la última semana (D1 Time Travel; los pasos están en la guía de puesta en línea, docs/despliegue.md).
-        </p>
-        <p className="rep-nota">
-          <strong>Copia semanal:</strong> todos los lunes a las 06:00 se guarda aparte una copia completa, para errores
-          que se descubran más tarde. También podés hacer una ahora y bajarla.
-          {esDemo && ' En la demo las copias quedan en este navegador.'}
-        </p>
+        <p className="rep-nota">Copia automática los lunes a las 06:00. También podés hacer una ahora.</p>
         <button type="button" className="btn-secundario" onClick={() => void hacerAhora()} disabled={hacer.enviando}>
           {hacer.enviando ? 'Haciendo la copia…' : 'Hacer copia ahora'}
         </button>
@@ -382,7 +371,6 @@ function RegistroDeCambios() {
   return (
     <section className="rep-seccion">
       <h2>Registro de cambios</h2>
-      <p className="rep-nota">Correcciones, ajustes, bloqueos y cambios de catálogos y usuarios hechos por el administrador.</p>
       <div className="tarjeta rep-fechas">
         <label className="campo"><span>Desde</span><input type="date" value={desde} max={hoy} onChange={(e) => setDesde(e.target.value)} /></label>
         <label className="campo"><span>Hasta</span><input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>

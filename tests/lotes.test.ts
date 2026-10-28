@@ -111,12 +111,12 @@ describe('planilla de comprobación E01, E05–E07', () => {
     expect(ida.body.lotesChipa.map((l) => l.codigo)).toEqual(['CH-261010-1'])
     expect(ida.body.envios).toHaveLength(1)
     expect(ida.body.envios[0]).toMatchObject({
-      tipo: 'envio', lote: 'CH-261010-1', cantidad: -100, sucursalId: 'suc-centro', sucursalNombre: 'Sucursal Centro (ejemplo)',
+      tipo: 'envio', lote: 'CH-261010-1', cantidad: -100, sucursalId: 'suc-centro', sucursalNombre: 'Sucursal Centro',
     })
     // …y desde la sucursal se vuelve al lote de harina.
     const vuelta = await p.pedir<TrazabilidadSucursal>(chiperia, 'GET', '/trazabilidad/sucursal/suc-centro')
     expect(vuelta.status).toBe(200)
-    expect(vuelta.body.sucursal).toEqual({ id: 'suc-centro', nombre: 'Sucursal Centro (ejemplo)', activo: true })
+    expect(vuelta.body.sucursal).toEqual({ id: 'suc-centro', nombre: 'Sucursal Centro', activo: true })
     expect(vuelta.body.envios.map((m) => m.lote)).toEqual(['CH-261010-1'])
     expect(vuelta.body.lotesChipa.map((l) => l.codigo)).toEqual(['CH-261010-1'])
     expect(vuelta.body.lotesMP.map((l) => l.id)).toEqual([harina])

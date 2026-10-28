@@ -8,7 +8,7 @@ import { nuevaPrueba, type Prueba } from './ayuda'
 
 const EMPANADA = 'prod-cocina-10' // Empanada frita (carne)
 const MARINERA = 'prod-cocina-14' // Marinera de carne
-const HAMBURGUESA = 'prod-cocina-24' // Hamburguesa (ejemplo)
+const HAMBURGUESA = 'prod-cocina-24' // Hamburguesa
 const CROQUETE = 'prod-cocina-04' // Croquete de carne
 const CHIPA = 'prod-chiperia-01' // Chipa tradicional
 const CHIPITAS = 'prod-chipitas-01'
@@ -125,18 +125,18 @@ describe('reporte por período (H01, H03)', () => {
     // Producción por producto, cocinado contra guardado, sin lo de hace 10 días. Ordenado por sector y producto.
     expect(rep.produccion).toEqual([
       { sector: 'chiperia', productoId: CHIPA, productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300 },
-      { sector: 'chipitas', productoId: CHIPITAS, productoNombre: 'Chipitas 100 g (ejemplo)', cocinado: 100, guardado: 200 },
+      { sector: 'chipitas', productoId: CHIPITAS, productoNombre: 'Chipitas 100 g', cocinado: 100, guardado: 200 },
       { sector: 'cocina', productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 40, guardado: 12 },
       { sector: 'cocina', productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0 },
-      { sector: 'cocina', productoId: HAMBURGUESA, productoNombre: 'Hamburguesa (ejemplo)', cocinado: 3, guardado: 0 },
+      { sector: 'cocina', productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0 },
     ])
     // Stock actual (incluye lo de antes del rango): empanadas 8+4+20 −3 −2 −5 −7 −1 = 14.
     const stock = Object.fromEntries(rep.stock.map((s) => [s.productoId, s.total]))
     expect(stock).toEqual({ [CHIPA]: 260, [CHIPITAS]: 200, [CROQUETE]: 14, [EMPANADA]: 14 })
     // Envíos por sucursal y producto, solo del rango.
     expect(rep.envios).toEqual([
-      { sucursalId: 'suc-centro', sucursalNombre: 'Sucursal Centro (ejemplo)', productoNombre: 'Empanada frita (carne)', sector: 'cocina', cantidad: 7 },
-      { sucursalId: 'suc-ruta1', sucursalNombre: 'Sucursal Ruta 1 (ejemplo)', productoNombre: 'Chipa tradicional', sector: 'chiperia', cantidad: 100 },
+      { sucursalId: 'suc-centro', sucursalNombre: 'Sucursal Centro', productoNombre: 'Empanada frita (carne)', sector: 'cocina', cantidad: 7 },
+      { sucursalId: 'suc-ruta1', sucursalNombre: 'Sucursal Ruta 1', productoNombre: 'Chipa tradicional', sector: 'chiperia', cantidad: 100 },
     ])
     // Salidas del stock por tipo (en positivo); lo que suma (stock inicial, ajuste +) no es salida.
     expect(rep.salidas).toEqual([
@@ -263,7 +263,7 @@ describe('planilla de comprobación H01–H02 (encadenada desde C01)', () => {
     expect(rep.produccion).toEqual(expect.arrayContaining([
       expect.objectContaining({ productoNombre: 'Empanada frita (carne)', cocinado: 30, guardado: 8 }),
       expect.objectContaining({ productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0 }),
-      expect.objectContaining({ productoNombre: 'Hamburguesa (ejemplo)', cocinado: 3, guardado: 0 }),
+      expect.objectContaining({ productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0 }),
       expect.objectContaining({ productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300 }),
     ]))
     expect(rep.stock).toEqual(expect.arrayContaining([

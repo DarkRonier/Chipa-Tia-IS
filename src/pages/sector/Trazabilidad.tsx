@@ -134,7 +134,7 @@ function Cifras({ lote }: { lote: LoteChipa }) {
 const datosLote = (l: LoteChipa) => (l.produccionId ? `${diaLegible(l.dia)} · amasada ${l.amasada}` : `desde ${diaLegible(l.dia)} · sin registro de producción`)
 
 function MateriaPrimaDe({ lote }: { lote: Pick<LoteChipa, 'lotesMP'> }) {
-  if (!lote.lotesMP.length) return <p className="suave chico">Sin materia prima registrada (por ejemplo, stock inicial).</p>
+  if (!lote.lotesMP.length) return <p className="suave chico">Sin materia prima registrada.</p>
   return (
     <ul className="lot-lista-mp">
       {lote.lotesMP.map((mp) => <li key={mp.id}><Link to={enlaceTrazaMP(mp.id)}>{mp.descripcion}</Link></li>)}
@@ -164,9 +164,7 @@ function DesdeMP({ id, elegir }: { id: string; elegir: (id: string) => void }) {
         </select>
       </label>
       <Aviso>{lotes.error}</Aviso>
-      {!id ? (
-        <p className="suave">Elegí un lote para ver en qué lotes de chipa se usó y a qué sucursales llegaron.</p>
-      ) : (
+      {id && (
         <ConDatos consulta={traza}>{(t) => <CadenaMP t={t} />}</ConDatos>
       )}
     </>
@@ -246,9 +244,7 @@ function DesdeLote({ codigo, buscar }: { codigo: string; buscar: (c: string) => 
           ))}
         </div>
       )}
-      {!codigo ? (
-        <p className="suave">Escribí o tocá un código para ver de qué materia prima salió el lote y a qué sucursales fue.</p>
-      ) : (
+      {codigo && (
         <ConDatos consulta={traza}>{(t) => <CadenaLote t={t} />}</ConDatos>
       )}
     </>
@@ -348,9 +344,7 @@ function DesdeSucursal({ id, desde, hasta, elegir }: {
           <input type="date" value={hasta} min={desde || undefined} onChange={(e) => elegir({ sucursal: id, desde, hasta: e.target.value })} disabled={!id} />
         </label>
       </div>
-      {!id ? (
-        <p className="suave">Elegí una sucursal para ver qué lotes de chipa recibió y de qué materia prima salieron.</p>
-      ) : (
+      {id && (
         <ConDatos consulta={traza}>{(t) => <CadenaSucursal t={t} conFechas={!!(desde || hasta)} />}</ConDatos>
       )}
     </>

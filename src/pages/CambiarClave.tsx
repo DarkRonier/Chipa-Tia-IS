@@ -58,7 +58,7 @@ export default function CambiarClave() {
     return (
       <>
         <Volver titulo="Contraseña" a="/" />
-        <p className="tarjeta">Tu contraseña la cambia el administrador. Si la olvidaste o querés otra, pedísela.</p>
+        <p className="tarjeta">Tu contraseña la cambia el administrador.</p>
       </>
     )
   }
