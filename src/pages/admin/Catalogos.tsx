@@ -130,10 +130,10 @@ function FilaEditable({ titulo, prefijo, detalle, activo = true, campos, guardar
         {!editando && debajo}
       </div>
       {!editando && (
-        <div className="acciones-cat">
-          <button type="button" className="btn-texto" onClick={abrir}>{textoEditar}</button>
+        <div className="acciones-cat con-botones">
+          <button type="button" className="btn-secundario" onClick={abrir}>{textoEditar}</button>
           {cambiarActivo && (
-            <button type="button" className="btn-texto" disabled={accion.enviando} onClick={() => void accion.ejecutar(() => cambiarActivo(!activo))}>
+            <button type="button" className="btn-secundario" disabled={accion.enviando} onClick={() => void accion.ejecutar(() => cambiarActivo(!activo))}>
               {activo ? 'Desactivar' : 'Activar'}
             </button>
           )}
@@ -155,7 +155,7 @@ function FilaEditable({ titulo, prefijo, detalle, activo = true, campos, guardar
           ))}
           <div className="botones-cat">
             <button className="btn-primario" disabled={accion.enviando}>{accion.enviando ? 'Guardando…' : 'Guardar'}</button>
-            <button type="button" className="btn-texto" onClick={() => setEditando(false)}>Cancelar</button>
+            <button type="button" className="btn-secundario" onClick={() => setEditando(false)}>Cancelar</button>
           </div>
         </form>
       )}
@@ -405,9 +405,9 @@ function FilaMaquina({ m }: { m: Maquina }) {
         <div className="detalle">{NOMBRE_TIPO_MAQUINA[m.tipo]} · <strong>{textoRango(m)}</strong></div>
       </div>
       {!editando && (
-        <div className="acciones-cat">
-          <button type="button" className="btn-texto" onClick={abrir}>Editar</button>
-          <button type="button" className="btn-texto" disabled={accion.enviando} onClick={() => void accion.ejecutar({ activo: !m.activo })}>
+        <div className="acciones-cat con-botones">
+          <button type="button" className="btn-secundario" onClick={abrir}>Editar</button>
+          <button type="button" className="btn-secundario" disabled={accion.enviando} onClick={() => void accion.ejecutar({ activo: !m.activo })}>
             {m.activo ? 'Desactivar' : 'Activar'}
           </button>
         </div>
@@ -417,7 +417,7 @@ function FilaMaquina({ m }: { m: Maquina }) {
           <CamposMaquina d={d} set={setD} conNumero />
           <div className="botones-cat">
             <button className="btn-primario" disabled={accion.enviando}>{accion.enviando ? 'Guardando…' : 'Guardar'}</button>
-            <button type="button" className="btn-texto" onClick={() => setEditando(false)}>Cancelar</button>
+            <button type="button" className="btn-secundario" onClick={() => setEditando(false)}>Cancelar</button>
           </div>
         </form>
       )}
@@ -656,7 +656,7 @@ function NuevaArea({ sectorInicial, sectores, alCrear, alCancelar }: {
         </div>
         <div className="botones-cat">
           <button className="btn-primario" disabled={crear.enviando}>{crear.enviando ? 'Creando…' : 'Crear área'}</button>
-          <button type="button" className="btn-texto" onClick={alCancelar}>Cancelar</button>
+          <button type="button" className="btn-secundario" onClick={alCancelar}>Cancelar</button>
         </div>
       </div>
       <Aviso>{crear.error}</Aviso>
