@@ -26,9 +26,17 @@ export const SUCURSALES_DEMO = [
 // PBKDF2 es lento a propósito; en la demo todos comparten contraseña, así que se calcula una vez.
 let hashDemo: Promise<string> | null = null
 
-/** Aplica todas las migraciones en orden. */
+/**
+ * Aplica en orden las migraciones que le faltan a la base y anota cuántas tiene (PRAGMA user_version).
+ * Una base guardada antes de llevar la cuenta ya tenía las cuatro primeras.
+ */
 export function migrar(d1: D1SqlJs) {
-  for (const nombre of Object.keys(MIGRACIONES).sort()) d1.exec(MIGRACIONES[nombre])
+  const nombres = Object.keys(MIGRACIONES).sort()
+  const version = Number(d1.db.exec('PRAGMA user_version')[0]?.values[0][0] ?? 0)
+  const tieneTablas = d1.db.exec("SELECT 1 FROM sqlite_master WHERE name = 'usuarios'").length > 0
+  const hechas = version === 0 && tieneTablas ? 4 : version
+  for (const nombre of nombres.slice(hechas)) d1.exec(MIGRACIONES[nombre])
+  d1.db.exec(`PRAGMA user_version = ${nombres.length}`)
 }
 
 /**
@@ -36,7 +44,11 @@ export function migrar(d1: D1SqlJs) {
  * sucursales y lotes de materia prima de ejemplo. Con `guardada` reabre una base exportada.
  */
 export async function crearBaseDemo(SQL: SqlJsStatic, guardada?: Uint8Array): Promise<D1SqlJs> {
-  if (guardada) return new D1SqlJs(new SQL.Database(guardada))
+  if (guardada) {
+    const d1 = new D1SqlJs(new SQL.Database(guardada))
+    migrar(d1)
+    return d1
+  }
   const d1 = new D1SqlJs(new SQL.Database())
   migrar(d1)
   hashDemo ??= hashClave(CLAVE_DEMO)

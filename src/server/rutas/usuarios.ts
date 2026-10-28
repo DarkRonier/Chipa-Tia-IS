@@ -1,10 +1,10 @@
-// A01–A04: el administrador crea usuarios, les cambia nombre y rol, los desactiva y les restablece la contraseña.
-// Nada se borra: un usuario desactivado no puede entrar y el historial lo sigue mostrando por nombre.
+// A01–A04: el administrador crea usuarios, les cambia nombre y rol, les cambia la contraseña y los borra.
+// Borrar no elimina la fila: el usuario deja de aparecer y de poder entrar, y el historial lo sigue mostrando por nombre.
 import { Hono } from 'hono'
 import type { Rol, Usuario } from '../../shared/tipos'
 import { ROLES } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
-import { CLAVE_MINIMA, hashClave } from '../clave'
+import { CLAVE_MINIMA, hashClave, verificarClave } from '../clave'
 import { ahora, nuevoId, sentencia, todas, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1 } from '../entorno'
 import { conflicto, invalido, noEncontrado, prohibido } from '../errores'
@@ -47,7 +47,7 @@ function clave(v: unknown): string {
 }
 
 async function leerUsuario(db: BaseD1, id: string): Promise<Usuario> {
-  const fila = await una<FilaUsuario>(db, `SELECT ${COLUMNAS_USUARIO} FROM usuarios WHERE id = ?`, id)
+  const fila = await una<FilaUsuario>(db, `SELECT ${COLUMNAS_USUARIO} FROM usuarios WHERE id = ? AND borrado_en IS NULL`, id)
   if (!fila) throw noEncontrado('No se encontró ese usuario.')
   return aUsuario(fila)
 }
@@ -56,7 +56,7 @@ const esUnico = (e: unknown) => e instanceof Error && /UNIQUE/i.test(e.message)
 const repetido = (u: string) => conflicto('usuario_repetido', `Ya existe el usuario «${u}». Elegí otro.`)
 
 rutasUsuarios.get('/usuarios', soloAdmin, async (c) => {
-  const filas = await todas<FilaUsuario>(c.env.DB, `SELECT ${COLUMNAS_USUARIO} FROM usuarios`)
+  const filas = await todas<FilaUsuario>(c.env.DB, `SELECT ${COLUMNAS_USUARIO} FROM usuarios WHERE borrado_en IS NULL`)
   // Activos primero; dentro, por rol (sectores en orden y al final el administrador) y por nombre.
   const lista = filas.map(aUsuario).sort((a, b) =>
     Number(b.activo) - Number(a.activo)
@@ -140,4 +140,29 @@ rutasUsuarios.post('/usuarios/:id/clave', soloAdmin, async (c) => {
     }),
   ])
   return c.json({ ok: true })
+})
+
+/**
+ * Borra varios usuarios de una vez; pide la contraseña del administrador para confirmar. Los administradores no se
+ * borran desde acá. Al nombre de usuario se le agrega «~id» (el formato no admite «~») para que quede libre.
+ */
+rutasUsuarios.post('/usuarios/borrar', soloAdmin, async (c) => {
+  const b = await cuerpo(c)
+  const yo = c.get('usuario')
+  const db = c.env.DB
+  if (!Array.isArray(b.ids) || b.ids.length === 0) throw invalido('Elegí al menos un usuario.')
+  if (b.ids.length > 100) throw invalido('Demasiados usuarios de una vez.')
+  const ids = [...new Set(b.ids.map((id) => texto(id, 'el usuario', { max: 60 })))]
+  if (typeof b.clave !== 'string' || !b.clave) throw invalido('Escribí tu contraseña para confirmar.')
+  const mia = await una<{ clave_hash: string }>(db, 'SELECT clave_hash FROM usuarios WHERE id = ?', yo.id)
+  if (!mia || !(await verificarClave(b.clave, mia.clave_hash))) throw invalido('La contraseña no es correcta.')
+  const usuarios = await Promise.all(ids.map((id) => leerUsuario(db, id)))
+  if (usuarios.some((u) => u.rol === 'admin')) throw prohibido('No se puede borrar un administrador.')
+  const cuando = ahora().fecha
+  await db.batch(usuarios.flatMap((u) => [
+    sentencia(db, "UPDATE usuarios SET activo = 0, borrado_en = ?, usuario = usuario || '~' || id WHERE id = ?", cuando, u.id),
+    sentencia(db, 'DELETE FROM sesiones WHERE usuario_id = ?', u.id),
+    sentenciaAuditoria(db, { tabla: 'usuarios', registroId: u.id, accion: 'borrar', usuarioId: yo.id, antes: u }),
+  ]))
+  return c.json({ borrados: usuarios.length })
 })

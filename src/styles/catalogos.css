@@ -22,6 +22,8 @@
 
 .acciones-cat { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.25rem; margin-right: -0.4rem; }
 .acciones-cat .btn-texto { min-height: 40px; }
+.acciones-cat.con-botones { gap: 0.4rem; margin-right: 0; }
+.acciones-cat .btn-secundario { width: auto; min-height: 40px; padding: 0.35rem 0.9rem; margin: 0; border-width: 1px; font-size: 0.92rem; }
 @media (max-width: 480px) { .acciones-cat .btn-texto { font-size: 0.92rem; } }
 
 .etiqueta {
@@ -37,6 +39,7 @@
 .botones-cat { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; grid-column: 1 / -1; }
 .botones-cat .btn-primario { width: auto; min-height: 48px; }
 .botones-cat .btn-texto { min-height: 44px; }
+.botones-cat .btn-secundario { width: auto; min-height: 48px; margin: 0; }
 .pista-campo { font-size: 0.8rem; color: var(--suave); }
 .pista-campo.ancho { grid-column: 1 / -1; margin: 0; }
 .editor.sin-margen { margin-top: 0; }
@@ -69,3 +72,14 @@
 .check.pide-numero { min-height: 36px; margin-top: 0.15rem; color: var(--suave); white-space: nowrap; }
 .form-cat h2 { margin-top: 0; }
 .tarjeta-area > .fila-cat { border: none; padding: 0; background: none; }
+
+/* «Administrar usuarios»: la lista se vuelve una lista para elegir; los administradores quedan en gris. */
+.btn-administrar { margin-top: 1rem; }
+.fila-cat.elegible { flex-wrap: nowrap; gap: 0.75rem; cursor: pointer; }
+.fila-cat.elegible > input { flex: 0 0 auto; width: 22px; min-height: 22px; margin: 0; accent-color: var(--error); }
+.fila-cat.elegible > div { flex: 1 1 8rem; min-width: 0; }
+.fila-cat.elegida { border-color: var(--error); box-shadow: inset 0 0 0 1px var(--error); }
+.fila-cat.bloqueada { background: var(--neutro); cursor: not-allowed; }
+.fila-cat.bloqueada .nombre, .fila-cat.bloqueada .detalle { color: var(--suave); }
+.fila-cat.bloqueada .etiqueta { background: var(--borde); }
+.panel-borrar p { margin: 0; }

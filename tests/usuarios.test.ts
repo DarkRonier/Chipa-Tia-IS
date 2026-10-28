@@ -1,4 +1,4 @@
-// A01–A04: usuarios y accesos. Solo el administrador gestiona usuarios; nada se borra.
+// A01–A04: usuarios y accesos. Solo el administrador gestiona usuarios; borrar deja el historial intacto.
 import { describe, expect, it } from 'vitest'
 import { hashClave } from '../src/server/clave'
 import { nuevaPrueba } from './ayuda'
@@ -244,5 +244,45 @@ describe('usuarios', () => {
     const cambio = await p.pedir(login.body.token, 'POST', '/auth/clave', { actual: 'hola mundo', nueva: 'la casa grande' })
     expect(cambio.status).toBe(200)
     await p.entrar('rosa.b', 'la casa grande')
+  })
+
+  it('borra varios usuarios con la contraseña del administrador: no entran más, salen de la lista y el nombre queda libre', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const op = await p.entrar('cocina')
+    const r = await p.pedir(admin, 'POST', '/usuarios/borrar', { ids: ['usr-cocina', 'usr-panaderia'], clave: '1234' })
+    expect(r.status).toBe(200)
+    expect(r.body).toEqual({ borrados: 2 })
+    expect((await p.pedir(op, 'GET', '/auth/yo')).status).toBe(401)
+    expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'cocina', clave: '1234' })).status).toBe(401)
+    const lista = await p.pedir(admin, 'GET', '/usuarios')
+    expect(lista.body.map((u: any) => u.id)).not.toContain('usr-cocina')
+    expect(lista.body).toHaveLength(3)
+    // La fila sigue (el historial la necesita) y se registra en la auditoría.
+    const [fila] = await p.sql('SELECT nombre, usuario, activo, borrado_en FROM usuarios WHERE id = ?', 'usr-cocina')
+    expect(fila).toMatchObject({ usuario: 'cocina~usr-cocina', activo: 0, borrado_en: expect.any(String) })
+    const aud = await p.sql("SELECT accion FROM auditoria WHERE tabla = 'usuarios' AND registro_id = ?", 'usr-cocina')
+    expect(aud.map((a) => a.accion)).toEqual(['borrar'])
+    // Ya no se puede editar, y el nombre de usuario se puede volver a usar.
+    expect((await p.pedir(admin, 'PATCH', '/usuarios/usr-cocina', { nombre: 'Otro' })).status).toBe(404)
+    const nuevoCocina = await p.pedir(admin, 'POST', '/usuarios', { nombre: 'Nueva cocina', usuario: 'cocina', rol: 'cocina', clave: 'empanada1' })
+    expect(nuevoCocina.status).toBe(200)
+  })
+
+  it('para borrar pide la contraseña correcta y no deja borrar administradores', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const mal = await p.pedir(admin, 'POST', '/usuarios/borrar', { ids: ['usr-cocina'], clave: 'otra-cosa' })
+    expect(mal.status).toBe(400)
+    expect(mal.body.error.mensaje).toBe('La contraseña no es correcta.')
+    expect((await p.pedir(admin, 'POST', '/usuarios/borrar', { ids: ['usr-cocina'] })).status).toBe(400)
+    expect((await p.pedir(admin, 'POST', '/usuarios/borrar', { ids: [], clave: '1234' })).status).toBe(400)
+    const [yo] = await p.sql("SELECT id FROM usuarios WHERE usuario = 'admin'")
+    expect((await p.pedir(admin, 'POST', '/usuarios/borrar', { ids: ['usr-cocina', yo.id], clave: '1234' })).status).toBe(403)
+    expect((await p.pedir(admin, 'POST', '/usuarios/borrar', { ids: ['no-existe'], clave: '1234' })).status).toBe(404)
+    // Nada se borró a medias.
+    expect((await p.pedir(admin, 'GET', '/usuarios')).body).toHaveLength(5)
+    const op = await p.entrar('chiperia')
+    expect((await p.pedir(op, 'POST', '/usuarios/borrar', { ids: ['usr-cocina'], clave: '1234' })).status).toBe(403)
   })
 })
