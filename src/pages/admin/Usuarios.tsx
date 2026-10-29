@@ -1,4 +1,4 @@
-// A01–A04: el administrador crea usuarios, cambia nombre y rol, desactiva/activa y restablece contraseñas.
+// A01–A04: el administrador crea usuarios, cambia nombre, rol y contraseña, y borra usuarios.
 import { useState, type FormEvent } from 'react'
 import { patch, post } from '../../cliente/api'
 import { nombreRol, useSectores } from '../../cliente/catalogo'
@@ -18,24 +18,131 @@ export default function Usuarios() {
   const consulta = useConsulta<Usuario[]>('/usuarios')
   const sectores = useSectores()
   const rolTexto: NombreDeRol = (r) => nombreRol(r, sectores.nombre)
+  // «Administrar usuarios»: la lista pasa a elegir usuarios para borrar (los administradores no se pueden elegir).
+  const [administrando, setAdministrando] = useState(false)
+  const [elegidos, setElegidos] = useState<string[]>([])
+  const alternar = (id: string) => setElegidos((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]))
+  const terminar = () => {
+    setAdministrando(false)
+    setElegidos([])
+  }
 
   return (
     <>
       <h1>Usuarios</h1>
       <ConDatos consulta={consulta}>
         {(lista) => (
-          // Una sola lista (activos primero, como la ordena la API): al activar o desactivar la fila no se rearma.
           <div className="lista-cat">
-            {lista.map((u) => <FilaUsuario key={u.id} u={u} esYo={u.id === yo.id} rolTexto={rolTexto} />)}
+            {lista.map((u) => administrando
+              ? <FilaElegible key={u.id} u={u} esYo={u.id === yo.id} rolTexto={rolTexto} elegido={elegidos.includes(u.id)} alternar={alternar} />
+              : <FilaUsuario key={u.id} u={u} esYo={u.id === yo.id} rolTexto={rolTexto} />)}
           </div>
         )}
       </ConDatos>
-      <NuevoUsuario rolTexto={rolTexto} />
+      {administrando
+        ? <BorrarUsuarios ids={elegidos} nombres={(consulta.datos ?? []).filter((u) => elegidos.includes(u.id)).map((u) => u.nombre)} terminar={terminar} />
+        : (
+          <>
+            <NuevoUsuario rolTexto={rolTexto} />
+            <button type="button" className="btn-secundario btn-administrar" onClick={() => setAdministrando(true)}>
+              Administrar usuarios
+            </button>
+          </>
+        )}
     </>
   )
 }
 
-type Modo = null | 'editar' | 'clave' | 'desactivar'
+function Cabecera({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolTexto: NombreDeRol }) {
+  return (
+    <div>
+      <div className="cabeza">
+        <span className="nombre">{u.nombre}{esYo && ' (vos)'}</span>
+        <span className="etiqueta">{rolTexto(u.rol)}</span>
+        {!u.activo && <span className="etiqueta apagada">Desactivado</span>}
+        {u.activo && u.debeCambiarClave && <span className="etiqueta aviso-clave">Debe cambiar la contraseña</span>}
+      </div>
+      <div className="detalle">Usuario: <strong>{u.usuario}</strong> · creado el {diaLegible(diaPY(u.creadoEn))}</div>
+    </div>
+  )
+}
+
+function FilaElegible({ u, esYo, rolTexto, elegido, alternar }: {
+  u: Usuario; esYo: boolean; rolTexto: NombreDeRol; elegido: boolean; alternar: (id: string) => void
+}) {
+  const bloqueada = u.rol === 'admin'
+  return (
+    <label className={`fila-cat elegible${bloqueada ? ' bloqueada' : ''}${elegido ? ' elegida' : ''}`}>
+      <input type="checkbox" checked={elegido} disabled={bloqueada} onChange={() => alternar(u.id)} aria-label={`Elegir a ${u.nombre}`} />
+      <Cabecera u={u} esYo={esYo} rolTexto={rolTexto} />
+    </label>
+  )
+}
+
+function BorrarUsuarios({ ids, nombres, terminar }: { ids: string[]; nombres: string[]; terminar: () => void }) {
+  const [confirmando, setConfirmando] = useState(false)
+  const [clave, setClave] = useState('')
+  const [hecho, setHecho] = useState<string | null>(null)
+  const borrar = useAccion(() => post<{ borrados: number }>('/usuarios/borrar', { ids, clave }))
+
+  const confirmar = async (e: FormEvent) => {
+    e.preventDefault()
+    const r = await borrar.ejecutar()
+    if (r) {
+      setHecho(r.borrados === 1 ? 'Usuario borrado.' : `${r.borrados} usuarios borrados.`)
+      setConfirmando(false)
+      setClave('')
+    } else {
+      setClave('')
+    }
+  }
+
+  if (hecho) {
+    return (
+      <div className="tarjeta panel-borrar">
+        <Aviso tipo="ok">{hecho}</Aviso>
+        <div className="botones-cat">
+          <button type="button" className="btn-primario" onClick={terminar}>Listo</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="tarjeta panel-borrar">
+      {!confirmando ? (
+        <>
+          <p>{ids.length === 0 ? 'Elegí los usuarios que querés borrar.' : `${ids.length} elegido${ids.length === 1 ? '' : 's'}.`}</p>
+          <div className="botones-cat">
+            <button type="button" className="btn-primario peligro" disabled={ids.length === 0} onClick={() => setConfirmando(true)}>
+              Borrar
+            </button>
+            <button type="button" className="btn-secundario" onClick={terminar}>Cancelar</button>
+          </div>
+        </>
+      ) : (
+        <form className="editor sin-margen" onSubmit={confirmar}>
+          <p className="ancho">
+            Vas a borrar a <strong>{nombres.join(', ')}</strong>. No van a poder entrar más; lo que cargaron queda en el historial.
+          </p>
+          <label className="campo ancho">
+            <span>Tu contraseña</span>
+            <input type="password" value={clave} onChange={(e) => { setClave(e.target.value); borrar.limpiarError() }} autoFocus autoComplete="current-password" />
+          </label>
+          <div className="botones-cat">
+            <button className="btn-primario peligro" disabled={borrar.enviando || !clave}>
+              {borrar.enviando ? 'Borrando…' : 'Sí, borrar'}
+            </button>
+            <button type="button" className="btn-secundario" onClick={() => { setConfirmando(false); borrar.limpiarError() }}>Volver</button>
+          </div>
+        </form>
+      )}
+      <Aviso>{borrar.error}</Aviso>
+    </div>
+  )
+}
+
+type Modo = null | 'editar' | 'clave'
 
 function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolTexto: NombreDeRol }) {
   const [modo, setModo] = useState<Modo>(null)
@@ -74,42 +181,31 @@ function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolText
     if (await restablecer.ejecutar(clave)) {
       setModo(null)
       setHecho(u.rol === 'admin'
-        ? `Contraseña restablecida. ${u.usuario} entra con «${clave}» y al entrar la tiene que cambiar.`
-        : `Contraseña restablecida. ${u.usuario} entra con «${clave}».`)
+        ? `Contraseña cambiada. ${u.usuario} entra con «${clave}» y al entrar la tiene que cambiar.`
+        : `Contraseña cambiada. ${u.usuario} entra con «${clave}».`)
       setClave('')
     }
   }
 
-  const activar = async (activo: boolean) => {
-    if (await cambiar.ejecutar({ activo })) {
+  const activar = async () => {
+    if (await cambiar.ejecutar({ activo: true })) {
       setModo(null)
-      setHecho(activo ? `${u.usuario} puede volver a entrar.` : null)
+      setHecho(`${u.usuario} puede volver a entrar.`)
     }
   }
 
   return (
     <div className={`fila-cat${u.activo ? '' : ' inactiva'}`}>
-      <div>
-        <div className="cabeza">
-          <span className="nombre">{u.nombre}{esYo && ' (vos)'}</span>
-          <span className="etiqueta">{rolTexto(u.rol)}</span>
-          {!u.activo && <span className="etiqueta apagada">Desactivado</span>}
-          {u.activo && u.debeCambiarClave && <span className="etiqueta aviso-clave">Debe cambiar la contraseña</span>}
-        </div>
-        <div className="detalle">Usuario: <strong>{u.usuario}</strong> · creado el {diaLegible(diaPY(u.creadoEn))}</div>
-      </div>
+      <Cabecera u={u} esYo={esYo} rolTexto={rolTexto} />
 
       {modo === null && (
-        <div className="acciones-cat">
-          <button type="button" className="btn-texto" onClick={() => abrir('editar')}>{esYo ? 'Cambiar nombre' : 'Editar'}</button>
+        <div className="acciones-cat con-botones">
+          <button type="button" className="btn-secundario" onClick={() => abrir('editar')}>{esYo ? 'Cambiar nombre' : 'Editar'}</button>
           {!esYo && u.activo && (
-            <>
-              <button type="button" className="btn-texto" onClick={() => abrir('clave')}>Restablecer contraseña</button>
-              <button type="button" className="btn-texto" onClick={() => abrir('desactivar')}>Desactivar</button>
-            </>
+            <button type="button" className="btn-secundario" onClick={() => abrir('clave')}>Cambiar contraseña</button>
           )}
           {!u.activo && (
-            <button type="button" className="btn-texto" disabled={enviando} onClick={() => void activar(true)}>
+            <button type="button" className="btn-secundario" disabled={enviando} onClick={() => void activar()}>
               {enviando ? 'Activando…' : 'Activar'}
             </button>
           )}
@@ -132,7 +228,7 @@ function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolText
           {!esYo && rol !== u.rol && <p className="pista-campo ancho">Al cambiarle el rol se cierra su sesión.</p>}
           <div className="botones-cat">
             <button className="btn-primario" disabled={enviando}>{enviando ? 'Guardando…' : 'Guardar'}</button>
-            <button type="button" className="btn-texto" onClick={() => abrir(null)}>Cancelar</button>
+            <button type="button" className="btn-secundario" onClick={() => abrir(null)}>Cancelar</button>
           </div>
         </form>
       )}
@@ -157,21 +253,9 @@ function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolText
             <button className="btn-primario" disabled={enviando || clave.length < CLAVE_MINIMA}>
               {enviando ? 'Guardando…' : 'Guardar contraseña'}
             </button>
-            <button type="button" className="btn-texto" onClick={() => abrir(null)}>Cancelar</button>
+            <button type="button" className="btn-secundario" onClick={() => abrir(null)}>Cancelar</button>
           </div>
         </form>
-      )}
-
-      {modo === 'desactivar' && (
-        <div className="confirmar-cat">
-          <p>¿Desactivar a <strong>{u.nombre}</strong>? No va a poder entrar; lo que cargó queda en el historial.</p>
-          <div className="botones-cat">
-            <button type="button" className="btn-primario peligro" disabled={enviando} onClick={() => void activar(false)}>
-              {enviando ? 'Desactivando…' : 'Sí, desactivar'}
-            </button>
-            <button type="button" className="btn-texto" onClick={() => abrir(null)}>Cancelar</button>
-          </div>
-        </div>
       )}
 
       <Aviso>{cambiar.error ?? restablecer.error}</Aviso>
