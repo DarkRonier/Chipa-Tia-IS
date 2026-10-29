@@ -14,7 +14,7 @@ import {
   diaLegible, diaPY, esDiaValido, fechaHoraPY, inicioDeMes, inicioDeSemana, rangoResumen, sumarDias,
 } from '../../shared/hora'
 import {
-  NOMBRE_ESTADO, NOMBRE_MOMENTO, NOMBRE_TIPO_MOVIMIENTO, SECTOR_IDS, textoUsoMP,
+  NOMBRE_ESTADO, NOMBRE_FINALIDAD, NOMBRE_MOMENTO, NOMBRE_TIPO_MOVIMIENTO, SECTOR_IDS, textoUsoMP,
   type Configuracion, type Lectura, type PeriodoResumen, type Reporte, type ResumenCorreo, type SectorId,
 } from '../../shared/tipos'
 import '../../styles/reportes.css'
@@ -234,12 +234,19 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
 
       <Seccion titulo="Stock en frío actual">
         {r.stock.length === 0 ? <Vacio>No hay stock en frío.</Vacio> : (
-          <Tabla etiqueta="Stock en frío actual" columnas={[{ titulo: 'Producto' }, { titulo: 'Unidades', num: true }]}>
+          <Tabla etiqueta="Stock en frío actual" columnas={[{ titulo: 'Producto' }, { titulo: NOMBRE_FINALIDAD.reposicion, num: true }, { titulo: NOMBRE_FINALIDAD.distribucion, num: true }, { titulo: 'Unidades', num: true }]}>
             {sectoresCon(r.stock).map(({ s, filas }) => [
-              <tr key={s} className="rep-grupo"><td>{nombre(s)}</td><td className="num">{num(filas.reduce((a, f) => a + f.total, 0))}</td></tr>,
+              <tr key={s} className="rep-grupo">
+                <td>{nombre(s)}</td>
+                <td className="num">{num(filas.reduce((a, f) => a + f.reposicion, 0))}</td>
+                <td className="num">{num(filas.reduce((a, f) => a + f.distribucion, 0))}</td>
+                <td className="num">{num(filas.reduce((a, f) => a + f.total, 0))}</td>
+              </tr>,
               ...filas.map((f) => (
                 <tr key={`${s}-${f.productoId}`}>
                   <td>{f.productoNombre}</td>
+                  <td className={`num${f.reposicion < 0 ? ' rep-negativo' : ''}`}>{num(f.reposicion)}</td>
+                  <td className={`num${f.distribucion < 0 ? ' rep-negativo' : ''}`}>{num(f.distribucion)}</td>
                   <td className={`num${f.total < 0 ? ' rep-negativo' : ''}`}>{num(f.total)}</td>
                 </tr>
               )),
@@ -410,8 +417,8 @@ function hojasDelReporte(r: Reporte, sector: SectorId | '', nombre: (s: SectorId
     {
       nombre: 'Stock actual',
       arriba: [[negrita(`Stock en frío al ${fechaHoraPY(r.generadoEn)}`)]],
-      encabezados: ['Sector', 'Producto', 'Unidades'],
-      filas: r.stock.map((s) => [nombre(s.sector), s.productoNombre, s.total]),
+      encabezados: ['Sector', 'Producto', NOMBRE_FINALIDAD.reposicion, NOMBRE_FINALIDAD.distribucion, 'Unidades'],
+      filas: r.stock.map((s) => [nombre(s.sector), s.productoNombre, s.reposicion, s.distribucion, s.total]),
     },
     {
       nombre: 'Envíos',

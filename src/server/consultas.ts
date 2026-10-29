@@ -1,7 +1,7 @@
 // Lecturas que comparten varios módulos (producción, stock, lotes, trazabilidad, reportes).
 // Cada una arma el objeto de src/shared/tipos.ts listo para devolver por la API.
 import { diaLegible, diaPY } from '../shared/hora'
-import type { LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoMovimiento, Turno } from '../shared/tipos'
+import type { Finalidad, LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoMovimiento, Turno } from '../shared/tipos'
 import { todas, todasPorTrozos } from './db'
 import type { BaseD1, ValorSQL } from './entorno'
 
@@ -203,9 +203,9 @@ export async function leerProducciones(db: BaseD1, filtro: {
   }
   if (!filas.length) return []
   const ids = filas.map((f) => f.id)
-  const items = await todasPorTrozos<{ produccion_id: string; producto_id: string; nombre: string; cocinado: number; guardado: number }>(
+  const items = await todasPorTrozos<{ produccion_id: string; producto_id: string; nombre: string; cocinado: number; guardado: number; finalidad: Finalidad }>(
     db, ids,
-    (m) => `SELECT i.produccion_id, i.producto_id, pr.nombre, i.cocinado, i.guardado
+    (m) => `SELECT i.produccion_id, i.producto_id, pr.nombre, i.cocinado, i.guardado, i.finalidad
               FROM produccion_items i JOIN productos pr ON pr.id = i.producto_id
              WHERE i.produccion_id IN (${m}) ORDER BY pr.orden, pr.nombre`,
   )
@@ -221,7 +221,7 @@ export async function leerProducciones(db: BaseD1, filtro: {
     dia: f.dia,
     turno: f.turno,
     items: items.filter((i) => i.produccion_id === f.id).map((i) => ({
-      productoId: i.producto_id, productoNombre: i.nombre, cocinado: i.cocinado, guardado: i.guardado,
+      productoId: i.producto_id, productoNombre: i.nombre, cocinado: i.cocinado, guardado: i.guardado, finalidad: i.finalidad,
     })),
     lote: lotes.find((l) => l.produccionId === f.id) ?? null,
     corregidoPor: f.corregido_por,
@@ -240,6 +240,7 @@ interface FilaMovimiento {
   lote: string | null
   tipo: TipoMovimiento
   cantidad: number
+  finalidad: Finalidad
   motivo: string | null
   sucursal_id: string | null
   sucursal_nombre: string | null
@@ -275,6 +276,7 @@ const aMovimiento = (f: FilaMovimiento): Movimiento => ({
   lote: f.lote,
   tipo: f.tipo,
   cantidad: f.cantidad,
+  finalidad: f.finalidad,
   motivo: f.motivo,
   sucursalId: f.sucursal_id,
   sucursalNombre: f.sucursal_nombre,
@@ -288,7 +290,7 @@ const aMovimiento = (f: FilaMovimiento): Movimiento => ({
 
 /** Movimientos del libro de stock con nombres de producto, sucursal y usuario. El más nuevo primero. */
 export async function leerMovimientos(db: BaseD1, filtro: FiltroMovimientos = {}): Promise<Movimiento[]> {
-  const columnas = `SELECT m.id, m.sector, m.producto_id, p.nombre AS producto_nombre, m.lote, m.tipo, m.cantidad, m.motivo,
+  const columnas = `SELECT m.id, m.sector, m.producto_id, p.nombre AS producto_nombre, m.lote, m.tipo, m.cantidad, m.finalidad, m.motivo,
       m.sucursal_id, s.nombre AS sucursal_nombre, m.envio_id, m.produccion_id, m.usuario_id, u.nombre AS usuario_nombre,
       m.fecha, m.dia
     FROM movimientos m

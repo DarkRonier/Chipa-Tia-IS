@@ -1,6 +1,8 @@
-// D03, D04, E05: un envío a una sucursal con varios productos (y en Chipería, el lote de cada uno).
-// Se confirma una sola vez y se registra todo junto: si una línea no alcanza, no se registra nada.
+// D03, D04, E05, C05: un envío a una sucursal con varios productos (y en Chipería, el lote de cada uno).
+// Sale de lo guardado para sucursales. Se confirma una sola vez y se registra todo junto: si una línea no alcanza,
+// no se registra nada.
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
@@ -44,7 +46,7 @@ function Formulario() {
   const hay = (l: Linea) => {
     const f = filaDe(l.productoId)
     if (!f) return 0
-    return conLotes ? (f.lotes.find((x) => x.lote === l.lote)?.cantidad ?? 0) : f.total
+    return conLotes ? (f.lotes.find((x) => x.lote === l.lote)?.distribucion ?? 0) : f.distribucion
   }
   const listaParaHay = (l: Linea) => !!l.productoId && (!conLotes || !!l.lote)
   const conCantidad = lineas.filter((l) => l.productoId && l.cantidad > 0)
@@ -64,7 +66,7 @@ function Formulario() {
 
   /** Lotes del producto que todavía no están en otra línea. */
   const lotesLibres = (l: Linea) =>
-    (filaDe(l.productoId)?.lotes ?? []).filter((x) => x.lote === l.lote || !lineas.some((o) => o.clave !== l.clave && o.productoId === l.productoId && o.lote === x.lote))
+    (filaDe(l.productoId)?.lotes ?? []).filter((x) => x.distribucion > 0).filter((x) => x.lote === l.lote || !lineas.some((o) => o.clave !== l.clave && o.productoId === l.productoId && o.lote === x.lote))
 
   const elegirProducto = (l: Linea, productoId: string) => {
     const libres = lotesLibres({ ...l, productoId, lote: '' })
@@ -75,9 +77,9 @@ function Formulario() {
   const opciones = (l: Linea) =>
     filas.filter((f) => {
       if (f.productoId === l.productoId) return true
-      if (f.total <= 0) return false
+      if (f.distribucion <= 0) return false
       if (!conLotes) return !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId)
-      return f.lotes.some((x) => !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId && o.lote === x.lote))
+      return f.lotes.some((x) => x.distribucion > 0 && !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId && o.lote === x.lote))
     })
 
   const revisar = () => {
@@ -107,7 +109,8 @@ function Formulario() {
   }
 
   const error = aviso ?? registrar.error
-  const hayParaEnviar = filas.some((f) => f.total > 0)
+  const hayParaEnviar = filas.some((f) => f.distribucion > 0)
+  const soloParaVenta = filas.some((f) => f.reposicion > 0)
 
   return (
     <>
@@ -125,7 +128,10 @@ function Formulario() {
       )}
       <ConDatos consulta={stock}>
         {() => !hayParaEnviar ? (
-          <p className="suave">No hay nada guardado en frío para enviar.</p>
+          <p className="suave">
+            No hay nada guardado en frío para sucursales.
+            {soloParaVenta && <> Lo que hay está guardado para reponer la venta: podés cambiarle la finalidad desde <Link to="/sector/stock">Stock en frío</Link>.</>}
+          </p>
         ) : (
           <>
             <div className="tarjeta">
@@ -162,7 +168,7 @@ function Formulario() {
                     <span>Producto</span>
                     <select value={l.productoId} onChange={(e) => elegirProducto(l, e.target.value)}>
                       <option value="">Elegí un producto</option>
-                      {opciones(l).map((o) => <option key={o.productoId} value={o.productoId}>{o.productoNombre} ({o.total})</option>)}
+                      {opciones(l).map((o) => <option key={o.productoId} value={o.productoId}>{o.productoNombre} ({o.distribucion})</option>)}
                     </select>
                   </label>
                   {conLotes && f && (
@@ -170,7 +176,7 @@ function Formulario() {
                       <span>Lote</span>
                       <select value={l.lote} onChange={(e) => cambiar(l.clave, { lote: e.target.value })}>
                         <option value="">Elegí un lote</option>
-                        {lotesLibres(l).map((x) => <option key={x.lote} value={x.lote}>{x.lote} ({x.cantidad})</option>)}
+                        {lotesLibres(l).map((x) => <option key={x.lote} value={x.lote}>{x.lote} ({x.distribucion})</option>)}
                       </select>
                     </label>
                   )}

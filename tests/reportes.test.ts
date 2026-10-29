@@ -234,6 +234,7 @@ describe('planilla de comprobación H01–H02 (encadenada desde C01)', () => {
     }))
     // D02, D03, D06, D07.
     ok(await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 3 }))
+    ok(await p.pedir(cocina, 'POST', '/reasignaciones', { productoId: EMPANADA, cantidad: 2, desde: 'reposicion' }))
     ok(await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: EMPANADA, cantidad: 2 }] }))
     ok(await p.pedir(admin, 'POST', '/ajustes', { sector: 'cocina', productoId: EMPANADA, tipo: 'merma', cantidad: 1, motivo: 'Se cayó' }))
     ok(await p.pedir(admin, 'POST', '/ajustes', { sector: 'cocina', productoId: CROQUETE, tipo: 'stock_inicial', cantidad: 10, motivo: 'Stock existente' }))
@@ -243,7 +244,7 @@ describe('planilla de comprobación H01–H02 (encadenada desde C01)', () => {
       insumo: 'Harina', proveedor: 'Molino Central', numeroLote: 'H-1', fechaIngreso: hoy, cantidad: 50, vencimiento: sumarDias(hoy, 60),
     }))
     const chipas = ok(await p.pedir<Produccion>(chiperia, 'POST', '/producciones', {
-      turno: 'dia', lotesMP: [{ id: harina.id, cantidad: 1 }], items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }],
+      turno: 'dia', lotesMP: [{ id: harina.id, cantidad: 1 }], items: [{ productoId: CHIPA, cocinado: 200, guardado: 300, finalidad: 'distribucion' }],
     }))
     const codigo = chipas.lote!.codigo
     ok(await p.pedir(chiperia, 'POST', '/envios', { sucursalId: 'suc-ruta1', items: [{ productoId: CHIPA, lote: codigo, cantidad: 100 }] }))
@@ -267,9 +268,9 @@ describe('planilla de comprobación H01–H02 (encadenada desde C01)', () => {
       expect.objectContaining({ productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300 }),
     ]))
     expect(rep.stock).toEqual(expect.arrayContaining([
-      expect.objectContaining({ productoId: EMPANADA, total: 2 }),
+      expect.objectContaining({ productoId: EMPANADA, total: 2, reposicion: 2, distribucion: 0 }),
       expect.objectContaining({ productoId: CROQUETE, total: 10 }),
-      expect.objectContaining({ productoId: CHIPA, total: 200 }),
+      expect.objectContaining({ productoId: CHIPA, total: 200, reposicion: 0, distribucion: 200 }),
     ]))
     expect(rep.envios).toEqual(expect.arrayContaining([
       expect.objectContaining({ sucursalId: 'suc-centro', productoNombre: 'Empanada frita (carne)', cantidad: 2 }),

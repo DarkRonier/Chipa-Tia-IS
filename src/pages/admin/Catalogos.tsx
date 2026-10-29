@@ -211,6 +211,11 @@ function FormAlta({ titulo, children, enviando, error, ok, alEnviar, boton = 'Ag
 
 // ---------- Productos (B01) ----------
 
+/** Lo que se cuenta aparte de «unidades» y el aviso de stock mínimo (C08). */
+const detalleProducto = (p: Producto) =>
+  [p.unidad !== 'unidades' ? `Se cuenta en ${p.unidad}` : null, p.stockMinimo !== null ? `Avisa con menos de ${p.stockMinimo} en frío` : null]
+    .filter(Boolean).join(' · ') || null
+
 function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: string }) {
   const c = useConsulta<Producto[]>('/productos', { sector, todos: true })
   const [nombre, setNombre] = useState('')
@@ -239,11 +244,13 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
               <FilaEditable
                 key={p.id}
                 titulo={p.nombre}
-                detalle={p.unidad !== 'unidades' ? `Se cuenta en ${p.unidad}` : null}
+                detalle={detalleProducto(p)}
                 activo={p.activo}
+                textoEditar="Editar"
                 campos={[
                   { clave: 'nombre', etiqueta: 'Nombre', valor: p.nombre },
                   { clave: 'unidad', etiqueta: 'Unidad', valor: p.unidad, max: 30 },
+                  { clave: 'stockMinimo', etiqueta: 'Stock mínimo en frío (vacío = sin aviso)', valor: p.stockMinimo === null ? '' : String(p.stockMinimo), max: 7 },
                 ]}
                 guardar={(cambios) => patch(`/productos/${p.id}`, cambios)}
                 cambiarActivo={(activo) => patch(`/productos/${p.id}`, { activo })}

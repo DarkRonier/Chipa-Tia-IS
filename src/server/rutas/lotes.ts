@@ -166,7 +166,7 @@ rutasLotes.get('/trazabilidad/lote/:codigo', soloChiperia, async (c) => {
     lote,
     produccion: produccion ?? null,
     envios: movimientos.filter((m) => m.tipo === 'envio'),
-    otrosMovimientos: movimientos.filter((m) => m.tipo !== 'envio' && m.tipo !== 'produccion'),
+    otrosMovimientos: movimientos.filter((m) => m.tipo !== 'envio' && m.tipo !== 'produccion' && m.tipo !== 'reasignacion'),
   })
 })
 

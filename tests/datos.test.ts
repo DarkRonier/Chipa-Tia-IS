@@ -105,7 +105,7 @@ describe('descargar todos los datos (I03)', () => {
     expect(tablas.sesiones).toBeUndefined()
     // Los registros de la prueba.
     expect(tablas.producciones).toEqual([expect.objectContaining({ id: 'prod-prueba', sector: 'cocina', usuario_id: 'usr-cocina' })])
-    expect(tablas.produccion_items).toEqual([{ produccion_id: 'prod-prueba', producto_id: 'prod-cocina-10', cocinado: 30, guardado: 8 }])
+    expect(tablas.produccion_items).toEqual([{ produccion_id: 'prod-prueba', producto_id: 'prod-cocina-10', cocinado: 30, guardado: 8, finalidad: 'reposicion' }])
     expect(tablas.movimientos).toHaveLength(1)
     expect(tablas.productos.length).toBeGreaterThan(40)
     // Usuarios sin el hash de la contraseña.
@@ -138,7 +138,7 @@ describe('copias de seguridad (I05)', () => {
     const bajada = await p.pedir(admin, 'GET', `/copias/${encodeURIComponent(r.body.clave)}`)
     expect(bajada.status).toBe(200)
     expect(bajada.body.copia).toEqual({ clave: r.body.clave, origen: 'manual' })
-    expect(bajada.body.tablas.produccion_items).toEqual([{ produccion_id: 'prod-prueba', producto_id: 'prod-cocina-10', cocinado: 30, guardado: 8 }])
+    expect(bajada.body.tablas.produccion_items).toEqual([{ produccion_id: 'prod-prueba', producto_id: 'prod-cocina-10', cocinado: 30, guardado: 8, finalidad: 'reposicion' }])
     expect(bajada.body.tablas.sesiones).toBeUndefined()
     for (const u of bajada.body.tablas.usuarios) expect(u.clave_hash).toBeUndefined()
     expect((await p.pedir(admin, 'GET', `/${r.body.clave}`)).body).toEqual(bajada.body)

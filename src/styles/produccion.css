@@ -37,3 +37,6 @@
 .prod-consumo-campo { display: flex; align-items: center; gap: 0.4rem; }
 .prod-consumo-campo input { width: 6.5rem; min-height: 44px; text-align: right; font-size: 1.1rem; }
 .prod-consumo > span { grid-column: 1 / -1; }
+
+/* C05: finalidad de lo guardado, una por producto */
+.fila-producto .finalidad { grid-column: 1 / -1; }

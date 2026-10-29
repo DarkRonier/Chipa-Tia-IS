@@ -448,7 +448,7 @@ describe('integración con producción y envíos (E02, E05, E07)', () => {
     const admin = await p.entrar('admin')
     const harina = (await loteMP(p, chiperia)).body
     const prod = await p.pedir(chiperia, 'POST', '/producciones', {
-      turno: 'dia', items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }], lotesMP: [{ id: harina.id, cantidad: 1 }],
+      turno: 'dia', items: [{ productoId: CHIPA, cocinado: 200, guardado: 300, finalidad: 'distribucion' }], lotesMP: [{ id: harina.id, cantidad: 1 }],
     })
     expect(prod.status).toBe(200)
     const codigo: string = prod.body.lote.codigo

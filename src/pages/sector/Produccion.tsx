@@ -1,6 +1,7 @@
 // C01–C03, E02–E04: el operador carga en un solo registro todo lo que produjo, con lo cocinado
 // (o al horno) y lo guardado en frío (o al congelador). En Chipería elige los lotes de materia prima
-// y el sistema le devuelve el código del lote de chipa.
+// y el sistema le devuelve el código del lote de chipa. Lo guardado lleva una finalidad (C05): «Para reponer venta»
+// (por defecto) o «Para sucursales»; una elección por producto.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
@@ -11,11 +12,14 @@ import Numero from '../../components/Numero'
 import { IconoProduccion } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY, fechaHoraPY, turnoActual } from '../../shared/hora'
-import { cantidadConUnidad, textoUsoMP, type LoteMP, type PedidoProduccion, Produccion as Registro, Producto, Turno } from '../../shared/tipos'
+import { cantidadConUnidad, NOMBRE_FINALIDAD, textoUsoMP, type Finalidad, type LoteMP, type PedidoProduccion, type Produccion as Registro, type Producto, type Turno } from '../../shared/tipos'
 import { leerCantidad } from './Lotes'
 import '../../styles/produccion.css'
 
-type Cantidades = Record<string, { cocinado: number; guardado: number }>
+type Cantidades = Record<string, { cocinado: number; guardado: number; finalidad: Finalidad }>
+
+const FINALIDADES: Finalidad[] = ['reposicion', 'distribucion']
+const PARA: Record<Finalidad, string> = { reposicion: 'Para reponer venta', distribucion: 'Para sucursales' }
 
 /** Etiquetas de las dos cantidades: Chipería habla de horno y congelador (E04). */
 const etiquetas = (conLotes: boolean) =>
@@ -66,11 +70,15 @@ function Formulario() {
   const amasadas = (deHoy.datos ?? []).map((p) => p.lote?.amasada ?? 0)
   const proximaAmasada = deHoy.datos ? Math.max(0, ...amasadas) + 1 : null
 
-  const valor = (id: string) => cant[id] ?? { cocinado: 0, guardado: 0 }
+  const valor = (id: string) => cant[id] ?? { cocinado: 0, guardado: 0, finalidad: 'reposicion' as Finalidad }
   const conValor = (id: string) => valor(id).cocinado + valor(id).guardado > 0
   const setValor = (id: string, campo: 'cocinado' | 'guardado', n: number) => {
     setAviso(null)
     setCant((c) => ({ ...c, [id]: { ...valor(id), ...c[id], [campo]: n } }))
+  }
+  const setFinalidad = (id: string, finalidad: Finalidad) => {
+    setAviso(null)
+    setCant((c) => ({ ...c, [id]: { ...valor(id), ...c[id], finalidad } }))
   }
   const items = activos.filter((p) => conValor(p.id)).map((p) => ({ productoId: p.id, ...valor(p.id) }))
   const texto = buscar.trim().toLowerCase()
@@ -118,7 +126,10 @@ function Formulario() {
           )}
           <ul>
             {listo.items.map((i) => (
-              <li key={i.productoId}>{i.productoNombre}: {i.cocinado} {et.cocinadoCorto}, {i.guardado} {et.guardadoCorto}</li>
+              <li key={i.productoId}>
+                {i.productoNombre}: {i.cocinado} {et.cocinadoCorto}, {i.guardado} {et.guardadoCorto}
+                {i.guardado > 0 && <> ({PARA[i.finalidad].toLowerCase()})</>}
+              </li>
             ))}
           </ul>
           {!!listo.lote?.lotesMP.length && (
@@ -243,6 +254,15 @@ function Formulario() {
                     <span className="nombre">{p.nombre}</span>
                     <Numero etiqueta={et.cocinado} valor={valor(p.id).cocinado} onChange={(n) => setValor(p.id, 'cocinado', n)} />
                     <Numero etiqueta={et.guardado} valor={valor(p.id).guardado} onChange={(n) => setValor(p.id, 'guardado', n)} />
+                    {valor(p.id).guardado > 0 && (
+                      <div className="segmentado chico finalidad" role="group" aria-label={`Finalidad de lo guardado de ${p.nombre}`}>
+                        {FINALIDADES.map((f) => (
+                          <button key={f} type="button" className={valor(p.id).finalidad === f ? 'activo' : ''} aria-pressed={valor(p.id).finalidad === f} onClick={() => setFinalidad(p.id, f)}>
+                            {PARA[f]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
                 {visibles.length === 0 && <p className="suave prod-sin-resultados">Ningún producto coincide con “{buscar.trim()}”.</p>}
@@ -288,7 +308,10 @@ function RegistrosDeHoy({ consulta, conLotes }: {
           </div>
           <ul>
             {p.items.map((i) => (
-              <li key={i.productoId}>{i.productoNombre}: {i.cocinado} {et.cocinadoCorto} · {i.guardado} {et.guardadoCorto}</li>
+              <li key={i.productoId}>
+                {i.productoNombre}: {i.cocinado} {et.cocinadoCorto} · {i.guardado} {et.guardadoCorto}
+                {i.guardado > 0 && <span className="suave chico"> · {NOMBRE_FINALIDAD[i.finalidad]}</span>}
+              </li>
             ))}
           </ul>
           {p.corregidoEn && (

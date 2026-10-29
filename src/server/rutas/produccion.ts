@@ -1,7 +1,7 @@
 // C01–C04, E02–E04: registros de producción. Un registro junta todos los productos de una carga;
 // lo guardado entra al stock en frío y, en Chipería, cada registro es una amasada con su lote CH-AAMMDD-N.
 import { Hono } from 'hono'
-import type { Produccion, ProduccionItem, SectorId, Turno } from '../../shared/tipos'
+import { FINALIDADES, type Finalidad, type Produccion, type ProduccionItem, type SectorId, type Turno } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { leerLotesMP, leerProducciones } from '../consultas'
 import { ahora, nuevoId, sentencia, todasPorTrozos } from '../db'
@@ -22,6 +22,8 @@ interface ItemPedido {
   productoId: string
   cocinado: number
   guardado: number
+  /** C05: para qué se guarda lo guardado. null = no la indicaron (al registrar, reponer la venta). */
+  finalidad: Finalidad | null
 }
 
 /** Valida la lista de productos con sus cantidades (enteros ≥ 0, cada producto una sola vez). */
@@ -38,6 +40,7 @@ function leerItems(v: unknown): ItemPedido[] {
       productoId,
       cocinado: entero(it.cocinado ?? 0, 'La cantidad cocinada'),
       guardado: entero(it.guardado ?? 0, 'La cantidad guardada'),
+      finalidad: it.finalidad === undefined || it.finalidad === null || it.finalidad === '' ? null : opcion(it.finalidad, FINALIDADES, 'La finalidad'),
     }
   })
 }
@@ -114,6 +117,7 @@ const sentenciaMovimiento = (db: BaseD1, m: {
   lote: string | null
   tipo: 'produccion' | 'ajuste'
   cantidad: number
+  finalidad: Finalidad
   motivo: string | null
   produccionId: string
   usuarioId: string
@@ -122,9 +126,9 @@ const sentenciaMovimiento = (db: BaseD1, m: {
 }) =>
   sentencia(
     db,
-    `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, motivo, sucursal_id, envio_id, produccion_id, usuario_id, fecha, dia)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
-    nuevoId(), m.sector, m.productoId, m.lote, m.tipo, m.cantidad, m.motivo, m.produccionId, m.usuarioId, m.fecha, m.dia,
+    `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, finalidad, motivo, sucursal_id, envio_id, produccion_id, usuario_id, fecha, dia)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
+    nuevoId(), m.sector, m.productoId, m.lote, m.tipo, m.cantidad, m.finalidad, m.motivo, m.produccionId, m.usuarioId, m.fecha, m.dia,
   )
 
 async function unaProduccion(db: BaseD1, id: string): Promise<Produccion> {
@@ -155,7 +159,9 @@ rutasProduccion.post('/producciones', async (c) => {
   if (b.turno === undefined || b.turno === null || b.turno === '') throw invalido('Elegí el turno.')
   const turno = opcion(b.turno, TURNOS, 'El turno')
   // Lo que viene vacío (0 y 0) no se registra.
-  const items = leerItems(b.items).filter((i) => i.cocinado + i.guardado > 0)
+  const items = leerItems(b.items)
+    .filter((i) => i.cocinado + i.guardado > 0)
+    .map((i) => ({ ...i, finalidad: i.finalidad ?? ('reposicion' as Finalidad) }))
   if (!items.length) throw invalido('Cargá al menos una cantidad.')
 
   const productos = await leerProductos(db, items.map((i) => i.productoId))
@@ -175,8 +181,8 @@ rutasProduccion.post('/producciones', async (c) => {
     sentencia(db, 'INSERT INTO producciones (id, sector, usuario_id, fecha, dia, turno) VALUES (?, ?, ?, ?, ?, ?)',
       id, sector, u.id, fecha, dia, turno),
     ...items.map((i) =>
-      sentencia(db, 'INSERT INTO produccion_items (produccion_id, producto_id, cocinado, guardado) VALUES (?, ?, ?, ?)',
-        id, i.productoId, i.cocinado, i.guardado)),
+      sentencia(db, 'INSERT INTO produccion_items (produccion_id, producto_id, cocinado, guardado, finalidad) VALUES (?, ?, ?, ?, ?)',
+        id, i.productoId, i.cocinado, i.guardado, i.finalidad)),
   ]
 
   // E03: el lote CH-AAMMDD-N se numera dentro de la misma transacción (N = amasada del día),
@@ -193,13 +199,13 @@ rutasProduccion.post('/producciones', async (c) => {
     )
   }
 
-  // D01/E05: lo guardado entra al stock en frío (en Chipería, con el código de su lote).
+  // D01/E05/C05: lo guardado entra al stock en frío con su finalidad (en Chipería, con el código de su lote).
   for (const i of items.filter((x) => x.guardado > 0)) {
     sentencias.push(
       sentencia(db,
-        `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, motivo, sucursal_id, envio_id, produccion_id, usuario_id, fecha, dia)
-         VALUES (?, ?, ?, ${loteId ? '(SELECT codigo FROM lotes_chipa WHERE id = ?)' : '?'}, 'produccion', ?, NULL, NULL, NULL, ?, ?, ?, ?)`,
-        nuevoId(), sector, i.productoId, loteId, i.guardado, id, u.id, fecha, dia),
+        `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, finalidad, motivo, sucursal_id, envio_id, produccion_id, usuario_id, fecha, dia)
+         VALUES (?, ?, ?, ${loteId ? '(SELECT codigo FROM lotes_chipa WHERE id = ?)' : '?'}, 'produccion', ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`,
+        nuevoId(), sector, i.productoId, loteId, i.guardado, i.finalidad, id, u.id, fecha, dia),
     )
   }
 
@@ -229,6 +235,13 @@ rutasProduccion.patch('/producciones/:id', soloAdmin, async (c) => {
   const productos = await leerProductos(db, pedidos.map((i) => i.productoId))
   controlarProductos(pedidos, productos, original.sector, new Set(antes.keys()))
 
+  // La finalidad de lo que ya estaba guardado no se cambia desde acá (para eso está «cambiar finalidad» en Stock).
+  // Solo cuenta la del pedido cuando no había nada guardado todavía.
+  const finalidadFinal = (i: ItemPedido): Finalidad => {
+    const a = antes.get(i.productoId)
+    return a && a.guardado > 0 ? a.finalidad : (i.finalidad ?? a?.finalidad ?? 'reposicion')
+  }
+
   // Los productos que no vienen en el pedido quedan como estaban.
   const despues = new Map<string, ProduccionItem>(antes)
   for (const i of pedidos) {
@@ -237,6 +250,7 @@ rutasProduccion.patch('/producciones/:id', soloAdmin, async (c) => {
       productoNombre: productos.get(i.productoId)!.nombre,
       cocinado: i.cocinado,
       guardado: i.guardado,
+      finalidad: finalidadFinal(i),
     })
   }
   const cambios = pedidos.filter((i) => {
@@ -254,15 +268,15 @@ rutasProduccion.patch('/producciones/:id', soloAdmin, async (c) => {
   for (const i of cambios) {
     const a = antes.get(i.productoId)
     sentencias.push(a
-      ? sentencia(db, 'UPDATE produccion_items SET cocinado = ?, guardado = ? WHERE produccion_id = ? AND producto_id = ?',
-        i.cocinado, i.guardado, id, i.productoId)
-      : sentencia(db, 'INSERT INTO produccion_items (produccion_id, producto_id, cocinado, guardado) VALUES (?, ?, ?, ?)',
-        id, i.productoId, i.cocinado, i.guardado))
+      ? sentencia(db, 'UPDATE produccion_items SET cocinado = ?, guardado = ?, finalidad = ? WHERE produccion_id = ? AND producto_id = ?',
+        i.cocinado, i.guardado, finalidadFinal(i), id, i.productoId)
+      : sentencia(db, 'INSERT INTO produccion_items (produccion_id, producto_id, cocinado, guardado, finalidad) VALUES (?, ?, ?, ?, ?)',
+        id, i.productoId, i.cocinado, i.guardado, finalidadFinal(i)))
     // La diferencia de lo guardado corrige el stock con un movimiento compensatorio.
     const diferencia = i.guardado - (a?.guardado ?? 0)
     if (diferencia !== 0) {
       sentencias.push(sentenciaMovimiento(db, {
-        sector: original.sector, productoId: i.productoId, lote, tipo: 'ajuste', cantidad: diferencia,
+        sector: original.sector, productoId: i.productoId, lote, tipo: 'ajuste', cantidad: diferencia, finalidad: finalidadFinal(i),
         motivo: MOTIVO_CORRECCION, produccionId: id, usuarioId: u.id, fecha, dia,
       }))
     }

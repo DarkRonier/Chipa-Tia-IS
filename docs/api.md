@@ -101,8 +101,8 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | GET | `/sectores` | | `Sector[]` (los cuatro, en orden) |
 | PATCH | `/sectores/:id` | `{ nombre }` | `Sector` |
 | GET | `/productos` | `?sector&todos` | `Producto[]` |
-| POST | `/productos` | `{ sector, nombre, unidad? }` | `Producto` (`unidad` por defecto `unidades`; queda al final de su sector) |
-| PATCH | `/productos/:id` | `{ nombre?, unidad?, activo? }` | `Producto` |
+| POST | `/productos` | `{ sector, nombre, unidad?, stockMinimo? }` | `Producto` (`unidad` por defecto `unidades`; queda al final de su sector) |
+| PATCH | `/productos/:id` | `{ nombre?, unidad?, activo?, stockMinimo? }` | `Producto` (`stockMinimo`: entero ≥ 0, o `null`/vacío para quitarlo; C08) |
 | GET | `/maquinas` | `?sector&todos` | `Maquina[]` (por sector y N°) |
 | POST | `/maquinas` | `{ sector, numero?, nombre, tipo, tempMin?, tempMax? }` | `Maquina` |
 | PATCH | `/maquinas/:id` | `{ numero?, nombre?, tipo?, tempMin?, tempMax?, activo? }` | `Maquina` |
@@ -134,6 +134,8 @@ Los `PATCH` sin ningún campo editable dan `400`.
 - `POST`: `turno` (`dia` o `noche`) obligatorio. Cada producto una sola vez (hasta 300), enteros ≥ 0; las líneas
   en 0 y 0 no se guardan y tiene que quedar al menos una. Productos activos del sector.
 - Lo `guardado` entra al stock en frío como movimiento `produccion` (+guardado); lo `cocinado` va directo a venta.
+  Cada línea lleva `finalidad` (C05): `reposicion` (por defecto, reponer la venta del sector) o `distribucion` (enviar a
+  sucursales); `400` si es otra. Al corregir, lo ya guardado conserva su finalidad.
 - **Chipería**: exige `lotesMP` (de 1 a 50 objetos `{ id, cantidad }`; `400` si falta) disponibles (`409
   lote_mp_no_disponible` si alguno está bloqueado, vencido, sin saldo o no existe). `cantidad` es lo usado de ese
   lote en su unidad (E03): obligatoria, número > 0 y no más que el saldo del lote (`400`); cada lote va una sola
@@ -157,8 +159,18 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | POST | `/salidas` | `PedidoSalida` | `Movimiento` (`salida_venta`, cantidad negativa) |
 | POST | `/envios` | `PedidoEnvio` | `RespuestaEnvio` (una línea por ítem, mismo `envioId`, todo o nada) |
 | POST | `/ajustes` | `PedidoAjuste` · admin | `Movimiento` |
+| POST | `/reasignaciones` | `PedidoReasignacion` | `Movimiento[]` (par `reasignacion`: −N en `desde`, +N en la otra) |
+| GET | `/stock/alertas` | `?sector` (admin: todos si falta) | `Alerta[]` (`stock_minimo`, C08) |
 | GET | `/movimientos` | `?sector&desde&hasta&sucursal&producto&tipo&lote` | `Movimiento[]` |
 
+- **Finalidad (C05).** Cada movimiento lleva `finalidad`: `reposicion` o `distribucion` (los anteriores a la migración 0007 quedan
+  como `reposicion`). `StockFila` trae `total`, `reposicion` y `distribucion` (y lo mismo por lote). `/salidas` saca de
+  `reposicion`, `/envios` de `distribucion`, `/ajustes` de la `finalidad` indicada (por defecto `reposicion`). El trigger
+  de D04 controla por producto, lote y finalidad; el `409` dice cuánto hay en la otra finalidad. `/reasignaciones`
+  (`{ sector?, productoId, lote?, cantidad, desde }`, operador del sector o admin) pasa unidades a la otra finalidad
+  con dos movimientos `reasignacion`, que no cuentan como salida en los reportes.
+- **Stock mínimo (C08).** `alertasStock(db, sector)` (src/server/rutas/stock.ts) devuelve una `Alerta` por producto
+  activo con menos que su `stockMinimo` en frío (todas las finalidades y lotes), con enlace `/stock`.
 - `/stock`: los productos activos del sector (aunque estén en 0) y los inactivos con stock ≠ 0. En Chipería,
   `lotes` trae los lotes con cantidad > 0, el más viejo primero; en los demás sectores viene vacío.
 - **Chipería exige `lote`** en salidas, envíos (en cada línea) y ajustes (`400` si falta); en los otros

@@ -7,7 +7,10 @@ export const SECTOR_IDS: SectorId[] = ['chiperia', 'chipitas', 'panaderia', 'coc
 export const ROLES: Rol[] = [...SECTOR_IDS, 'admin']
 
 export type Turno = 'dia' | 'noche'
-export type TipoMovimiento = 'produccion' | 'stock_inicial' | 'salida_venta' | 'envio' | 'merma' | 'vencimiento' | 'ajuste'
+export type TipoMovimiento = 'produccion' | 'stock_inicial' | 'salida_venta' | 'envio' | 'merma' | 'vencimiento' | 'ajuste' | 'reasignacion'
+/** C05: para qué se guardó lo que está en frío: reponer la venta del propio sector o enviarlo a sucursales. */
+export type Finalidad = 'reposicion' | 'distribucion'
+export const FINALIDADES: Finalidad[] = ['reposicion', 'distribucion']
 export type TipoAjuste = 'merma' | 'vencimiento' | 'ajuste' | 'stock_inicial'
 export type Marca = 'X' | 'XX' | '-'
 export type EstadoMaquina = 'funciona' | 'con_fallas' | 'fuera_de_servicio'
@@ -25,6 +28,11 @@ export const NOMBRE_TIPO_MOVIMIENTO: Record<TipoMovimiento, string> = {
   merma: 'Merma',
   vencimiento: 'Vencimiento',
   ajuste: 'Ajuste',
+  reasignacion: 'Cambio de finalidad',
+}
+export const NOMBRE_FINALIDAD: Record<Finalidad, string> = {
+  reposicion: 'Reponer venta',
+  distribucion: 'Sucursales',
 }
 export const NOMBRE_ESTADO: Record<EstadoMaquina, string> = {
   funciona: 'Funciona',
@@ -71,6 +79,8 @@ export interface Producto {
   nombre: string
   unidad: string
   activo: boolean
+  /** C08: con menos que esto en frío (sumando finalidades y lotes) el sistema avisa. null = sin aviso. */
+  stockMinimo: number | null
 }
 
 export interface Maquina {
@@ -178,6 +188,8 @@ export interface ProduccionItem {
   productoNombre: string
   cocinado: number
   guardado: number
+  /** Para qué se guardó lo guardado. */
+  finalidad: Finalidad
 }
 
 export interface Produccion {
@@ -203,6 +215,7 @@ export interface Movimiento {
   lote: string | null
   tipo: TipoMovimiento
   cantidad: number
+  finalidad: Finalidad
   motivo: string | null
   sucursalId: string | null
   sucursalNombre: string | null
@@ -219,7 +232,12 @@ export interface StockFila {
   productoNombre: string
   activo: boolean
   total: number
-  lotes: { lote: string; cantidad: number }[]
+  /** Del total, lo guardado para reponer la venta y lo guardado para sucursales. */
+  reposicion: number
+  distribucion: number
+  /** Stock mínimo configurado (C08); null si no tiene. */
+  minimo: number | null
+  lotes: { lote: string; cantidad: number; reposicion: number; distribucion: number }[]
 }
 
 export interface Lectura {
@@ -330,7 +348,7 @@ export interface Reporte {
     cocinado: number
     guardado: number
   }[]
-  stock: { sector: SectorId; productoId: string; productoNombre: string; total: number }[]
+  stock: { sector: SectorId; productoId: string; productoNombre: string; total: number; reposicion: number; distribucion: number }[]
   envios: { sucursalId: string; sucursalNombre: string; productoNombre: string; sector: SectorId; cantidad: number }[]
   salidas: { sector: SectorId; tipo: TipoMovimiento; cantidad: number }[]
   lotesChipa: LoteChipa[]
@@ -409,7 +427,7 @@ export interface PedidoProduccion {
   /** Solo el administrador lo indica; un operador carga siempre en su sector. */
   sector?: SectorId
   turno: Turno
-  items: { productoId: string; cocinado: number; guardado: number }[]
+  items: { productoId: string; cocinado: number; guardado: number; finalidad?: Finalidad }[]
   /** Chipería: lotes de materia prima usados y cuánto de cada uno, en la unidad del lote (E02, E03). */
   lotesMP?: { id: string; cantidad: number }[]
 }
@@ -430,7 +448,18 @@ export interface PedidoAjuste {
   /** Positivo. Merma y vencimiento restan, stock inicial suma, el ajuste usa `sentido`. */
   cantidad: number
   sentido?: 1 | -1
+  /** De cuál de los dos stocks suma o resta. Si falta, reposición. */
+  finalidad?: Finalidad
   motivo: string
+}
+
+/** Pasa `cantidad` de un producto (y lote) de la finalidad `desde` a la otra. */
+export interface PedidoReasignacion {
+  sector?: SectorId
+  productoId: string
+  lote?: string | null
+  cantidad: number
+  desde: Finalidad
 }
 
 export interface PedidoLectura {

@@ -60,9 +60,9 @@ describe('registrar producción (C01–C03)', () => {
     expect(r.body.lote).toBeNull()
     // Lo que vino en 0 y 0 no se registra.
     expect(r.body.items).toEqual([
-      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 30, guardado: 8 },
-      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0 },
-      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0 },
+      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 30, guardado: 8, finalidad: 'reposicion' },
+      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0, finalidad: 'reposicion' },
+      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0, finalidad: 'reposicion' },
     ])
     const lista = await p.pedir<Produccion[]>(t, 'GET', '/producciones')
     expect(lista.body).toHaveLength(1)
@@ -207,7 +207,7 @@ describe('sector de cada usuario (A03)', () => {
     expect(deHoy.body.map((x) => x.id)).toEqual([nueva.body.id])
     const deAyer = await p.pedir<Produccion[]>(t, 'GET', `/producciones?desde=${ayer}&hasta=${ayer}`)
     expect(deAyer.body.map((x) => x.id)).toEqual(['vieja'])
-    expect(deAyer.body[0].items).toEqual([{ productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 4, guardado: 0 }])
+    expect(deAyer.body[0].items).toEqual([{ productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 4, guardado: 0, finalidad: 'reposicion' }])
     expect((await p.pedir(t, 'GET', '/producciones?desde=10-10-2026')).status).toBe(400)
     expect((await p.pedir(t, 'GET', `/producciones?desde=${hoy}&hasta=${ayer}`)).status).toBe(400)
   })
@@ -223,7 +223,7 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
     })
     expect(r.status).toBe(200)
     const codigo = `CH-${diaPY().slice(2).replaceAll('-', '')}-1`
-    expect(r.body.items).toEqual([{ productoId: CHIPA, productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300 }])
+    expect(r.body.items).toEqual([{ productoId: CHIPA, productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300, finalidad: 'reposicion' }])
     expect(r.body.lote).toMatchObject({
       codigo, amasada: 1, dia: diaPY(), produccionId: r.body.id, horno: 200, congelador: 300, stock: 300,
       lotesMP: [{ id: harina, descripcion: 'Harina · Molino Central · lote H-77', cantidad: 1, unidad: 'kg' }],
@@ -327,9 +327,9 @@ describe('corrección del administrador (C04)', () => {
     // El autor y la fecha original no cambian; lo que no vino en el pedido queda igual.
     expect(r.body).toMatchObject({ usuarioId: 'usr-cocina', fecha: original.body.fecha })
     expect(r.body.items).toEqual([
-      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 32, guardado: 6 },
-      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0 },
-      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0 },
+      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 32, guardado: 6, finalidad: 'reposicion' },
+      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0, finalidad: 'reposicion' },
+      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0, finalidad: 'reposicion' },
     ])
 
     const ajustes = await p.sql("SELECT * FROM movimientos WHERE tipo = 'ajuste'")

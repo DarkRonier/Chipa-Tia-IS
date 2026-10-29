@@ -565,7 +565,7 @@ describe('correo del resumen (H04)', () => {
     expect((await p.pedir(admin, 'POST', `/areas/${area.body.id}/tareas`, { nombre: '<b>Piso</b>' })).status).toBe(200)
 
     const t = await p.entrar('cocina')
-    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: producto.body.id, cocinado: 2, guardado: 10 }] })).status).toBe(200)
+    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: producto.body.id, cocinado: 2, guardado: 10, finalidad: 'distribucion' }] })).status).toBe(200)
     expect((await p.pedir(t, 'POST', '/envios', { sucursalId: sucursal.body.id, items: [{ productoId: producto.body.id, cantidad: 3 }] })).status).toBe(200)
     expect((await p.pedir(t, 'POST', '/lecturas', {
       maquinaId: 'maq-cocina-1', momento: 'inicio', estado: 'con_fallas', temperatura: 20,

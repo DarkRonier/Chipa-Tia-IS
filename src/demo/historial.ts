@@ -114,6 +114,10 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
       await pedir(t.admin, 'POST', '/ajustes', { sector: 'cocina', productoId, tipo: 'stock_inicial', cantidad, motivo: 'Stock existente al empezar a usar el sistema' })
     }
   })
+  // C08: algunos productos con stock mínimo, para que el aviso se vea en la demo.
+  for (const [productoId, stockMinimo] of [['prod-cocina-10', 15], ['prod-cocina-04', 12], ['prod-chipitas-01', 400]] as const) {
+    await pedir(t.admin, 'PATCH', `/productos/${productoId}`, { stockMinimo })
+  }
   const nuevoLoteMP = async (insumo: string, proveedor: string, numeroLote: string, dia: string, cantidad: number, vence: number) =>
     (await el(dia, 6.5, () => pedir<{ id: string }>(t.chiperia, 'POST', '/lotes-mp', {
       insumo, proveedor, numeroLote, fechaIngreso: dia, cantidad, unidad: 'kg', vencimiento: sumarDias(hoy, vence),
@@ -146,7 +150,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     const amasada1 = await el(dia, 5.5, () => pedir<Produccion>(t.chiperia, 'POST', '/producciones', {
       turno: 'dia', lotesMP: [{ id: quesoDelDia, cantidad: 3 }, { id: almidon.id, cantidad: 5 }],
       items: [
-        { productoId: 'prod-chiperia-01', cocinado: entre(180, 240), guardado: entre(140, 200) },
+        { productoId: 'prod-chiperia-01', cocinado: entre(180, 240), guardado: entre(140, 200), finalidad: 'distribucion' },
         { productoId: 'prod-chiperia-03', cocinado: entre(80, 120), guardado: entre(60, 90) },
         { productoId: 'prod-chiperia-09', cocinado: entre(40, 60), guardado: 0 },
       ],
@@ -155,7 +159,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     const amasada2 = await el(dia, 9, () => pedir<Produccion>(t.chiperia, 'POST', '/producciones', {
       turno: 'dia', lotesMP: [{ id: quesoDelDia, cantidad: 3 }, { id: almidon.id, cantidad: 5 }, { id: harina.id, cantidad: 8 }],
       items: [
-        { productoId: 'prod-chiperia-02', cocinado: entre(100, 140), guardado: entre(80, 110) },
+        { productoId: 'prod-chiperia-02', cocinado: entre(100, 140), guardado: entre(80, 110), finalidad: 'distribucion' },
         { productoId: 'prod-chiperia-05', cocinado: entre(30, 50), guardado: entre(20, 40) },
       ],
     }))
@@ -175,8 +179,8 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     await el(dia, 6, () => pedir(t.cocina, 'POST', '/producciones', {
       turno: 'dia',
       items: [
-        { productoId: 'prod-cocina-10', cocinado: entre(28, 40), guardado: entre(8, 14) },
-        { productoId: 'prod-cocina-15', cocinado: entre(12, 18), guardado: entre(4, 8) },
+        { productoId: 'prod-cocina-10', cocinado: entre(28, 40), guardado: entre(8, 14), finalidad: 'distribucion' },
+        { productoId: 'prod-cocina-15', cocinado: entre(12, 18), guardado: entre(4, 8), finalidad: 'distribucion' },
         { productoId: 'prod-cocina-16', cocinado: entre(15, 25), guardado: 0 },
         { productoId: 'prod-cocina-19', cocinado: entre(10, 16), guardado: 0 },
         { productoId: 'prod-cocina-25', cocinado: entre(30, 45), guardado: 0 },
@@ -189,7 +193,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
         { productoId: 'prod-cocina-07', cocinado: entre(15, 25), guardado: entre(4, 8) },
       ],
     }))
-    await el(dia, 11, () => pedir(t.cocina, 'POST', '/salidas', { productoId: 'prod-cocina-10', cantidad: entre(3, 6) }))
+    await el(dia, 11, () => pedir(t.cocina, 'POST', '/salidas', { productoId: 'prod-cocina-04', cantidad: entre(3, 6) }))
     await el(dia, 12, () => pedir(t.cocina, 'POST', '/envios', {
       sucursalId: ['suc-centro', 'suc-ruta1', 'suc-encarnacion'][n % 3],
       items: [
@@ -202,8 +206,8 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     await el(dia, 7, () => pedir(t.chipitas, 'POST', '/producciones', {
       turno: 'dia',
       items: [
-        { productoId: 'prod-chipitas-01', cocinado: entre(150, 250), guardado: entre(250, 350) },
-        { productoId: 'prod-chipitas-02', cocinado: entre(40, 80), guardado: entre(80, 120) },
+        { productoId: 'prod-chipitas-01', cocinado: entre(150, 250), guardado: entre(250, 350), finalidad: 'distribucion' },
+        { productoId: 'prod-chipitas-02', cocinado: entre(40, 80), guardado: entre(80, 120), finalidad: 'distribucion' },
       ],
     }))
     await el(dia, 13, () => pedir(t.chipitas, 'POST', '/envios', {
@@ -214,7 +218,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
       turno: 'dia',
       items: [
         { productoId: 'prod-panaderia-01', cocinado: entre(300, 450), guardado: 0 },
-        { productoId: 'prod-panaderia-02', cocinado: entre(80, 120), guardado: entre(20, 40) },
+        { productoId: 'prod-panaderia-02', cocinado: entre(80, 120), guardado: entre(20, 40), finalidad: 'distribucion' },
         { productoId: 'prod-panaderia-03', cocinado: entre(50, 80), guardado: entre(30, 50) },
       ],
     }))
@@ -276,11 +280,11 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
         sector: 'cocina', productoId: 'prod-cocina-10', tipo: 'merma', cantidad: 2, motivo: 'Se rompieron al sacarlas del freezer',
       }))
       const stockChipa = await pedir<StockFila[]>(t.admin, 'GET', '/stock?sector=chiperia')
-      const viejo = stockChipa.find((s) => s.productoId === 'prod-chiperia-02')?.lotes[0]
+      const viejo = stockChipa.find((s) => s.productoId === 'prod-chiperia-02')?.lotes.find((l) => l.distribucion > 0)
       if (viejo) {
         await el(dia, 16.2, () => pedir(t.admin, 'POST', '/ajustes', {
-          sector: 'chiperia', productoId: 'prod-chiperia-02', lote: viejo.lote, tipo: 'vencimiento',
-          cantidad: Math.min(10, viejo.cantidad), motivo: 'Pasó la fecha de consumo en el congelador',
+          sector: 'chiperia', productoId: 'prod-chiperia-02', lote: viejo.lote, tipo: 'vencimiento', finalidad: 'distribucion',
+          cantidad: Math.min(10, viejo.distribucion), motivo: 'Pasó la fecha de consumo en el congelador',
         }))
       }
     }
