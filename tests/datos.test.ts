@@ -184,7 +184,7 @@ describe('copias de seguridad (I05)', () => {
         return g ? { arrayBuffer: async () => g.datos.slice().buffer, httpMetadata: { contentType: g.tipo } } : null
       },
       async delete(clave) {
-        guardados.delete(clave)
+        for (const k of [clave].flat()) guardados.delete(k)
       },
     }
     const p = await nuevaPrueba({ ARCHIVOS: r2 })

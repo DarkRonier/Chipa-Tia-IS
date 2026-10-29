@@ -98,8 +98,20 @@ export interface AreaLimpieza {
   codigo: string
   sectores: SectorId[]
   activo: boolean
+  /** G08: cada cuántos días como máximo hay que limpiar el área (1 = todos los días); null = sin exigencia. */
+  frecuenciaDias: number | null
   tareas: TareaLimpieza[]
 }
+
+/** Opciones habituales de frecuencia mínima de limpieza (G08). */
+export const FRECUENCIAS_LIMPIEZA: { dias: number | null; nombre: string }[] = [
+  { dias: null, nombre: 'Sin exigencia' },
+  { dias: 1, nombre: 'Todos los días' },
+  { dias: 2, nombre: 'Cada 2 días' },
+  { dias: 7, nombre: 'Cada semana' },
+  { dias: 15, nombre: 'Cada 15 días' },
+  { dias: 30, nombre: 'Cada mes' },
+]
 
 export interface Sucursal {
   id: string
@@ -226,6 +238,8 @@ export interface Limpieza {
   controladoPor: string | null
   controladoPorNombre: string | null
   controladoEn: string | null
+  /** G06: hay foto guardada; los bytes se piden aparte (`GET /limpiezas/:id/foto`). */
+  tieneFoto: boolean
 }
 
 export interface Auditoria {
@@ -412,6 +426,8 @@ export interface PedidoLimpieza {
   sector?: SectorId
   marcas: { tareaId: string; marca: Marca; numero?: string | null }[]
   comentario?: string
+  /** Imagen ya achicada en el navegador, como data URL JPEG. */
+  foto?: string | null
 }
 
 export interface ErrorRespuesta { error: { codigo: string; mensaje: string } }

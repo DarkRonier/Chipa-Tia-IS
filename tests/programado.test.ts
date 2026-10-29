@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BaseD1, BucketR2, Env, SentenciaD1 } from '../src/server/entorno'
-import { CRON_COPIA, CRON_RESUMENES, tareasProgramadas } from '../src/server/programado'
+import { borrarFotosViejas, CRON_COPIA, CRON_RESUMENES, DIAS_FOTOS, tareasProgramadas } from '../src/server/programado'
 import { sumarDias } from '../src/shared/hora'
 import { nuevaPrueba, type Prueba } from './ayuda'
 
@@ -59,7 +59,7 @@ function simularR2() {
       return g ? { arrayBuffer: async () => g.slice().buffer } : null
     },
     async delete(clave) {
-      guardados.delete(clave)
+      for (const k of [clave].flat()) guardados.delete(k)
     },
   }
   return { r2, guardados }
@@ -149,6 +149,7 @@ describe('disparadores (T6)', () => {
       'resumen diario: enviado a admin@chipatia.com',
       'resumen semanal: enviado a admin@chipatia.com',
       'resumen mensual: enviado a admin@chipatia.com',
+      'fotos viejas: 0 de máquinas y 0 de limpieza borradas (más de 90 días)',
     ])
     expect(cuenta.n).toBeGreaterThan(0)
     expect(cuenta.n).toBeLessThan(LIMITE)
@@ -198,7 +199,7 @@ describe('disparadores (T6)', () => {
 
     const otro = await preparar()
     const comun = await tareasProgramadas(otro.p.env, MIERCOLES)
-    expect(comun.hechas).toEqual(['resumen diario: enviado a admin@chipatia.com'])
+    expect(comun.hechas).toEqual(['resumen diario: enviado a admin@chipatia.com', 'fotos viejas: 0 de máquinas y 0 de limpieza borradas (más de 90 días)'])
     expect(await otro.p.sql('SELECT * FROM copias')).toEqual([])
     expect(await hashes(otro.p)).toContain('hash-vencida-1')
   })
@@ -237,5 +238,121 @@ describe('disparadores (T6)', () => {
     const rota = { ...p.env, DB: { prepare: () => { throw new Error('D1 caída') }, batch: async () => { throw new Error('D1 caída') } } }
     const r3 = await tareasProgramadas(rota, LUNES_DIA_1, CRON_COPIA)
     expect(r3.errores).toEqual(['copia semanal: D1 caída'])
+  })
+})
+
+describe('borrado de fotos de más de 90 días', () => {
+  const AHORA = new Date('2026-10-14T09:00:00Z')
+  const haceDias = (n: number) => new Date(AHORA.getTime() - n * 86_400_000 - 60_000).toISOString()
+
+  /** Una lectura y una limpieza con foto cada una, con la antigüedad indicada; las fotos van a R2 o a `archivos`. */
+  async function cargarFotos(p: Prueba, edades: number[], r2?: ReturnType<typeof simularR2>) {
+    const claves: string[] = []
+    for (const dias of edades) {
+      const fecha = haceDias(dias)
+      const dia = fecha.slice(0, 10)
+      for (const [tabla, clave] of [['lecturas', `fotos/lec-${dias}.jpg`], ['limpiezas', `fotos/limpieza/lim-${dias}.jpg`]] as const) {
+        if (tabla === 'lecturas') {
+          await p.sql(
+            `INSERT INTO lecturas (id, maquina_id, usuario_id, fecha, dia, momento, estado, temperatura, fuera_de_rango, observacion, foto_clave)
+             VALUES (?, 'maq-cocina-1', 'usr-cocina', ?, ?, 'inicio', 'funciona', 3, 0, '', ?)`,
+            `lec-${dias}`, fecha, dia, clave,
+          )
+        } else {
+          await p.sql(
+            "INSERT INTO limpiezas (id, area_id, sector, usuario_id, fecha, dia, foto_clave) VALUES (?, 'cocina', 'cocina', 'usr-cocina', ?, ?, ?)",
+            `lim-${dias}`, fecha, dia, clave,
+          )
+        }
+        if (r2) r2.guardados.set(clave, new Uint8Array([1, 2, 3]))
+        else await p.sql("INSERT INTO archivos (clave, tipo, datos, bytes, creado_en) VALUES (?, 'image/jpeg', 'AAAA', 3, ?)", clave, fecha)
+        claves.push(clave)
+      }
+    }
+    return claves
+  }
+
+  const conFoto = async (p: Prueba, tabla: string) =>
+    (await p.sql(`SELECT id FROM ${tabla} WHERE foto_clave IS NOT NULL ORDER BY id`)).map((f) => f.id as string)
+
+  it('DIAS_FOTOS son 90', () => {
+    expect(DIAS_FOTOS).toBe(90)
+  })
+
+  it('borra de R2 las fotos de lecturas y limpiezas de más de 90 días y conserva las recientes', async () => {
+    const r2 = simularR2()
+    const p = await nuevaPrueba({ ARCHIVOS: r2.r2 })
+    await cargarFotos(p, [120, 91, 89, 10], r2)
+    const r = await borrarFotosViejas(p.env, AHORA)
+    expect(r).toEqual({ lecturas: 2, limpiezas: 2 })
+    expect([...r2.guardados.keys()].sort()).toEqual([
+      'fotos/lec-10.jpg', 'fotos/lec-89.jpg', 'fotos/limpieza/lim-10.jpg', 'fotos/limpieza/lim-89.jpg',
+    ])
+    expect(await conFoto(p, 'lecturas')).toEqual(['lec-10', 'lec-89'])
+    expect(await conFoto(p, 'limpiezas')).toEqual(['lim-10', 'lim-89'])
+    // Los registros siguen: solo se pierde la foto.
+    expect((await p.sql('SELECT COUNT(*) AS n FROM lecturas'))[0].n).toBe(4)
+    expect((await p.sql('SELECT COUNT(*) AS n FROM limpiezas'))[0].n).toBe(4)
+    // Otra corrida no encuentra nada más.
+    expect(await borrarFotosViejas(p.env, AHORA)).toEqual({ lecturas: 0, limpiezas: 0 })
+  })
+
+  it('sin R2 borra las filas de `archivos` y deja en NULL la clave; el disparador diario lo hace en pocas consultas', async () => {
+    const p = await nuevaPrueba()
+    await cargarFotos(p, [200, 100, 5])
+    expect((await p.sql('SELECT COUNT(*) AS n FROM archivos'))[0].n).toBe(6)
+    const { env, cuenta } = contarConsultas(p.env)
+    const r = await tareasProgramadas(env, AHORA, CRON_RESUMENES)
+    expect(r.hechas).toContain('fotos viejas: 2 de máquinas y 2 de limpieza borradas (más de 90 días)')
+    expect(cuenta.n).toBeLessThan(LIMITE)
+    expect((await p.sql('SELECT clave FROM archivos ORDER BY clave')).map((a) => a.clave)).toEqual(['fotos/lec-5.jpg', 'fotos/limpieza/lim-5.jpg'])
+    expect(await conFoto(p, 'lecturas')).toEqual(['lec-5'])
+    expect(await conFoto(p, 'limpiezas')).toEqual(['lim-5'])
+  })
+
+  it('el disparador de la copia (lunes) no toca las fotos', async () => {
+    const p = await nuevaPrueba()
+    await cargarFotos(p, [200])
+    const r = await tareasProgramadas(p.env, new Date('2026-10-12T09:30:00Z'), CRON_COPIA)
+    expect(r.hechas.some((h) => h.startsWith('fotos viejas'))).toBe(false)
+    expect(await conFoto(p, 'lecturas')).toEqual(['lec-200'])
+  })
+
+  it('la cantidad de consultas no depende de cuántas fotos hay y un lote tiene tope de 500 por tabla', async () => {
+    const p = await nuevaPrueba()
+    const fecha = haceDias(150)
+    const dia = fecha.slice(0, 10)
+    // 520 lecturas viejas con foto, de un golpe.
+    await p.sql(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 520)
+       INSERT INTO lecturas (id, maquina_id, usuario_id, fecha, dia, momento, estado, temperatura, fuera_de_rango, observacion, foto_clave)
+       SELECT 'lec-' || i, 'maq-cocina-1', 'usr-cocina', ?, ?, 'otro', 'funciona', 3, 0, '', 'fotos/lec-' || i || '.jpg' FROM n`,
+      fecha, dia,
+    )
+    await p.sql(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 520)
+       INSERT INTO archivos (clave, tipo, datos, bytes, creado_en) SELECT 'fotos/lec-' || i || '.jpg', 'image/jpeg', 'AAAA', 3, ? FROM n`,
+      fecha,
+    )
+    const { env, cuenta } = contarConsultas(p.env)
+    const r = await borrarFotosViejas(env, AHORA)
+    expect(r).toEqual({ lecturas: 500, limpiezas: 0 })
+    expect(cuenta.n).toBeLessThanOrEqual(6)
+    expect(await conFoto(p, 'lecturas')).toHaveLength(20)
+    expect((await p.sql('SELECT COUNT(*) AS n FROM archivos'))[0].n).toBe(20)
+    // Al otro día sigue con las que sobraron.
+    expect(await borrarFotosViejas(p.env, new Date(AHORA.getTime() + 86_400_000))).toEqual({ lecturas: 20, limpiezas: 0 })
+    expect(await conFoto(p, 'lecturas')).toEqual([])
+  })
+
+  it('si falla el borrado en R2 no pierde la clave y lo anota sin lanzar', async () => {
+    const r2 = simularR2()
+    const p = await nuevaPrueba({ ARCHIVOS: { ...r2.r2, delete: async () => { throw new Error('R2 caído') } } })
+    await cargarFotos(p, [100], r2)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const r = await tareasProgramadas(p.env, AHORA, CRON_RESUMENES)
+    expect(r.errores).toContain('fotos viejas: R2 caído')
+    expect(await conFoto(p, 'lecturas')).toEqual(['lec-100'])
+    expect(await conFoto(p, 'limpiezas')).toEqual(['lim-100'])
   })
 })

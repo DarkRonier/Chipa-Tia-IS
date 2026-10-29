@@ -474,7 +474,7 @@ describe('tareas programadas (cron 06:00 de Paraguay)', () => {
     const r = await tareasProgramadas(p.env, new Date('2026-10-14T09:00:00Z')) // miércoles
     expect(r.dia).toBe('2026-10-14')
     expect(asuntos()).toEqual(['Chipa Tía · Resumen diario del 13/10/2026'])
-    expect(r.hechas).toEqual(['resumen diario: enviado a admin@chipatia.com'])
+    expect(r.hechas).toEqual(['resumen diario: enviado a admin@chipatia.com', 'fotos viejas: 0 de máquinas y 0 de limpieza borradas (más de 90 días)'])
     expect(await p.sql('SELECT * FROM copias')).toEqual([])
   })
 
@@ -534,7 +534,7 @@ describe('tareas programadas (cron 06:00 de Paraguay)', () => {
     // Una base que falla tampoco hace lanzar.
     const rota = { ...p.env, DB: { prepare: () => { throw new Error('D1 caída') }, batch: async () => { throw new Error('D1 caída') } } }
     const r2 = await tareasProgramadas(rota, new Date('2026-10-12T09:00:00Z'))
-    expect(r2.errores).toHaveLength(3)
+    expect(r2.errores).toHaveLength(4)
     expect(error).toHaveBeenCalled()
     await expect(tareasProgramadas(p.env, new Date('fecha mala'))).resolves.toMatchObject({ errores: ['fecha inválida'] })
   })

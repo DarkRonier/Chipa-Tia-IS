@@ -1,6 +1,7 @@
-// Guarda archivos (fotos de máquinas, copias semanales) en R2 o, si no hay R2, en la tabla `archivos`.
+// Guarda archivos (fotos de máquinas y de limpieza, copias semanales) en R2 o, si no hay R2, en la tabla `archivos`.
 import { ejecutar, una } from './db'
 import type { Env } from './entorno'
+import { invalido } from './errores'
 
 const aBase64 = (bytes: Uint8Array) => {
   let s = ''
@@ -55,4 +56,36 @@ export function desdeDataUrl(dataUrl: string): { datos: Uint8Array; tipo: string
 
 export function aDataUrl(datos: Uint8Array, tipo: string) {
   return `data:${tipo};base64,${aBase64(datos)}`
+}
+
+/** Foto ya achicada en el navegador: hasta 1,5 MB una vez decodificada. */
+export const FOTO_MAXIMA_BYTES = 1.5 * 1024 * 1024
+const EXTENSION: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
+
+export interface FotoPedida {
+  datos: Uint8Array
+  tipo: string
+  /** Extensión para la clave del archivo: jpg, png o webp. */
+  extension: string
+}
+
+/** Valida el campo `foto` de un pedido (data URL). Vacío, null o ausente = sin foto. */
+export function fotoDelPedido(valor: unknown): FotoPedida | null {
+  if (valor === undefined || valor === null || valor === '') return null
+  if (typeof valor !== 'string') throw invalido('La foto no es una imagen válida.')
+  // base64 ocupa 4/3 de los bytes: el peso se calcula antes de decodificar.
+  if (Math.floor(((valor.length - valor.indexOf(',') - 1) * 3) / 4) > FOTO_MAXIMA_BYTES + 2) {
+    throw invalido('La foto es muy pesada. Sacala de nuevo o elegí otra.')
+  }
+  const foto = desdeDataUrl(valor)
+  if (!foto) throw invalido('La foto no es una imagen válida (JPEG, PNG o WEBP).')
+  if (foto.datos.length > FOTO_MAXIMA_BYTES) throw invalido('La foto es muy pesada. Sacala de nuevo o elegí otra.')
+  return { ...foto, extension: EXTENSION[foto.tipo] }
+}
+
+/** Borra archivos: en R2 de una sola vez (acepta un arreglo de claves) y sin R2 con un solo DELETE sobre `archivos`. */
+export async function borrarArchivos(env: Env, claves: string[]) {
+  if (!claves.length) return
+  if (env.ARCHIVOS) await env.ARCHIVOS.delete(claves)
+  else await ejecutar(env.DB, 'DELETE FROM archivos WHERE clave IN (SELECT value FROM json_each(?))', JSON.stringify(claves))
 }

@@ -8,7 +8,7 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector } from '../../components/Layout'
 import {
-  NOMBRE_TIPO_MAQUINA, SECTOR_IDS,
+  FRECUENCIAS_LIMPIEZA, NOMBRE_TIPO_MAQUINA, SECTOR_IDS,
   type AreaLimpieza, type Maquina, type Producto, type Sector, type SectorId, type Sucursal, type TareaLimpieza, type TipoMaquina,
 } from '../../shared/tipos'
 import '../../styles/catalogos.css'
@@ -518,6 +518,17 @@ function DetalleArea({ area, sectores }: { area: AreaLimpieza; sectores: Sector[
     setElegidos(s)
     if (!(await cambiar.ejecutar({ sectores: s }))) setElegidos(area.sectores)
   }
+  // Frecuencia mínima de limpieza (G08): igual, cambia al instante y vuelve atrás si la API la rechaza.
+  const [frecuencia, setFrecuencia] = useState(area.frecuenciaDias)
+  useEffect(() => setFrecuencia(area.frecuenciaDias), [area.frecuenciaDias])
+  const cambiarFrecuencia = async (dias: number | null) => {
+    setFrecuencia(dias)
+    if (!(await cambiar.ejecutar({ frecuenciaDias: dias }))) setFrecuencia(area.frecuenciaDias)
+  }
+  // Un valor cargado a mano que no está entre las opciones habituales igual se muestra.
+  const opcionesFrecuencia = FRECUENCIAS_LIMPIEZA.some((f) => f.dias === frecuencia)
+    ? FRECUENCIAS_LIMPIEZA
+    : [...FRECUENCIAS_LIMPIEZA, { dias: frecuencia, nombre: `Cada ${frecuencia} días` }]
   const [nombre, setNombre] = useState('')
   const [pideNumero, setPideNumero] = useState(false)
   const [ok, setOk] = useState<string | null>(null)
@@ -556,6 +567,16 @@ function DetalleArea({ area, sectores }: { area: AreaLimpieza; sectores: Sector[
           />
           <Aviso>{cambiar.error}</Aviso>
         </div>
+        <label className="campo">
+          <span>Limpieza mínima exigida</span>
+          <select
+            value={frecuencia === null ? '' : String(frecuencia)} disabled={cambiar.enviando}
+            onChange={(e) => void cambiarFrecuencia(e.target.value === '' ? null : Number(e.target.value))}
+          >
+            {opcionesFrecuencia.map((f) => <option key={f.dias ?? 'ninguna'} value={f.dias === null ? '' : String(f.dias)}>{f.nombre}</option>)}
+          </select>
+          <small className="suave">Si pasa más tiempo sin limpiar, el sector ve un aviso en Limpieza.</small>
+        </label>
       </div>
 
       <h2>Tareas</h2>
