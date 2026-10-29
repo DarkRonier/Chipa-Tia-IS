@@ -6,13 +6,15 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
 import { mensajeDe, useAccion, useConsulta } from '../../cliente/consultas'
+import { nombreArchivoReporte } from '../../cliente/imprimir'
 import { celdaDia, celdaFechaHora, descargarExcel, negrita, type Celda, type Hoja } from '../../cliente/excel'
 import { Aviso, ConDatos } from '../../components/Estado'
+import { BotonPDF, EncabezadoImpresion } from '../../components/Impresion'
 import {
   diaLegible, diaPY, esDiaValido, fechaHoraPY, inicioDeMes, inicioDeSemana, rangoResumen, sumarDias,
 } from '../../shared/hora'
 import {
-  NOMBRE_ESTADO, NOMBRE_MOMENTO, NOMBRE_TIPO_MOVIMIENTO, SECTOR_IDS,
+  NOMBRE_ESTADO, NOMBRE_FINALIDAD, NOMBRE_MOMENTO, NOMBRE_TIPO_MOVIMIENTO, SECTOR_IDS, textoUsoMP,
   type Configuracion, type Lectura, type PeriodoResumen, type Reporte, type ResumenCorreo, type SectorId,
 } from '../../shared/tipos'
 import '../../styles/reportes.css'
@@ -68,7 +70,7 @@ export default function Reportes() {
   return (
     <div className="rep-pagina">
       <h1>Reportes</h1>
-      <div className="tarjeta">
+      <div className="tarjeta no-imprimir">
         <div className="segmentado rep-periodos" role="group" aria-label="Período">
           {ATAJOS.map(([a, t]) => (
             <button
@@ -174,6 +176,11 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
 
   return (
     <div aria-busy={actualizando}>
+      <EncabezadoImpresion
+        titulo="Reporte de producción"
+        detalle={<>{sector ? nombre(sector) : 'Todos los sectores'} · {periodoLegible(r.desde, r.hasta)}</>}
+        generado={r.generadoEn}
+      />
       <p className="suave rep-rango">
         {sector ? nombre(sector) : 'Todos los sectores'} · {periodoLegible(r.desde, r.hasta)}
         <br /><span className="chico">Generado el {fechaHoraPY(r.generadoEn)}{actualizando ? ' · actualizando…' : ''}</span>
@@ -196,6 +203,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
         <button type="button" className="btn-primario" onClick={() => void bajarExcel()} disabled={excel?.estado === 'armando'}>
           {excel?.estado === 'armando' ? 'Armando el Excel…' : 'Descargar Excel'}
         </button>
+        <BotonPDF archivo={nombreArchivoReporte(r.desde, r.hasta, sector ? nombre(sector) : '')} />
       </div>
       {excel?.estado === 'listo' && <Aviso tipo="ok">{excel.texto}</Aviso>}
       {excel?.estado === 'error' && <Aviso>{excel.texto}</Aviso>}
@@ -226,12 +234,19 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
 
       <Seccion titulo="Stock en frío actual">
         {r.stock.length === 0 ? <Vacio>No hay stock en frío.</Vacio> : (
-          <Tabla etiqueta="Stock en frío actual" columnas={[{ titulo: 'Producto' }, { titulo: 'Unidades', num: true }]}>
+          <Tabla etiqueta="Stock en frío actual" columnas={[{ titulo: 'Producto' }, { titulo: NOMBRE_FINALIDAD.reposicion, num: true }, { titulo: NOMBRE_FINALIDAD.distribucion, num: true }, { titulo: 'Unidades', num: true }]}>
             {sectoresCon(r.stock).map(({ s, filas }) => [
-              <tr key={s} className="rep-grupo"><td>{nombre(s)}</td><td className="num">{num(filas.reduce((a, f) => a + f.total, 0))}</td></tr>,
+              <tr key={s} className="rep-grupo">
+                <td>{nombre(s)}</td>
+                <td className="num">{num(filas.reduce((a, f) => a + f.reposicion, 0))}</td>
+                <td className="num">{num(filas.reduce((a, f) => a + f.distribucion, 0))}</td>
+                <td className="num">{num(filas.reduce((a, f) => a + f.total, 0))}</td>
+              </tr>,
               ...filas.map((f) => (
                 <tr key={`${s}-${f.productoId}`}>
                   <td>{f.productoNombre}</td>
+                  <td className={`num${f.reposicion < 0 ? ' rep-negativo' : ''}`}>{num(f.reposicion)}</td>
+                  <td className={`num${f.distribucion < 0 ? ' rep-negativo' : ''}`}>{num(f.distribucion)}</td>
                   <td className={`num${f.total < 0 ? ' rep-negativo' : ''}`}>{num(f.total)}</td>
                 </tr>
               )),
@@ -291,7 +306,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
                   <td data-etiqueta="Horno" className="num rep-medio">{num(l.horno)}</td>
                   <td data-etiqueta="Congelador" className="num rep-medio">{num(l.congelador)}</td>
                   <td data-etiqueta="Queda" className="num rep-medio">{num(l.stock)}</td>
-                  <td data-etiqueta="Materia prima" className="chico">{l.lotesMP.map((m) => m.descripcion).join(' · ') || '—'}</td>
+                  <td data-etiqueta="Materia prima" className="chico">{l.lotesMP.map(textoUsoMP).join(' · ') || '—'}</td>
                 </tr>
               ))}
             </Tabla>
@@ -402,8 +417,8 @@ function hojasDelReporte(r: Reporte, sector: SectorId | '', nombre: (s: SectorId
     {
       nombre: 'Stock actual',
       arriba: [[negrita(`Stock en frío al ${fechaHoraPY(r.generadoEn)}`)]],
-      encabezados: ['Sector', 'Producto', 'Unidades'],
-      filas: r.stock.map((s) => [nombre(s.sector), s.productoNombre, s.total]),
+      encabezados: ['Sector', 'Producto', NOMBRE_FINALIDAD.reposicion, NOMBRE_FINALIDAD.distribucion, 'Unidades'],
+      filas: r.stock.map((s) => [nombre(s.sector), s.productoNombre, s.reposicion, s.distribucion, s.total]),
     },
     {
       nombre: 'Envíos',
@@ -423,7 +438,12 @@ function hojasDelReporte(r: Reporte, sector: SectorId | '', nombre: (s: SectorId
       nombre: 'Lotes de chipa',
       arriba: arriba('Lotes de Chipería'),
       encabezados: ['Lote', 'Día', 'Amasada', 'Horno', 'Congelador', 'Queda', 'Materia prima'],
-      filas: r.lotesChipa.map((l) => [l.codigo, celdaDia(l.dia), l.amasada, l.horno, l.congelador, l.stock, l.lotesMP.map((m) => m.descripcion).join(' · ')]),
+      filas: r.lotesChipa.map((l) => [l.codigo, celdaDia(l.dia), l.amasada, l.horno, l.congelador, l.stock, l.lotesMP.map(textoUsoMP).join(' · ')]),
+    }, {
+      nombre: 'Consumo de materia prima',
+      arriba: arriba('Materia prima usada en cada lote de Chipería'),
+      encabezados: ['Lote', 'Día', 'Materia prima', 'Cantidad usada', 'Unidad'],
+      filas: r.lotesChipa.flatMap((l) => l.lotesMP.map((m): Celda[] => [l.codigo, celdaDia(l.dia), m.descripcion, m.cantidad ?? 'Sin dato', m.unidad])),
     })
   }
   const lecturas = (ls: Lectura[]): Celda[][] => ls.map((l) => [
@@ -472,7 +492,7 @@ function ResumenPorCorreo({ verPeriodo }: { verPeriodo: (desde: string, hasta: s
   }
 
   return (
-    <section className="rep-seccion">
+    <section className="rep-seccion no-imprimir">
       <h2>Resumen por correo</h2>
       <div className="tarjeta">
         <p className="rep-nota">Se envía solo a las 06:00: a diario, los lunes y el día 1 de cada mes.</p>

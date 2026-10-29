@@ -1,6 +1,7 @@
-// D02, D04: sacar del frío para reponer la venta. Muestra lo que hay y no deja sacar de más.
-// En Chipería se elige el lote (aparece primero el más viejo).
+// D02, D04, C05: sacar del frío para reponer la venta. Sale de lo guardado con esa finalidad («Reponer venta»);
+// muestra lo que hay y no deja sacar de más. En Chipería se elige el lote (aparece primero el más viejo).
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
@@ -34,10 +35,11 @@ function Formulario() {
 
   const filas = stock.datos ?? []
   const fila = filas.find((f) => f.productoId === productoId)
-  // Se listan los productos con stock (y el elegido, aunque se haya quedado en 0).
-  const conStock = filas.filter((f) => f.total > 0 || f.productoId === productoId)
-  const lotes = fila?.lotes ?? []
-  const disponible = !fila ? 0 : conLotes ? (lotes.find((l) => l.lote === lote)?.cantidad ?? 0) : fila.total
+  // Se listan los productos con stock para reponer la venta (y el elegido, aunque se haya quedado en 0).
+  const conStock = filas.filter((f) => f.reposicion > 0 || f.productoId === productoId)
+  const lotes = (fila?.lotes ?? []).filter((l) => l.reposicion > 0)
+  const disponible = !fila ? 0 : conLotes ? (lotes.find((l) => l.lote === lote)?.reposicion ?? 0) : fila.reposicion
+  const soloParaSucursales = filas.some((f) => f.distribucion > 0)
 
   const limpiarMensajes = () => {
     setAviso(null)
@@ -49,7 +51,7 @@ function Formulario() {
     limpiarMensajes()
     setProductoId(id)
     // Sugiere el lote más viejo: es el que conviene sacar primero.
-    setLote(filas.find((f) => f.productoId === id)?.lotes[0]?.lote ?? '')
+    setLote(filas.find((f) => f.productoId === id)?.lotes.find((l) => l.reposicion > 0)?.lote ?? '')
   }
 
   const guardar = async () => {
@@ -79,14 +81,17 @@ function Formulario() {
       <Volver titulo="Sacar para la venta" icono={<IconoVenta />} />
       <ConDatos consulta={stock}>
         {() => conStock.length === 0 && !listo ? (
-          <p className="suave">No hay nada guardado en frío para sacar.</p>
+          <p className="suave">
+            No hay nada guardado en frío para reponer la venta.
+            {soloParaSucursales && <> Lo que hay está guardado para sucursales: podés cambiarle la finalidad desde <Link to="/sector/stock">Stock en frío</Link>.</>}
+          </p>
         ) : (
           <div className="tarjeta">
             <label className="campo">
               <span>Producto</span>
               <select value={productoId} onChange={(e) => elegirProducto(e.target.value)}>
                 <option value="">Elegí un producto</option>
-                {conStock.map((f) => <option key={f.productoId} value={f.productoId}>{f.productoNombre} ({f.total})</option>)}
+                {conStock.map((f) => <option key={f.productoId} value={f.productoId}>{f.productoNombre} ({f.reposicion})</option>)}
               </select>
             </label>
             {conLotes && fila && (
@@ -95,7 +100,7 @@ function Formulario() {
                 <select value={lote} onChange={(e) => { limpiarMensajes(); setLote(e.target.value) }}>
                   <option value="">Elegí un lote</option>
                   {lotes.map((l, i) => (
-                    <option key={l.lote} value={l.lote}>{l.lote} ({l.cantidad}){i === 0 && lotes.length > 1 ? ' · el más viejo' : ''}</option>
+                    <option key={l.lote} value={l.lote}>{l.lote} ({l.reposicion}){i === 0 && lotes.length > 1 ? ' · el más viejo' : ''}</option>
                   ))}
                 </select>
               </label>

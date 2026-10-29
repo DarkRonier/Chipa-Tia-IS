@@ -1,12 +1,12 @@
 // F01–F05: el operador elige una máquina de su sector y carga estado, temperatura (obligatoria en los
 // equipos fríos y calientes), observación, mantenimiento y una foto opcional. Debajo, el historial de la
 // máquina con la temperatura en rojo cuando quedó fuera de rango.
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
-import { achicarFoto, useFotoLectura } from '../../cliente/foto'
-import { Aviso, Cargando, ConDatos } from '../../components/Estado'
+import { Aviso, ConDatos } from '../../components/Estado'
+import { CampoFoto, FotoBajoDemanda } from '../../components/Foto'
 import { useSector } from '../../components/Layout'
 import { IconoMaquinas } from '../../components/Iconos'
 import Volver from '../../components/Volver'
@@ -44,35 +44,10 @@ function fueraDeRango(m: Pick<Maquina, 'tempMin' | 'tempMax'>, t: number | null)
 
 const esBuffet = (m: Maquina) => m.tipo === 'exhibidora_fria' || m.tipo === 'exhibidora_caliente'
 
-/** Miniatura de la foto de una lectura; al tocarla se abre grande. */
-export function FotoLectura({ lecturaId }: { lecturaId: string }) {
-  const { dataUrl, error } = useFotoLectura(lecturaId)
-  const [abierta, setAbierta] = useState(false)
-  if (error) return <span className="error chico">{error}</span>
-  if (!dataUrl) return <span className="ctl-foto-cargando suave chico">Cargando foto…</span>
-  return (
-    <>
-      <button type="button" className="ctl-foto-mini" onClick={() => setAbierta(true)} aria-label="Ver la foto grande">
-        <img src={dataUrl} alt="Foto de la lectura" className="foto-mini" />
-      </button>
-      {abierta && <VisorFoto src={dataUrl} alCerrar={() => setAbierta(false)} />}
-    </>
-  )
-}
-
-function VisorFoto({ src, alCerrar }: { src: string; alCerrar: () => void }) {
-  useEffect(() => {
-    const tecla = (e: KeyboardEvent) => e.key === 'Escape' && alCerrar()
-    window.addEventListener('keydown', tecla)
-    return () => window.removeEventListener('keydown', tecla)
-  }, [alCerrar])
-  return (
-    <div className="ctl-visor" role="dialog" aria-modal="true" aria-label="Foto" onClick={alCerrar}>
-      <img src={src} alt="Foto de la lectura" onClick={(e) => e.stopPropagation()} />
-      <button type="button" className="btn-primario" onClick={alCerrar} autoFocus>Cerrar</button>
-    </div>
-  )
-}
+/** Foto de una lectura: «Ver foto» la pide al servidor recién al tocarlo. */
+export const FotoLectura = ({ lecturaId }: { lecturaId: string }) => (
+  <FotoBajoDemanda ruta={`/lecturas/${lecturaId}/foto`} alt="Foto de la lectura" />
+)
 
 // ---------- Pantalla ----------
 
@@ -201,21 +176,6 @@ function Formulario({ maquina, deHoy }: { maquina: Maquina; deHoy: Lectura[] | n
     setTemp(limpiarNumero(v))
   }
 
-  const elegirFoto = async (e: ChangeEvent<HTMLInputElement>) => {
-    const archivo = e.target.files?.[0]
-    e.target.value = ''
-    if (!archivo) return
-    tocar()
-    setAchicando(true)
-    try {
-      setFoto(await achicarFoto(archivo))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo leer la foto. Probá con otra.')
-    } finally {
-      setAchicando(false)
-    }
-  }
-
   const guardar = async () => {
     tocar()
     if (temp !== '' && t === null) return setError('Revisá la temperatura: tiene que ser un número.')
@@ -327,27 +287,7 @@ function Formulario({ maquina, deHoy }: { maquina: Maquina; deHoy: Lectura[] | n
         </>
       )}
 
-      <div className="campo">
-        <span>Foto (opcional)</span>
-        {foto ? (
-          <div className="ctl-foto-vista">
-            <img src={foto} alt="Foto adjunta" className="foto" />
-            <button type="button" className="btn-texto" onClick={() => { tocar(); setFoto(null) }}>Quitar foto</button>
-          </div>
-        ) : (
-          <div className="ctl-foto-botones">
-            <label className={achicando ? 'btn-secundario ctl-archivo apagado' : 'btn-secundario ctl-archivo'}>
-              Sacar foto
-              <input type="file" accept="image/*" capture="environment" className="ctl-oculto" disabled={achicando} onChange={(e) => void elegirFoto(e)} />
-            </label>
-            <label className={achicando ? 'btn-secundario ctl-archivo apagado' : 'btn-secundario ctl-archivo'}>
-              Elegir de la galería
-              <input type="file" accept="image/*" className="ctl-oculto" disabled={achicando} onChange={(e) => void elegirFoto(e)} />
-            </label>
-          </div>
-        )}
-        {achicando && <Cargando texto="Preparando la foto…" />}
-      </div>
+      <CampoFoto foto={foto} alCambiar={(f) => { tocar(); setFoto(f) }} alError={setError} alOcupado={setAchicando} />
 
       <Aviso>{error ?? guardarLectura.error}</Aviso>
       {listo && (

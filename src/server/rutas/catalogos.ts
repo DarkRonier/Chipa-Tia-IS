@@ -87,9 +87,18 @@ rutasCatalogos.patch('/sectores/:id', soloAdmin, async (c) => {
 
 // ---------- Productos (B01) ----------
 
-interface FilaProducto { id: string; sector: SectorId; nombre: string; unidad: string; activo: number }
-const aProducto = (f: FilaProducto): Producto => ({ id: f.id, sector: f.sector, nombre: f.nombre, unidad: f.unidad, activo: !!f.activo })
-const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo'
+interface FilaProducto { id: string; sector: SectorId; nombre: string; unidad: string; activo: number; stock_minimo: number | null }
+const aProducto = (f: FilaProducto): Producto => ({
+  id: f.id, sector: f.sector, nombre: f.nombre, unidad: f.unidad, activo: !!f.activo, stockMinimo: f.stock_minimo,
+})
+const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo, p.stock_minimo'
+
+/** Stock mínimo (C08): entero ≥ 0, o vacío / null para quitarlo. Acepta número o texto con el número. */
+function stockMinimoOpcional(v: unknown): number | null {
+  if (v === null || v === undefined || (typeof v === 'string' && !v.trim())) return null
+  const n = typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v.trim()) : v
+  return entero(n, 'El stock mínimo')
+}
 
 async function leerProducto(db: BaseD1, id: string): Promise<FilaProducto> {
   const f = await una<FilaProducto>(db, `SELECT ${COLUMNAS_PRODUCTO} FROM productos p WHERE p.id = ?`, id)
@@ -121,13 +130,14 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
   const nombre = texto(b.nombre, 'el nombre del producto', { max: 100 })
   const unidad = textoOpcional(b.unidad, 'La unidad', 30) ?? 'unidades'
   await productoSinRepetir(db, sector, nombre, null)
-  const nuevo: Producto = { id: nuevoId(), sector, nombre, unidad, activo: true }
+  const stockMinimo = stockMinimoOpcional(b.stockMinimo)
+  const nuevo: Producto = { id: nuevoId(), sector, nombre, unidad, activo: true, stockMinimo }
   await db.batch([
     sentencia(
       db,
-      `INSERT INTO productos (id, sector, nombre, unidad, activo, orden)
-       VALUES (?, ?, ?, ?, 1, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
-      nuevo.id, sector, nombre, unidad, sector,
+      `INSERT INTO productos (id, sector, nombre, unidad, activo, stock_minimo, orden)
+       VALUES (?, ?, ?, ?, 1, ?, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
+      nuevo.id, sector, nombre, unidad, stockMinimo, sector,
     ),
     sentenciaAuditoria(db, { tabla: 'productos', registroId: nuevo.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nuevo }),
   ])
@@ -137,15 +147,17 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
 rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  algoParaCambiar(b, ['nombre', 'unidad', 'activo'])
+  algoParaCambiar(b, ['nombre', 'unidad', 'activo', 'stockMinimo'])
   const antes = aProducto(await leerProducto(db, c.req.param('id')))
   const despues: Producto = { ...antes }
   if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre del producto', { max: 100 })
   if (b.unidad !== undefined) despues.unidad = texto(b.unidad, 'la unidad', { max: 30 })
   if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
+  if (b.stockMinimo !== undefined) despues.stockMinimo = stockMinimoOpcional(b.stockMinimo)
   if (despues.nombre !== antes.nombre) await productoSinRepetir(db, antes.sector, despues.nombre, antes.id)
   await db.batch([
-    sentencia(db, 'UPDATE productos SET nombre = ?, unidad = ?, activo = ? WHERE id = ?', despues.nombre, despues.unidad, despues.activo, antes.id),
+    sentencia(db, 'UPDATE productos SET nombre = ?, unidad = ?, activo = ?, stock_minimo = ? WHERE id = ?',
+      despues.nombre, despues.unidad, despues.activo, despues.stockMinimo, antes.id),
     sentenciaAuditoria(db, {
       tabla: 'productos', registroId: antes.id, accion: accionDe(antes.activo, despues.activo), usuarioId: c.get('usuario').id, antes, despues,
     }),
@@ -286,7 +298,7 @@ rutasCatalogos.patch('/maquinas/:id', soloAdmin, async (c) => {
 
 // ---------- Áreas y tareas de limpieza (B03) ----------
 
-interface FilaArea { id: string; nombre: string; codigo: string; activo: number }
+interface FilaArea { id: string; nombre: string; codigo: string; activo: number; frecuencia_dias: number | null }
 interface FilaTarea { id: string; area_id: string; nombre: string; pide_numero: number; activo: number }
 const aTarea = (f: FilaTarea): TareaLimpieza => ({
   id: f.id, areaId: f.area_id, nombre: f.nombre, pideNumero: !!f.pide_numero, activo: !!f.activo,
@@ -299,7 +311,7 @@ async function leerAreas(db: BaseD1, filtro: { sector?: SectorId | null; todos?:
     [!!filtro.sector, 'a.id IN (SELECT area_id FROM areas_sectores WHERE sector = ?)', filtro.sector ?? null],
     [!filtro.todos, 'a.activo = 1'],
   ])
-  const areas = await todas<FilaArea>(db, `SELECT a.id, a.nombre, a.codigo, a.activo FROM areas_limpieza a ${w.where} ORDER BY a.orden, a.nombre`, ...w.params)
+  const areas = await todas<FilaArea>(db, `SELECT a.id, a.nombre, a.codigo, a.activo, a.frecuencia_dias FROM areas_limpieza a ${w.where} ORDER BY a.orden, a.nombre`, ...w.params)
   if (!areas.length) return []
   const ids = areas.map((a) => a.id)
   const sectores = await todasPorTrozos<{ area_id: string; sector: SectorId }>(
@@ -317,6 +329,7 @@ async function leerAreas(db: BaseD1, filtro: { sector?: SectorId | null; todos?:
     nombre: a.nombre,
     codigo: a.codigo,
     activo: !!a.activo,
+    frecuenciaDias: a.frecuencia_dias,
     sectores: sectores.filter((s) => s.area_id === a.id).map((s) => s.sector),
     tareas: tareas.filter((t) => t.area_id === a.id && (filtro.todos || t.activo)).map(aTarea),
   }))
@@ -336,7 +349,7 @@ function listaSectores(v: unknown): SectorId[] {
 }
 
 async function areaSinRepetir(db: BaseD1, nombre: string, propio: string | null) {
-  const existentes = await todas<FilaArea>(db, 'SELECT id, nombre, codigo, activo FROM areas_limpieza')
+  const existentes = await todas<FilaArea>(db, 'SELECT id, nombre, codigo, activo, frecuencia_dias FROM areas_limpieza')
   sinRepetir(existentes, nombre, propio, 'un área')
 }
 
@@ -357,7 +370,7 @@ rutasCatalogos.post('/areas', soloAdmin, async (c) => {
   const codigo = textoOpcional(b.codigo, 'El código', 30) ?? ''
   const sectores = listaSectores(b.sectores)
   await areaSinRepetir(db, nombre, null)
-  const nueva: AreaLimpieza = { id: nuevoId(), nombre, codigo, sectores, activo: true, tareas: [] }
+  const nueva: AreaLimpieza = { id: nuevoId(), nombre, codigo, sectores, activo: true, frecuenciaDias: null, tareas: [] }
   await db.batch([
     sentencia(
       db,
@@ -374,7 +387,7 @@ rutasCatalogos.post('/areas', soloAdmin, async (c) => {
 rutasCatalogos.patch('/areas/:id', soloAdmin, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  algoParaCambiar(b, ['nombre', 'codigo', 'sectores', 'activo'])
+  algoParaCambiar(b, ['nombre', 'codigo', 'sectores', 'activo', 'frecuenciaDias'])
   const area = await leerArea(db, c.req.param('id'))
   const { tareas, ...antes } = area
   const despues = { ...antes }
@@ -382,9 +395,13 @@ rutasCatalogos.patch('/areas/:id', soloAdmin, async (c) => {
   if (b.codigo !== undefined) despues.codigo = textoOpcional(b.codigo, 'El código', 30) ?? ''
   if (b.sectores !== undefined) despues.sectores = listaSectores(b.sectores)
   if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
+  // G08: días entre limpiezas (1 a 365); null = sin exigencia.
+  if (b.frecuenciaDias !== undefined) {
+    despues.frecuenciaDias = b.frecuenciaDias === null ? null : entero(b.frecuenciaDias, 'La frecuencia de limpieza', { min: 1, max: 365 })
+  }
   if (despues.nombre !== antes.nombre) await areaSinRepetir(db, despues.nombre, antes.id)
   await db.batch([
-    sentencia(db, 'UPDATE areas_limpieza SET nombre = ?, codigo = ?, activo = ? WHERE id = ?', despues.nombre, despues.codigo, despues.activo, antes.id),
+    sentencia(db, 'UPDATE areas_limpieza SET nombre = ?, codigo = ?, activo = ?, frecuencia_dias = ? WHERE id = ?', despues.nombre, despues.codigo, despues.activo, despues.frecuenciaDias, antes.id),
     ...(b.sectores !== undefined ? sentenciasSectores(db, antes.id, despues.sectores) : []),
     sentenciaAuditoria(db, {
       tabla: 'areas_limpieza', registroId: antes.id, accion: accionDe(antes.activo, despues.activo), usuarioId: c.get('usuario').id, antes, despues,

@@ -43,7 +43,7 @@ async function datosChiperia(p: Prueba) {
     insumo: 'Queso', proveedor: 'Lácteos', fechaIngreso: hoy(), cantidad: 10, vencimiento: sumarDias(hoy(), 30),
   })
   const prod = await p.pedir<Produccion>(t, 'POST', '/producciones', {
-    turno: 'dia', lotesMP: [mp.body.id], items: [{ productoId: CHIPA, cocinado: 5, guardado: 40 }],
+    turno: 'dia', lotesMP: [{ id: mp.body.id, cantidad: 1 }], items: [{ productoId: CHIPA, cocinado: 5, guardado: 40 }],
   })
   expect(prod.status).toBe(200)
   const lote = prod.body.lote!.codigo
@@ -565,7 +565,7 @@ describe('correo del resumen (H04)', () => {
     expect((await p.pedir(admin, 'POST', `/areas/${area.body.id}/tareas`, { nombre: '<b>Piso</b>' })).status).toBe(200)
 
     const t = await p.entrar('cocina')
-    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: producto.body.id, cocinado: 2, guardado: 10 }] })).status).toBe(200)
+    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: producto.body.id, cocinado: 2, guardado: 10, finalidad: 'distribucion' }] })).status).toBe(200)
     expect((await p.pedir(t, 'POST', '/envios', { sucursalId: sucursal.body.id, items: [{ productoId: producto.body.id, cantidad: 3 }] })).status).toBe(200)
     expect((await p.pedir(t, 'POST', '/lecturas', {
       maquinaId: 'maq-cocina-1', momento: 'inicio', estado: 'con_fallas', temperatura: 20,

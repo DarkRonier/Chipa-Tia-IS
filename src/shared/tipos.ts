@@ -7,7 +7,10 @@ export const SECTOR_IDS: SectorId[] = ['chiperia', 'chipitas', 'panaderia', 'coc
 export const ROLES: Rol[] = [...SECTOR_IDS, 'admin']
 
 export type Turno = 'dia' | 'noche'
-export type TipoMovimiento = 'produccion' | 'stock_inicial' | 'salida_venta' | 'envio' | 'merma' | 'vencimiento' | 'ajuste'
+export type TipoMovimiento = 'produccion' | 'stock_inicial' | 'salida_venta' | 'envio' | 'merma' | 'vencimiento' | 'ajuste' | 'reasignacion'
+/** C05: para qué se guardó lo que está en frío: reponer la venta del propio sector o enviarlo a sucursales. */
+export type Finalidad = 'reposicion' | 'distribucion'
+export const FINALIDADES: Finalidad[] = ['reposicion', 'distribucion']
 export type TipoAjuste = 'merma' | 'vencimiento' | 'ajuste' | 'stock_inicial'
 export type Marca = 'X' | 'XX' | '-'
 export type EstadoMaquina = 'funciona' | 'con_fallas' | 'fuera_de_servicio'
@@ -25,6 +28,11 @@ export const NOMBRE_TIPO_MOVIMIENTO: Record<TipoMovimiento, string> = {
   merma: 'Merma',
   vencimiento: 'Vencimiento',
   ajuste: 'Ajuste',
+  reasignacion: 'Cambio de finalidad',
+}
+export const NOMBRE_FINALIDAD: Record<Finalidad, string> = {
+  reposicion: 'Reponer venta',
+  distribucion: 'Sucursales',
 }
 export const NOMBRE_ESTADO: Record<EstadoMaquina, string> = {
   funciona: 'Funciona',
@@ -71,6 +79,8 @@ export interface Producto {
   nombre: string
   unidad: string
   activo: boolean
+  /** C08: con menos que esto en frío (sumando finalidades y lotes) el sistema avisa. null = sin aviso. */
+  stockMinimo: number | null
 }
 
 export interface Maquina {
@@ -98,8 +108,20 @@ export interface AreaLimpieza {
   codigo: string
   sectores: SectorId[]
   activo: boolean
+  /** G08: cada cuántos días como máximo hay que limpiar el área (1 = todos los días); null = sin exigencia. */
+  frecuenciaDias: number | null
   tareas: TareaLimpieza[]
 }
+
+/** Opciones habituales de frecuencia mínima de limpieza (G08). */
+export const FRECUENCIAS_LIMPIEZA: { dias: number | null; nombre: string }[] = [
+  { dias: null, nombre: 'Sin exigencia' },
+  { dias: 1, nombre: 'Todos los días' },
+  { dias: 2, nombre: 'Cada 2 días' },
+  { dias: 7, nombre: 'Cada semana' },
+  { dias: 15, nombre: 'Cada 15 días' },
+  { dias: 30, nombre: 'Cada mes' },
+]
 
 export interface Sucursal {
   id: string
@@ -117,11 +139,36 @@ export interface LoteMP {
   unidad: string
   vencimiento: string
   bloqueado: boolean
-  /** Vencido o bloqueado: no se puede elegir para producir (E07). */
+  /** Lo que las amasadas ya usaron de este lote (E03), en su misma unidad. Los usos sin cantidad (anteriores) no cuentan. */
+  consumido: number
+  /** Lo que queda: cantidad menos consumido, nunca negativo. */
+  saldo: number
+  /** Sin saldo: se usó todo. Sigue visible en el historial pero no se puede elegir. */
+  agotado: boolean
+  /** Vencido, bloqueado o agotado: no se puede elegir para producir (E07). */
   disponible: boolean
   descripcion: string
   creadoEn: string
 }
+
+/** Un lote de materia prima usado por un lote de chipa; `cantidad` es null en los registros anteriores a E03 ("sin dato"). */
+export interface UsoLoteMP {
+  id: string
+  descripcion: string
+  cantidad: number | null
+  unidad: string
+}
+
+/** Con cuántos días de anticipación se avisa que un lote de materia prima está por vencer (E10). */
+export const DIAS_AVISO_VENCIMIENTO = 7
+
+const formatoCantidadMP = new Intl.NumberFormat('es-PY', { maximumFractionDigits: 2 })
+
+/** "12,5 kg". */
+export const cantidadConUnidad = (n: number, unidad: string) => `${formatoCantidadMP.format(n)} ${unidad}`
+
+/** "Harina · Molinos del Sur · lote H-1 (7,5 kg)"; los registros anteriores a E03 no tienen cantidad. */
+export const textoUsoMP = (u: UsoLoteMP) => (u.cantidad === null ? u.descripcion : `${u.descripcion} (${cantidadConUnidad(u.cantidad, u.unidad)})`)
 
 export interface LoteChipa {
   id: string
@@ -133,7 +180,7 @@ export interface LoteChipa {
   congelador: number
   /** Lo que queda en el congelador de este lote. */
   stock: number
-  lotesMP: { id: string; descripcion: string }[]
+  lotesMP: UsoLoteMP[]
 }
 
 export interface ProduccionItem {
@@ -141,6 +188,8 @@ export interface ProduccionItem {
   productoNombre: string
   cocinado: number
   guardado: number
+  /** Para qué se guardó lo guardado. */
+  finalidad: Finalidad
 }
 
 export interface Produccion {
@@ -166,6 +215,7 @@ export interface Movimiento {
   lote: string | null
   tipo: TipoMovimiento
   cantidad: number
+  finalidad: Finalidad
   motivo: string | null
   sucursalId: string | null
   sucursalNombre: string | null
@@ -182,7 +232,12 @@ export interface StockFila {
   productoNombre: string
   activo: boolean
   total: number
-  lotes: { lote: string; cantidad: number }[]
+  /** Del total, lo guardado para reponer la venta y lo guardado para sucursales. */
+  reposicion: number
+  distribucion: number
+  /** Stock mínimo configurado (C08); null si no tiene. */
+  minimo: number | null
+  lotes: { lote: string; cantidad: number; reposicion: number; distribucion: number }[]
 }
 
 export interface Lectura {
@@ -226,6 +281,8 @@ export interface Limpieza {
   controladoPor: string | null
   controladoPorNombre: string | null
   controladoEn: string | null
+  /** G06: hay foto guardada; los bytes se piden aparte (`GET /limpiezas/:id/foto`). */
+  tieneFoto: boolean
 }
 
 export interface Auditoria {
@@ -291,7 +348,7 @@ export interface Reporte {
     cocinado: number
     guardado: number
   }[]
-  stock: { sector: SectorId; productoId: string; productoNombre: string; total: number }[]
+  stock: { sector: SectorId; productoId: string; productoNombre: string; total: number; reposicion: number; distribucion: number }[]
   envios: { sucursalId: string; sucursalNombre: string; productoNombre: string; sector: SectorId; cantidad: number }[]
   salidas: { sector: SectorId; tipo: TipoMovimiento; cantidad: number }[]
   lotesChipa: LoteChipa[]
@@ -370,9 +427,9 @@ export interface PedidoProduccion {
   /** Solo el administrador lo indica; un operador carga siempre en su sector. */
   sector?: SectorId
   turno: Turno
-  items: { productoId: string; cocinado: number; guardado: number }[]
-  /** Chipería: lotes de materia prima usados (E02). */
-  lotesMP?: string[]
+  items: { productoId: string; cocinado: number; guardado: number; finalidad?: Finalidad }[]
+  /** Chipería: lotes de materia prima usados y cuánto de cada uno, en la unidad del lote (E02, E03). */
+  lotesMP?: { id: string; cantidad: number }[]
 }
 
 export interface PedidoSalida { sector?: SectorId; productoId: string; lote?: string | null; cantidad: number }
@@ -391,7 +448,18 @@ export interface PedidoAjuste {
   /** Positivo. Merma y vencimiento restan, stock inicial suma, el ajuste usa `sentido`. */
   cantidad: number
   sentido?: 1 | -1
+  /** De cuál de los dos stocks suma o resta. Si falta, reposición. */
+  finalidad?: Finalidad
   motivo: string
+}
+
+/** Pasa `cantidad` de un producto (y lote) de la finalidad `desde` a la otra. */
+export interface PedidoReasignacion {
+  sector?: SectorId
+  productoId: string
+  lote?: string | null
+  cantidad: number
+  desde: Finalidad
 }
 
 export interface PedidoLectura {
@@ -412,6 +480,8 @@ export interface PedidoLimpieza {
   sector?: SectorId
   marcas: { tareaId: string; marca: Marca; numero?: string | null }[]
   comentario?: string
+  /** Imagen ya achicada en el navegador, como data URL JPEG. */
+  foto?: string | null
 }
 
 export interface ErrorRespuesta { error: { codigo: string; mensaje: string } }

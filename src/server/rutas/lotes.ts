@@ -5,9 +5,11 @@
 // sucursales (movimientos con el código del lote), y al revés.
 import { Hono, type MiddlewareHandler } from 'hono'
 import { diaPY } from '../../shared/hora'
+import type { Alerta } from '../../shared/alertas'
 import type {
   LoteChipa, LoteMP, Movimiento, Sucursal, TrazabilidadLote, TrazabilidadMP, TrazabilidadSucursal,
 } from '../../shared/tipos'
+import { alertasLotes } from '../alertasLotes'
 import { sentenciaAuditoria } from '../auditoria'
 import { leerLotesChipa, leerLotesMP, leerMovimientos, leerProducciones } from '../consultas'
 import { ahora, nuevoId, sentencia, una } from '../db'
@@ -109,6 +111,9 @@ rutasLotes.patch('/lotes-mp/:id', soloChiperia, soloAdmin, async (c) => {
   return c.json<LoteMP>(await unLoteMP(db, antes.id))
 })
 
+// E10: lotes vencidos con saldo y lotes por vencer.
+rutasLotes.get('/lotes/alertas', soloChiperia, async (c) => c.json<Alerta[]>(await alertasLotes(c.env.DB)))
+
 // ---------- Lotes de chipa (E03–E05) ----------
 
 rutasLotes.get('/lotes-chipa', soloChiperia, async (c) => {
@@ -161,7 +166,7 @@ rutasLotes.get('/trazabilidad/lote/:codigo', soloChiperia, async (c) => {
     lote,
     produccion: produccion ?? null,
     envios: movimientos.filter((m) => m.tipo === 'envio'),
-    otrosMovimientos: movimientos.filter((m) => m.tipo !== 'envio' && m.tipo !== 'produccion'),
+    otrosMovimientos: movimientos.filter((m) => m.tipo !== 'envio' && m.tipo !== 'produccion' && m.tipo !== 'reasignacion'),
   })
 })
 

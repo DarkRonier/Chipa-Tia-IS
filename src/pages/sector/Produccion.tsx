@@ -1,6 +1,7 @@
 // C01–C03, E02–E04: el operador carga en un solo registro todo lo que produjo, con lo cocinado
 // (o al horno) y lo guardado en frío (o al congelador). En Chipería elige los lotes de materia prima
-// y el sistema le devuelve el código del lote de chipa.
+// y el sistema le devuelve el código del lote de chipa. Lo guardado lleva una finalidad (C05): «Para reponer venta»
+// (por defecto) o «Para sucursales»; una elección por producto.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
@@ -11,10 +12,14 @@ import Numero from '../../components/Numero'
 import { IconoProduccion } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY, fechaHoraPY, turnoActual } from '../../shared/hora'
-import type { LoteMP, PedidoProduccion, Produccion as Registro, Producto, Turno } from '../../shared/tipos'
+import { cantidadConUnidad, NOMBRE_FINALIDAD, textoUsoMP, type Finalidad, type LoteMP, type PedidoProduccion, type Produccion as Registro, type Producto, type Turno } from '../../shared/tipos'
+import { leerCantidad } from './Lotes'
 import '../../styles/produccion.css'
 
-type Cantidades = Record<string, { cocinado: number; guardado: number }>
+type Cantidades = Record<string, { cocinado: number; guardado: number; finalidad: Finalidad }>
+
+const FINALIDADES: Finalidad[] = ['reposicion', 'distribucion']
+const PARA: Record<Finalidad, string> = { reposicion: 'Para reponer venta', distribucion: 'Para sucursales' }
 
 /** Etiquetas de las dos cantidades: Chipería habla de horno y congelador (E04). */
 const etiquetas = (conLotes: boolean) =>
@@ -40,6 +45,8 @@ function Formulario() {
   const [turno, setTurno] = useState<Turno>(() => turnoActual())
   const [cant, setCant] = useState<Cantidades>({})
   const [lotesMP, setLotesMP] = useState<string[]>([])
+  /** Lo escrito en la cantidad usada de cada lote de materia prima (E03), tal cual lo tipeó el operador. */
+  const [usado, setUsado] = useState<Record<string, string>>({})
   const [buscar, setBuscar] = useState('')
   const [listo, setListo] = useState<Registro | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
@@ -49,14 +56,29 @@ function Formulario() {
   const activos = (productos.datos ?? []).filter((p) => p.activo)
   const disponibles = (lotes.datos ?? []).filter((l) => l.disponible)
   const elegidos = lotesMP.filter((id) => disponibles.some((l) => l.id === id))
+  const lotesElegidos = elegidos.map((id) => disponibles.find((l) => l.id === id)!)
+  const cantidadUsada = (l: LoteMP) => leerCantidad(usado[l.id] ?? '')
+  /** Qué está mal con la cantidad de un lote elegido, o null si está bien. */
+  const problemaCantidad = (l: LoteMP): string | null => {
+    const n = cantidadUsada(l)
+    if (n === null) return `Cargá cuánto usaste de ${l.descripcion}.`
+    if (!Number.isFinite(n)) return 'La cantidad tiene que ser un número, por ejemplo 5 o 12,5.'
+    if (n <= 0) return 'La cantidad tiene que ser mayor que cero.'
+    if (n > l.saldo) return `Solo quedan ${cantidadConUnidad(l.saldo, l.unidad)} de ${l.descripcion}.`
+    return null
+  }
   const amasadas = (deHoy.datos ?? []).map((p) => p.lote?.amasada ?? 0)
   const proximaAmasada = deHoy.datos ? Math.max(0, ...amasadas) + 1 : null
 
-  const valor = (id: string) => cant[id] ?? { cocinado: 0, guardado: 0 }
+  const valor = (id: string) => cant[id] ?? { cocinado: 0, guardado: 0, finalidad: 'reposicion' as Finalidad }
   const conValor = (id: string) => valor(id).cocinado + valor(id).guardado > 0
   const setValor = (id: string, campo: 'cocinado' | 'guardado', n: number) => {
     setAviso(null)
     setCant((c) => ({ ...c, [id]: { ...valor(id), ...c[id], [campo]: n } }))
+  }
+  const setFinalidad = (id: string, finalidad: Finalidad) => {
+    setAviso(null)
+    setCant((c) => ({ ...c, [id]: { ...valor(id), ...c[id], finalidad } }))
   }
   const items = activos.filter((p) => conValor(p.id)).map((p) => ({ productoId: p.id, ...valor(p.id) }))
   const texto = buscar.trim().toLowerCase()
@@ -68,11 +90,15 @@ function Formulario() {
     guardarProduccion.limpiarError()
     if (!items.length) return setAviso('Cargá al menos una cantidad.')
     if (conLotes && !elegidos.length) return setAviso('Elegí los lotes de materia prima usados.')
-    const r = await guardarProduccion.ejecutar({ sector, turno, items, ...(conLotes ? { lotesMP: elegidos } : {}) })
+    const mala = conLotes ? lotesElegidos.find((l) => problemaCantidad(l)) : undefined
+    if (mala) return setAviso(problemaCantidad(mala))
+    const lotesUsados = lotesElegidos.map((l) => ({ id: l.id, cantidad: cantidadUsada(l)! }))
+    const r = await guardarProduccion.ejecutar({ sector, turno, items, ...(conLotes ? { lotesMP: lotesUsados } : {}) })
     if (r) {
       setListo(r)
       setCant({})
       setLotesMP([])
+      setUsado({})
       setBuscar('')
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else if (conLotes) {
@@ -100,9 +126,15 @@ function Formulario() {
           )}
           <ul>
             {listo.items.map((i) => (
-              <li key={i.productoId}>{i.productoNombre}: {i.cocinado} {et.cocinadoCorto}, {i.guardado} {et.guardadoCorto}</li>
+              <li key={i.productoId}>
+                {i.productoNombre}: {i.cocinado} {et.cocinadoCorto}, {i.guardado} {et.guardadoCorto}
+                {i.guardado > 0 && <> ({PARA[i.finalidad].toLowerCase()})</>}
+              </li>
             ))}
           </ul>
+          {!!listo.lote?.lotesMP.length && (
+            <span className="chico">Materia prima: {listo.lote.lotesMP.map(textoUsoMP).join(' · ')}</span>
+          )}
         </div>
       )}
 
@@ -127,6 +159,7 @@ function Formulario() {
                     No hay lotes de materia prima disponibles. <Link to="/sector/lotes">Cargalos en Materia prima y lotes</Link>.
                   </p>
                 ) : (
+                  <>
                   <div className="chips">
                     {disponibles.map((l) => {
                       const activo = lotesMP.includes(l.id)
@@ -139,6 +172,7 @@ function Formulario() {
                           onClick={() => {
                             setAviso(null)
                             setLotesMP((s) => (s.includes(l.id) ? s.filter((x) => x !== l.id) : [...s, l.id]))
+                            setUsado((u) => (l.id in u ? Object.fromEntries(Object.entries(u).filter(([k]) => k !== l.id)) : u))
                           }}
                         >
                           {l.descripcion}
@@ -146,6 +180,40 @@ function Formulario() {
                       )
                     })}
                   </div>
+                  {lotesElegidos.length > 0 && (
+                    <div className="prod-consumos">
+                      <span className="suave chico">Cuánto usaste de cada uno</span>
+                      {lotesElegidos.map((l) => {
+                        const n = cantidadUsada(l)
+                        const pasa = n !== null && Number.isFinite(n) && n > l.saldo
+                        return (
+                          <div className="prod-consumo" key={l.id}>
+                            <label htmlFor={`consumo-${l.id}`}>{l.descripcion}</label>
+                            <div className="prod-consumo-campo">
+                              <input
+                                id={`consumo-${l.id}`}
+                                type="text"
+                                inputMode="decimal"
+                                autoComplete="off"
+                                placeholder="0"
+                                value={usado[l.id] ?? ''}
+                                aria-invalid={pasa}
+                                onChange={(e) => {
+                                  setAviso(null)
+                                  setUsado((u) => ({ ...u, [l.id]: e.target.value }))
+                                }}
+                              />
+                              <span>{l.unidad}</span>
+                            </div>
+                            <span className={pasa ? 'error chico' : 'suave chico'}>
+                              {pasa ? `Pasa del saldo: quedan ${cantidadConUnidad(l.saldo, l.unidad)}` : `quedan ${cantidadConUnidad(l.saldo, l.unidad)}`}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  </>
                 )
               }
             </ConDatos>
@@ -186,6 +254,15 @@ function Formulario() {
                     <span className="nombre">{p.nombre}</span>
                     <Numero etiqueta={et.cocinado} valor={valor(p.id).cocinado} onChange={(n) => setValor(p.id, 'cocinado', n)} />
                     <Numero etiqueta={et.guardado} valor={valor(p.id).guardado} onChange={(n) => setValor(p.id, 'guardado', n)} />
+                    {valor(p.id).guardado > 0 && (
+                      <div className="segmentado chico finalidad" role="group" aria-label={`Finalidad de lo guardado de ${p.nombre}`}>
+                        {FINALIDADES.map((f) => (
+                          <button key={f} type="button" className={valor(p.id).finalidad === f ? 'activo' : ''} aria-pressed={valor(p.id).finalidad === f} onClick={() => setFinalidad(p.id, f)}>
+                            {PARA[f]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
                 {visibles.length === 0 && <p className="suave prod-sin-resultados">Ningún producto coincide con “{buscar.trim()}”.</p>}
@@ -231,7 +308,10 @@ function RegistrosDeHoy({ consulta, conLotes }: {
           </div>
           <ul>
             {p.items.map((i) => (
-              <li key={i.productoId}>{i.productoNombre}: {i.cocinado} {et.cocinadoCorto} · {i.guardado} {et.guardadoCorto}</li>
+              <li key={i.productoId}>
+                {i.productoNombre}: {i.cocinado} {et.cocinadoCorto} · {i.guardado} {et.guardadoCorto}
+                {i.guardado > 0 && <span className="suave chico"> · {NOMBRE_FINALIDAD[i.finalidad]}</span>}
+              </li>
             ))}
           </ul>
           {p.corregidoEn && (

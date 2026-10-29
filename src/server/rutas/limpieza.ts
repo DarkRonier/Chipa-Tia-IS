@@ -1,8 +1,12 @@
 // G01–G03: reportes de limpieza y desinfección, como las planillas RE-09.01 a RE-09.09.
 // Cada reporte marca TODAS las tareas activas del área: X (diaria), XX (profunda) o - (no se hizo),
-// sin cuadros en blanco. El administrador firma el "Controlado por".
+// sin cuadros en blanco. El administrador firma el "Controlado por". Foto opcional (G06) y aviso de
+// áreas sin limpiar con la frecuencia mínima exigida (G08).
 import { Hono } from 'hono'
+import type { Alerta } from '../../shared/alertas'
+import { diaPY } from '../../shared/hora'
 import type { Limpieza, Marca, SectorId } from '../../shared/tipos'
+import { aDataUrl, fotoDelPedido, guardarArchivo, leerArchivo } from '../almacen'
 import { sentenciaAuditoria } from '../auditoria'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, ValorSQL } from '../entorno'
@@ -29,10 +33,11 @@ interface FilaLimpieza {
   controlado_por: string | null
   controlado_por_nombre: string | null
   controlado_en: string | null
+  foto_clave: string | null
 }
 
 const COLUMNAS = `SELECT l.id, l.area_id, a.nombre AS area_nombre, l.sector, l.usuario_id, u.nombre AS usuario_nombre,
-    l.fecha, l.dia, l.comentario, l.controlado_por, c.nombre AS controlado_por_nombre, l.controlado_en
+    l.fecha, l.dia, l.comentario, l.controlado_por, c.nombre AS controlado_por_nombre, l.controlado_en, l.foto_clave
   FROM limpiezas l
   JOIN areas_limpieza a ON a.id = l.area_id
   JOIN usuarios u ON u.id = l.usuario_id
@@ -95,6 +100,7 @@ export async function leerLimpiezas(db: BaseD1, filtro: FiltroLimpiezas = {}): P
     controladoPor: f.controlado_por,
     controladoPorNombre: f.controlado_por_nombre,
     controladoEn: f.controlado_en,
+    tieneFoto: !!f.foto_clave,
   }))
 }
 
@@ -106,7 +112,53 @@ function enumerar(nombres: string[]): string {
   return vistos.length > 1 ? `${vistos.slice(0, -1).join(', ')} y ${vistos[vistos.length - 1]}` : vistos[0]
 }
 
+// ---------- Frecuencia mínima de limpieza (G08) ----------
+
+const MS_DIA = 86_400_000
+const diasEntre = (desde: string, hasta: string) => Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / MS_DIA)
+
+/**
+ * Una alerta por cada área activa con frecuencia exigida cuya última limpieza (de cualquier sector que la cargue)
+ * quedó más atrás que esa frecuencia, o que todavía no tiene ninguna. Los días son de Paraguay: con «todos los
+ * días» el área avisa cuando pasó un día entero sin limpiarse (la de ayer ya no alcanza); con «cada semana»,
+ * a partir del octavo día. Una sola consulta. `sector` null = todas las áreas.
+ */
+export async function alertasLimpieza(db: BaseD1, sector: SectorId | null, hoy: string = diaPY()): Promise<Alerta[]> {
+  const filas = await todas<{ nombre: string; frecuencia_dias: number; sectores: string; ultimo: string | null }>(
+    db,
+    `SELECT a.nombre, a.frecuencia_dias,
+            (SELECT GROUP_CONCAT(x.sector) FROM areas_sectores x WHERE x.area_id = a.id) AS sectores,
+            (SELECT MAX(l.dia) FROM limpiezas l WHERE l.area_id = a.id) AS ultimo
+       FROM areas_limpieza a
+      WHERE a.activo = 1 AND a.frecuencia_dias IS NOT NULL
+        ${sector ? 'AND a.id IN (SELECT area_id FROM areas_sectores WHERE sector = ?)' : ''}
+      ORDER BY a.orden, a.nombre`,
+    ...(sector ? [sector] : []),
+  )
+  const alertas: Alerta[] = []
+  for (const f of filas) {
+    const exigido = f.frecuencia_dias === 1 ? 'todos los días' : `cada ${f.frecuencia_dias} días`
+    const dias = f.ultimo ? diasEntre(f.ultimo, hoy) : null
+    if (dias !== null && dias <= f.frecuencia_dias) continue
+    const propios = (f.sectores ?? '').split(',').filter(esSector)
+    alertas.push({
+      tipo: 'limpieza_atrasada',
+      sector: sector ?? (propios.length === 1 ? propios[0] : null),
+      texto: dias === null
+        ? `${f.nombre}: todavía no tiene limpiezas registradas (se pide limpiar ${exigido}).`
+        : `${f.nombre}: hace ${dias} días que no se limpia (se pide limpiar ${exigido}).`,
+      enlace: '/limpieza',
+    })
+  }
+  return alertas
+}
+
 // ---------- Rutas ----------
+
+rutasLimpieza.get('/limpieza/alertas', async (c) => {
+  const sector = sectorPara(c.get('usuario'), c.req.query('sector'))
+  return c.json<Alerta[]>(await alertasLimpieza(c.env.DB, sector))
+})
 
 rutasLimpieza.get('/limpiezas', async (c) => {
   const q = c.req.query()
@@ -180,14 +232,21 @@ rutasLimpieza.post('/limpiezas', async (c) => {
     )
   }
   const comentario = textoOpcional(b.comentario, 'El comentario', 500) ?? ''
+  const foto = fotoDelPedido(b.foto)
 
   const id = nuevoId()
   const { fecha, dia } = ahora()
+  let fotoClave: string | null = null
+  if (foto) {
+    // Primero la foto: así un reporte nunca apunta a una foto que no está.
+    fotoClave = `fotos/limpieza/${id}.${foto.extension}`
+    await guardarArchivo(c.env, fotoClave, foto.datos, foto.tipo)
+  }
   await db.batch([
     sentencia(
       db,
-      'INSERT INTO limpiezas (id, area_id, sector, usuario_id, fecha, dia, comentario) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      id, area.id, sector, u.id, fecha, dia, comentario,
+      'INSERT INTO limpiezas (id, area_id, sector, usuario_id, fecha, dia, comentario, foto_clave) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      id, area.id, sector, u.id, fecha, dia, comentario, fotoClave,
     ),
     ...tareas.map((t) => {
       const m = marcas.get(t.id)!
@@ -221,4 +280,17 @@ rutasLimpieza.post('/limpiezas/:id/control', soloAdmin, async (c) => {
   if (r.meta.changes === 0) throw conflicto('ya_controlada', 'Esta limpieza ya la controló otra persona.')
   const [despues] = await leerLimpiezas(db, { ids: [antes.id] })
   return c.json<Limpieza>(despues)
+})
+
+rutasLimpieza.get('/limpiezas/:id/foto', async (c) => {
+  const fila = await una<{ foto_clave: string | null; sector: SectorId }>(
+    c.env.DB, 'SELECT foto_clave, sector FROM limpiezas WHERE id = ?', c.req.param('id'),
+  )
+  if (!fila) throw noEncontrado('No se encontró esa limpieza.')
+  const u = c.get('usuario')
+  if (u.sector && u.sector !== fila.sector) throw prohibido('Solo podés ver y cargar datos de tu sector.')
+  if (!fila.foto_clave) throw noEncontrado('Este reporte no tiene foto.')
+  const archivo = await leerArchivo(c.env, fila.foto_clave)
+  if (!archivo) throw noEncontrado('No se encontró la foto.')
+  return c.json({ dataUrl: aDataUrl(archivo.datos, archivo.tipo) })
 })

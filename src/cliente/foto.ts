@@ -1,5 +1,7 @@
-// F03: la foto de la cámara o de la galería se achica en el navegador antes de subirla
-// (lado mayor de 1280 px, JPEG calidad 0,7). Así pesa unos cientos de KB aunque el celular saque 12 MP.
+// F03, G06: la foto de la cámara o de la galería se achica en el navegador antes de subirla
+// (lado mayor de 1024 px, JPEG calidad 0,6). Así pesa unas decenas de KB aunque el celular saque 12 MP
+// y no gasta espacio ni datos: sirve para ver el estado de una máquina o de un área, no para imprimir.
+// Las fotos se piden aparte y solo cuando se quieren ver, y el servidor las borra a los 90 días.
 import { useEffect, useState } from 'react'
 import { get } from './api'
 import { mensajeDe } from './consultas'
@@ -46,7 +48,7 @@ function dibujar(img: HTMLImageElement, ladoMaximo: number, calidad: number): st
  * Achica una imagen elegida o sacada con la cámara y la devuelve como data URL JPEG.
  * Si todavía pesa demasiado, prueba con menos resolución y calidad.
  */
-export async function achicarFoto(archivo: Blob, { ladoMaximo = 1280, calidad = 0.7 } = {}): Promise<string> {
+export async function achicarFoto(archivo: Blob, { ladoMaximo = 1024, calidad = 0.6 } = {}): Promise<string> {
   if (archivo.type && !archivo.type.startsWith('image/')) throw new Error('Ese archivo no es una foto.')
   const img = await cargarImagen(archivo)
   let lado = ladoMaximo
@@ -61,28 +63,31 @@ export async function achicarFoto(archivo: Blob, { ladoMaximo = 1280, calidad = 
   return dataUrl
 }
 
-// Las fotos guardadas no cambian nunca: se piden una sola vez por lectura.
+// Las fotos guardadas no cambian nunca: se piden una sola vez por ruta.
 const cache = new Map<string, Promise<string>>()
 
-/** Foto de una lectura (`GET /lecturas/:id/foto`), con caché; null mientras carga. */
-export function useFotoLectura(lecturaId: string | null): { dataUrl: string | null; error: string | null } {
-  const [estado, setEstado] = useState<{ id: string | null; dataUrl: string | null; error: string | null }>({ id: null, dataUrl: null, error: null })
+/**
+ * Foto de una lectura o de una limpieza (`GET /lecturas/:id/foto`, `GET /limpiezas/:id/foto`), con caché.
+ * Con `ruta` null no pide nada: así la foto se baja recién cuando la persona toca «Ver foto».
+ */
+export function useFoto(ruta: string | null): { dataUrl: string | null; error: string | null } {
+  const [estado, setEstado] = useState<{ ruta: string | null; dataUrl: string | null; error: string | null }>({ ruta: null, dataUrl: null, error: null })
   useEffect(() => {
-    if (!lecturaId) return
+    if (!ruta) return
     let vigente = true
-    let p = cache.get(lecturaId)
+    let p = cache.get(ruta)
     if (!p) {
-      p = get<{ dataUrl: string }>(`/lecturas/${lecturaId}/foto`).then((r) => r.dataUrl)
-      cache.set(lecturaId, p)
-      p.catch(() => cache.delete(lecturaId))
+      p = get<{ dataUrl: string }>(ruta).then((r) => r.dataUrl)
+      cache.set(ruta, p)
+      p.catch(() => cache.delete(ruta))
     }
     p.then(
-      (dataUrl) => vigente && setEstado({ id: lecturaId, dataUrl, error: null }),
-      (e: unknown) => vigente && setEstado({ id: lecturaId, dataUrl: null, error: mensajeDe(e) }),
+      (dataUrl) => vigente && setEstado({ ruta, dataUrl, error: null }),
+      (e: unknown) => vigente && setEstado({ ruta, dataUrl: null, error: mensajeDe(e) }),
     )
     return () => {
       vigente = false
     }
-  }, [lecturaId])
-  return estado.id === lecturaId ? { dataUrl: estado.dataUrl, error: estado.error } : { dataUrl: null, error: null }
+  }, [ruta])
+  return estado.ruta === ruta ? { dataUrl: estado.dataUrl, error: estado.error } : { dataUrl: null, error: null }
 }

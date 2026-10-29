@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { ErrorRespuesta } from '../shared/tipos'
 import type { Entorno } from './entorno'
 import { ErrorApi, esStockInsuficiente } from './errores'
+import { rutasAlertas } from './rutas/alertas'
 import { rutasAuth } from './rutas/auth'
 import { rutasCatalogos } from './rutas/catalogos'
 import { rutasDatos } from './rutas/datos'
@@ -47,6 +48,7 @@ export function crearApp() {
   app.route('/', rutasLimpieza)
   app.route('/', rutasReportes)
   app.route('/', rutasDatos)
+  app.route('/', rutasAlertas)
   return app
 }
 

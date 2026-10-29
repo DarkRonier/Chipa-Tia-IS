@@ -4,17 +4,19 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useConsulta } from '../../cliente/consultas'
+import { nombreArchivoTrazabilidad } from '../../cliente/imprimir'
 import { useUsuario } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
+import { BotonPDF, EncabezadoImpresion } from '../../components/Impresion'
 import { IconoTrazabilidad } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaLegible, diaPY, fechaHoraPY, sumarDias } from '../../shared/hora'
 import {
-  NOMBRE_TIPO_MOVIMIENTO,
+  cantidadConUnidad, NOMBRE_TIPO_MOVIMIENTO,
   type LoteChipa, type LoteMP, type Movimiento, type Sucursal,
   type TrazabilidadLote, type TrazabilidadMP, type TrazabilidadSucursal,
 } from '../../shared/tipos'
-import { cantidadMP, enlaceTrazaLote, enlaceTrazaMP, EstadoLoteMP, vencido } from './Lotes'
+import { cantidadMP, enlaceTrazaLote, enlaceTrazaMP, EstadoLoteMP, usoLoteMP, vencido } from './Lotes'
 import '../../styles/lotes.css'
 
 type Modo = 'mp' | 'lote' | 'sucursal'
@@ -26,6 +28,16 @@ const MODOS: { id: Modo; nombre: string }[] = [
 
 const enlaceSucursal = (id: string | null) => `/trazabilidad?sucursal=${encodeURIComponent(id ?? '')}`
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`
+
+/** H09: botón «Descargar PDF» y, solo en el papel, el encabezado con el título del resultado. */
+function ParaImprimir({ titulo, que, detalle }: { titulo: string; que: string; detalle?: string }) {
+  return (
+    <>
+      <EncabezadoImpresion titulo={titulo} detalle={detalle} />
+      <div className="lot-pdf"><BotonPDF archivo={nombreArchivoTrazabilidad(que)} /></div>
+    </>
+  )
+}
 
 export default function Trazabilidad() {
   const usuario = useUsuario()
@@ -137,7 +149,10 @@ function MateriaPrimaDe({ lote }: { lote: Pick<LoteChipa, 'lotesMP'> }) {
   if (!lote.lotesMP.length) return <p className="suave chico">Sin materia prima registrada.</p>
   return (
     <ul className="lot-lista-mp">
-      {lote.lotesMP.map((mp) => <li key={mp.id}><Link to={enlaceTrazaMP(mp.id)}>{mp.descripcion}</Link></li>)}
+      {lote.lotesMP.map((mp) => <li key={mp.id}>
+          <Link to={enlaceTrazaMP(mp.id)}>{mp.descripcion}</Link>
+          <span className="cant">{mp.cantidad === null ? 'sin dato de cantidad' : cantidadConUnidad(mp.cantidad, mp.unidad)}</span>
+        </li>)}
     </ul>
   )
 }
@@ -174,6 +189,8 @@ function DesdeMP({ id, elegir }: { id: string; elegir: (id: string) => void }) {
 function CadenaMP({ t }: { t: TrazabilidadMP }) {
   const l = t.loteMP
   return (
+    <>
+    <ParaImprimir titulo={`Trazabilidad del lote ${l.descripcion}`} que={`lote ${l.descripcion}`} detalle="Materia prima: dónde se usó y adónde llegó" />
     <div className="lot-cadena">
       <section className="tarjeta lot-paso principal" aria-label="Lote de materia prima">
         <p className="lot-titulo-seccion">Materia prima</p>
@@ -183,6 +200,7 @@ function CadenaMP({ t }: { t: TrazabilidadMP }) {
           <span>ingresó {diaLegible(l.fechaIngreso)}</span>
           <span>vence {diaLegible(l.vencimiento)}</span>
         </div>
+        <p className="suave chico">{usoLoteMP(l)}</p>
       </section>
       <div className="lot-flecha">Se usó en {plural(t.lotesChipa.length, 'lote de chipa', 'lotes de chipa')}</div>
       {t.lotesChipa.length === 0 ? (
@@ -192,12 +210,16 @@ function CadenaMP({ t }: { t: TrazabilidadMP }) {
           <div className="lot-grupo">
             {t.lotesChipa.map((lc) => {
               const envios = t.envios.filter((m) => m.lote === lc.codigo)
+              const uso = lc.lotesMP.find((mp) => mp.id === l.id)
               return (
                 <section key={lc.id} className="tarjeta lot-paso" aria-label={`Lote de chipa ${lc.codigo}`}>
                   <div className="lot-cabeza">
                     <Link className="lot-codigo" to={enlaceTrazaLote(lc.codigo)}>Lote {lc.codigo}</Link>
                     <span className="suave chico">{datosLote(lc)}</span>
                   </div>
+                  <p className="chico">
+                    Usó <strong>{uso?.cantidad == null ? 'una cantidad sin registrar' : cantidadConUnidad(uso.cantidad, uso.unidad)}</strong> de este lote
+                  </p>
                   <Cifras lote={lc} />
                   {envios.length ? <ListaEnvios envios={envios} /> : <p className="suave chico">Sin envíos a sucursales todavía.</p>}
                 </section>
@@ -211,6 +233,7 @@ function CadenaMP({ t }: { t: TrazabilidadMP }) {
         </>
       )}
     </div>
+    </>
   )
 }
 
@@ -254,6 +277,8 @@ function DesdeLote({ codigo, buscar }: { codigo: string; buscar: (c: string) => 
 function CadenaLote({ t }: { t: TrazabilidadLote }) {
   const { lote, produccion } = t
   return (
+    <>
+    <ParaImprimir titulo={`Trazabilidad del lote ${lote.codigo}`} que={`lote ${lote.codigo}`} detalle="Lote de chipa: de qué materia prima salió y adónde fue" />
     <div className="lot-cadena">
       <section className="tarjeta lot-paso" aria-label="Materia prima usada">
         <p className="lot-titulo-seccion">Materia prima usada</p>
@@ -311,6 +336,7 @@ function CadenaLote({ t }: { t: TrazabilidadLote }) {
         </>
       )}
     </div>
+    </>
   )
 }
 
@@ -345,13 +371,16 @@ function DesdeSucursal({ id, desde, hasta, elegir }: {
         </label>
       </div>
       {id && (
-        <ConDatos consulta={traza}>{(t) => <CadenaSucursal t={t} conFechas={!!(desde || hasta)} />}</ConDatos>
+        <ConDatos consulta={traza}>{(t) => <CadenaSucursal t={t} desde={desde} hasta={hasta} />}</ConDatos>
       )}
     </>
   )
 }
 
-function CadenaSucursal({ t, conFechas }: { t: TrazabilidadSucursal; conFechas: boolean }) {
+function CadenaSucursal({ t, desde, hasta }: { t: TrazabilidadSucursal; desde: string; hasta: string }) {
+  const conFechas = !!(desde || hasta)
+  const periodo = !conFechas ? 'Todos los envíos'
+    : `Envíos ${desde ? `desde el ${diaLegible(desde)}` : ''}${desde && hasta ? ' ' : ''}${hasta ? `hasta el ${diaLegible(hasta)}` : ''}`
   const total = t.envios.reduce((s, m) => s - m.cantidad, 0)
   // Envíos agrupados por lote, el lote del envío más nuevo primero.
   const grupos = new Map<string, Movimiento[]>()
@@ -360,6 +389,8 @@ function CadenaSucursal({ t, conFechas }: { t: TrazabilidadSucursal; conFechas: 
     grupos.set(k, [...(grupos.get(k) ?? []), m])
   }
   return (
+    <>
+    <ParaImprimir titulo={`Trazabilidad de la sucursal ${t.sucursal.nombre}`} que={`sucursal ${t.sucursal.nombre}`} detalle={`${periodo}: de qué lotes vino`} />
     <div className="lot-cadena">
       <section className="tarjeta lot-paso principal" aria-label="Sucursal">
         <p className="lot-titulo-seccion">Sucursal</p>
@@ -409,5 +440,6 @@ function CadenaSucursal({ t, conFechas }: { t: TrazabilidadSucursal; conFechas: 
         </>
       )}
     </div>
+    </>
   )
 }

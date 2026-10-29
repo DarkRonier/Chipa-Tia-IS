@@ -3,7 +3,7 @@
 // de la jornada; en el buffet T° inicial e intermedia) y la de mantenimiento de equipos (RE-04.01).
 import { Hono } from 'hono'
 import type { EstadoMaquina, Lectura, Momento, SectorId, TipoMaquina } from '../../shared/tipos'
-import { aDataUrl, desdeDataUrl, guardarArchivo, leerArchivo } from '../almacen'
+import { aDataUrl, fotoDelPedido, guardarArchivo, leerArchivo } from '../almacen'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, ValorSQL } from '../entorno'
 import { invalido, noEncontrado, prohibido } from '../errores'
@@ -14,10 +14,6 @@ export const rutasMaquinas = new Hono<Entorno>()
 
 const MOMENTOS: Momento[] = ['inicio', 'fin', 'inicial', 'intermedia', 'otro']
 const ESTADOS: EstadoMaquina[] = ['funciona', 'con_fallas', 'fuera_de_servicio']
-
-/** Foto ya achicada en el navegador: hasta 1,5 MB una vez decodificada. */
-export const FOTO_MAXIMA_BYTES = 1.5 * 1024 * 1024
-const EXTENSION: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
 
 /** true si la temperatura queda afuera del rango; un lado del rango puede faltar (≤ −18 °C, ≥ 63 °C). F04. */
 export function estaFueraDeRango(m: { tempMin: number | null; tempMax: number | null }, t: number | null): boolean {
@@ -174,24 +170,14 @@ rutasMaquinas.post('/lecturas', async (c) => {
   const mantenimientoPor = textoOpcional(b.mantenimientoPor, 'Quién hizo el mantenimiento', 120)
   if (mantenimientoPor && !mantenimiento) throw invalido('Contá qué mantenimiento se hizo.')
 
-  let foto: { datos: Uint8Array; tipo: string } | null = null
-  if (b.foto !== undefined && b.foto !== null && b.foto !== '') {
-    if (typeof b.foto !== 'string') throw invalido('La foto no es una imagen válida.')
-    // base64 ocupa 4/3 de los bytes: el peso se calcula antes de decodificar.
-    if (Math.floor(((b.foto.length - b.foto.indexOf(',') - 1) * 3) / 4) > FOTO_MAXIMA_BYTES + 2) {
-      throw invalido('La foto es muy pesada. Sacala de nuevo o elegí otra.')
-    }
-    foto = desdeDataUrl(b.foto)
-    if (!foto) throw invalido('La foto no es una imagen válida (JPEG, PNG o WEBP).')
-    if (foto.datos.length > FOTO_MAXIMA_BYTES) throw invalido('La foto es muy pesada. Sacala de nuevo o elegí otra.')
-  }
+  const foto = fotoDelPedido(b.foto)
 
   const id = nuevoId()
   const { fecha, dia } = ahora()
   let fotoClave: string | null = null
   if (foto) {
     // Primero la foto: así una lectura nunca apunta a una foto que no está.
-    fotoClave = `fotos/${id}.${EXTENSION[foto.tipo]}`
+    fotoClave = `fotos/${id}.${foto.extension}`
     await guardarArchivo(c.env, fotoClave, foto.datos, foto.tipo)
   }
   await sentencia(

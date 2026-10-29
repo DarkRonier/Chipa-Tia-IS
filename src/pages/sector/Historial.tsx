@@ -8,7 +8,7 @@ import { IconoHistorial } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { useUsuario } from '../../cliente/sesion'
 import { fechaHoraPY } from '../../shared/hora'
-import { NOMBRE_TIPO_MOVIMIENTO, type Movimiento, type Producto, type Sucursal, type TipoMovimiento } from '../../shared/tipos'
+import { NOMBRE_FINALIDAD, NOMBRE_TIPO_MOVIMIENTO, type Movimiento, type Producto, type Sucursal, type TipoMovimiento } from '../../shared/tipos'
 import { useStock } from './Stock'
 import '../../styles/stock.css'
 
@@ -25,6 +25,7 @@ const OPCIONES_TIPO: { valor: string; texto: string }[] = [
   { valor: 'merma', texto: NOMBRE_TIPO_MOVIMIENTO.merma },
   { valor: 'vencimiento', texto: NOMBRE_TIPO_MOVIMIENTO.vencimiento },
   { valor: 'ajuste', texto: 'Ajustes' },
+  { valor: 'reasignacion', texto: 'Cambios de finalidad' },
   { valor: 'stock_inicial', texto: NOMBRE_TIPO_MOVIMIENTO.stock_inicial },
   { valor: 'produccion', texto: 'Producción (lo guardado)' },
   { valor: '', texto: 'Todos los movimientos' },
@@ -51,6 +52,7 @@ export function TablaMovimientos({ movimientos }: { movimientos: Movimiento[] })
             <td className="stk-tipo">
               <span className={`stk-etiqueta stk-${m.tipo}`}>{NOMBRE_TIPO_MOVIMIENTO[m.tipo]}</span>
               {m.sucursalNombre && <div className="chico">{m.sucursalNombre}</div>}
+              {m.tipo !== 'salida_venta' && m.tipo !== 'envio' && <div className="suave chico">{NOMBRE_FINALIDAD[m.finalidad]}</div>}
               {m.motivo && <div className="suave chico">Motivo: {m.motivo}</div>}
             </td>
             <td className={`num stk-cant ${m.cantidad < 0 ? 'stk-resta' : 'stk-suma'}`}>{conSigno(m.cantidad)}</td>
@@ -133,8 +135,9 @@ function Pantalla() {
         <ConDatos consulta={movimientos}>
           {(lista) => {
             if (lista.length === 0) return <p className="suave">{hayFiltros ? 'No hay movimientos con esos filtros.' : 'Todavía no hay salidas registradas.'}</p>
-            const salieron = lista.filter((m) => m.cantidad < 0).reduce((s, m) => s - m.cantidad, 0)
-            const entraron = lista.filter((m) => m.cantidad > 0).reduce((s, m) => s + m.cantidad, 0)
+            const reales = lista.filter((m) => m.tipo !== 'reasignacion') // pasar de un stock a otro no es entrar ni salir
+            const salieron = reales.filter((m) => m.cantidad < 0).reduce((s, m) => s - m.cantidad, 0)
+            const entraron = reales.filter((m) => m.cantidad > 0).reduce((s, m) => s + m.cantidad, 0)
             return (
               <>
                 <p className="suave stk-resumen" role="status">
