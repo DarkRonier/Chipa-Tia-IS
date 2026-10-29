@@ -13,6 +13,7 @@
     "test": "vitest run",
     "catalogo": "node scripts/generar-catalogo.ts",
     "crear-admin": "node scripts/crear-admin.ts",
+    "crear-encargados": "node scripts/crear-encargados.ts",
     "db:migrar": "wrangler d1 migrations apply chipa-tia --remote",
     "deploy": "npm run build && wrangler deploy"
   },
