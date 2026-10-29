@@ -26,3 +26,14 @@
 .prod-cabeza { margin: 0; }
 .prod-turno .segmentado, .prod-turno .chips { margin-bottom: 0; }
 .prod-codigo { white-space: nowrap; font-weight: 600; }
+
+/* E03: cuánto se usó de cada lote de materia prima elegido. */
+.prod-consumos { display: grid; gap: 0.5rem; margin-top: 0.5rem; }
+.prod-consumo {
+  display: grid; grid-template-columns: 1fr auto; gap: 0.15rem 0.75rem; align-items: center;
+  background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; padding: 0.5rem 0.7rem;
+}
+.prod-consumo label { font-weight: 600; }
+.prod-consumo-campo { display: flex; align-items: center; gap: 0.4rem; }
+.prod-consumo-campo input { width: 6.5rem; min-height: 44px; text-align: right; font-size: 1.1rem; }
+.prod-consumo > span { grid-column: 1 / -1; }

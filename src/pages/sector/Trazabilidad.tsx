@@ -12,11 +12,11 @@ import { IconoTrazabilidad } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaLegible, diaPY, fechaHoraPY, sumarDias } from '../../shared/hora'
 import {
-  NOMBRE_TIPO_MOVIMIENTO,
+  cantidadConUnidad, NOMBRE_TIPO_MOVIMIENTO,
   type LoteChipa, type LoteMP, type Movimiento, type Sucursal,
   type TrazabilidadLote, type TrazabilidadMP, type TrazabilidadSucursal,
 } from '../../shared/tipos'
-import { cantidadMP, enlaceTrazaLote, enlaceTrazaMP, EstadoLoteMP, vencido } from './Lotes'
+import { cantidadMP, enlaceTrazaLote, enlaceTrazaMP, EstadoLoteMP, usoLoteMP, vencido } from './Lotes'
 import '../../styles/lotes.css'
 
 type Modo = 'mp' | 'lote' | 'sucursal'
@@ -149,7 +149,10 @@ function MateriaPrimaDe({ lote }: { lote: Pick<LoteChipa, 'lotesMP'> }) {
   if (!lote.lotesMP.length) return <p className="suave chico">Sin materia prima registrada.</p>
   return (
     <ul className="lot-lista-mp">
-      {lote.lotesMP.map((mp) => <li key={mp.id}><Link to={enlaceTrazaMP(mp.id)}>{mp.descripcion}</Link></li>)}
+      {lote.lotesMP.map((mp) => <li key={mp.id}>
+          <Link to={enlaceTrazaMP(mp.id)}>{mp.descripcion}</Link>
+          <span className="cant">{mp.cantidad === null ? 'sin dato de cantidad' : cantidadConUnidad(mp.cantidad, mp.unidad)}</span>
+        </li>)}
     </ul>
   )
 }
@@ -197,6 +200,7 @@ function CadenaMP({ t }: { t: TrazabilidadMP }) {
           <span>ingresó {diaLegible(l.fechaIngreso)}</span>
           <span>vence {diaLegible(l.vencimiento)}</span>
         </div>
+        <p className="suave chico">{usoLoteMP(l)}</p>
       </section>
       <div className="lot-flecha">Se usó en {plural(t.lotesChipa.length, 'lote de chipa', 'lotes de chipa')}</div>
       {t.lotesChipa.length === 0 ? (
@@ -206,12 +210,16 @@ function CadenaMP({ t }: { t: TrazabilidadMP }) {
           <div className="lot-grupo">
             {t.lotesChipa.map((lc) => {
               const envios = t.envios.filter((m) => m.lote === lc.codigo)
+              const uso = lc.lotesMP.find((mp) => mp.id === l.id)
               return (
                 <section key={lc.id} className="tarjeta lot-paso" aria-label={`Lote de chipa ${lc.codigo}`}>
                   <div className="lot-cabeza">
                     <Link className="lot-codigo" to={enlaceTrazaLote(lc.codigo)}>Lote {lc.codigo}</Link>
                     <span className="suave chico">{datosLote(lc)}</span>
                   </div>
+                  <p className="chico">
+                    Usó <strong>{uso?.cantidad == null ? 'una cantidad sin registrar' : cantidadConUnidad(uso.cantidad, uso.unidad)}</strong> de este lote
+                  </p>
                   <Cifras lote={lc} />
                   {envios.length ? <ListaEnvios envios={envios} /> : <p className="suave chico">Sin envíos a sucursales todavía.</p>}
                 </section>

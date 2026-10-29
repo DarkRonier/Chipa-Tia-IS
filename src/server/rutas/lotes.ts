@@ -5,9 +5,11 @@
 // sucursales (movimientos con el código del lote), y al revés.
 import { Hono, type MiddlewareHandler } from 'hono'
 import { diaPY } from '../../shared/hora'
+import type { Alerta } from '../../shared/alertas'
 import type {
   LoteChipa, LoteMP, Movimiento, Sucursal, TrazabilidadLote, TrazabilidadMP, TrazabilidadSucursal,
 } from '../../shared/tipos'
+import { alertasLotes } from '../alertasLotes'
 import { sentenciaAuditoria } from '../auditoria'
 import { leerLotesChipa, leerLotesMP, leerMovimientos, leerProducciones } from '../consultas'
 import { ahora, nuevoId, sentencia, una } from '../db'
@@ -108,6 +110,9 @@ rutasLotes.patch('/lotes-mp/:id', soloChiperia, soloAdmin, async (c) => {
   ])
   return c.json<LoteMP>(await unLoteMP(db, antes.id))
 })
+
+// E10: lotes vencidos con saldo y lotes por vencer.
+rutasLotes.get('/lotes/alertas', soloChiperia, async (c) => c.json<Alerta[]>(await alertasLotes(c.env.DB)))
 
 // ---------- Lotes de chipa (E03–E05) ----------
 

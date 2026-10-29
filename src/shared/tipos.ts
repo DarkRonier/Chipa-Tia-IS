@@ -129,11 +129,36 @@ export interface LoteMP {
   unidad: string
   vencimiento: string
   bloqueado: boolean
-  /** Vencido o bloqueado: no se puede elegir para producir (E07). */
+  /** Lo que las amasadas ya usaron de este lote (E03), en su misma unidad. Los usos sin cantidad (anteriores) no cuentan. */
+  consumido: number
+  /** Lo que queda: cantidad menos consumido, nunca negativo. */
+  saldo: number
+  /** Sin saldo: se usó todo. Sigue visible en el historial pero no se puede elegir. */
+  agotado: boolean
+  /** Vencido, bloqueado o agotado: no se puede elegir para producir (E07). */
   disponible: boolean
   descripcion: string
   creadoEn: string
 }
+
+/** Un lote de materia prima usado por un lote de chipa; `cantidad` es null en los registros anteriores a E03 ("sin dato"). */
+export interface UsoLoteMP {
+  id: string
+  descripcion: string
+  cantidad: number | null
+  unidad: string
+}
+
+/** Con cuántos días de anticipación se avisa que un lote de materia prima está por vencer (E10). */
+export const DIAS_AVISO_VENCIMIENTO = 7
+
+const formatoCantidadMP = new Intl.NumberFormat('es-PY', { maximumFractionDigits: 2 })
+
+/** "12,5 kg". */
+export const cantidadConUnidad = (n: number, unidad: string) => `${formatoCantidadMP.format(n)} ${unidad}`
+
+/** "Harina · Molinos del Sur · lote H-1 (7,5 kg)"; los registros anteriores a E03 no tienen cantidad. */
+export const textoUsoMP = (u: UsoLoteMP) => (u.cantidad === null ? u.descripcion : `${u.descripcion} (${cantidadConUnidad(u.cantidad, u.unidad)})`)
 
 export interface LoteChipa {
   id: string
@@ -145,7 +170,7 @@ export interface LoteChipa {
   congelador: number
   /** Lo que queda en el congelador de este lote. */
   stock: number
-  lotesMP: { id: string; descripcion: string }[]
+  lotesMP: UsoLoteMP[]
 }
 
 export interface ProduccionItem {
@@ -385,8 +410,8 @@ export interface PedidoProduccion {
   sector?: SectorId
   turno: Turno
   items: { productoId: string; cocinado: number; guardado: number }[]
-  /** Chipería: lotes de materia prima usados (E02). */
-  lotesMP?: string[]
+  /** Chipería: lotes de materia prima usados y cuánto de cada uno, en la unidad del lote (E02, E03). */
+  lotesMP?: { id: string; cantidad: number }[]
 }
 
 export interface PedidoSalida { sector?: SectorId; productoId: string; lote?: string | null; cantidad: number }

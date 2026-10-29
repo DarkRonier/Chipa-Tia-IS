@@ -134,8 +134,11 @@ Los `PATCH` sin ningún campo editable dan `400`.
 - `POST`: `turno` (`dia` o `noche`) obligatorio. Cada producto una sola vez (hasta 300), enteros ≥ 0; las líneas
   en 0 y 0 no se guardan y tiene que quedar al menos una. Productos activos del sector.
 - Lo `guardado` entra al stock en frío como movimiento `produccion` (+guardado); lo `cocinado` va directo a venta.
-- **Chipería**: exige `lotesMP` (de 1 a 50 ids; `400` si falta) disponibles (`409 lote_mp_no_disponible` si
-  alguno está bloqueado, vencido o no existe) y crea el lote de chipa `CH-AAMMDD-N` (N = número de amasada del
+- **Chipería**: exige `lotesMP` (de 1 a 50 objetos `{ id, cantidad }`; `400` si falta) disponibles (`409
+  lote_mp_no_disponible` si alguno está bloqueado, vencido, sin saldo o no existe). `cantidad` es lo usado de ese
+  lote en su unidad (E03): obligatoria, número > 0 y no más que el saldo del lote (`400`); cada lote va una sola
+  vez; se guarda en `lote_chipa_mp.cantidad` (NULL = registro anterior, «sin dato»). Un trigger de la base
+  rechaza (`409 lote_mp_sin_saldo`) dos cargas simultáneas que pasarían del saldo. Crea el lote de chipa `CH-AAMMDD-N` (N = número de amasada del
   día, desde 1), con `amasada = N`; los movimientos de stock llevan ese código en `lote`. En los otros sectores
   `lotesMP` se ignora.
 - Corrección (C04): **mezcla**, no reemplaza: los productos que no vienen en `items` quedan como estaban; los
@@ -176,12 +179,18 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | GET | `/lotes-mp` | `?disponibles` | `LoteMP[]` (el ingreso más nuevo primero) |
 | POST | `/lotes-mp` | `{ insumo, proveedor, numeroLote?, fechaIngreso, cantidad, unidad?, vencimiento }` | `LoteMP` |
 | PATCH | `/lotes-mp/:id` | `{ bloqueado }` · admin | `LoteMP` |
-| GET | `/lotes-chipa` | `?desde&hasta` | `LoteChipa[]` (horno, congelador, lo que queda y sus lotes de materia prima) |
+| GET | `/lotes/alertas` | | `Alerta[]` (E10) |
+| GET | `/lotes-chipa` | `?desde&hasta` | `LoteChipa[]` (horno, congelador, lo que queda y sus lotes de materia prima con la cantidad usada) |
 | GET | `/trazabilidad/mp/:id` | | `TrazabilidadMP` |
 | GET | `/trazabilidad/lote/:codigo` | | `TrazabilidadLote` |
 | GET | `/trazabilidad/sucursal/:id` | `?desde&hasta` | `TrazabilidadSucursal` |
 
-- `disponible = !bloqueado && vencimiento ≥ hoy (Paraguay)`; `?disponibles=1` trae solo esos (E07).
+- `consumido` = suma de lo usado por las amasadas (E03); `saldo = cantidad − consumido` (nunca negativo);
+  `agotado = saldo = 0`. Los usos sin cantidad (anteriores) no descuentan.
+- `GET /lotes/alertas`: `lote_vencido` (vencido, sin bloquear y con saldo) y `lote_por_vencer` (vence en los
+  próximos `DIAS_AVISO_VENCIMIENTO` = 7 días, sin bloquear y con saldo); sector `chiperia`, enlace `/lotes`.
+  La función `alertasLotes(db)` está en `src/server/alertasLotes.ts`.
+- `disponible = !bloqueado && vencimiento ≥ hoy (Paraguay) && saldo > 0`; `?disponibles=1` trae solo esos (E07).
   `descripcion` = "Harina · Molinos del Sur · lote 123" (o "ingreso 02/10/2026" si no hay número), como en la planilla.
 - `POST /lotes-mp`: `fechaIngreso` no posterior a hoy; `cantidad` > 0 (admite decimales); `unidad` por defecto
   `kg`; `vencimiento` no anterior al ingreso ni a hoy.

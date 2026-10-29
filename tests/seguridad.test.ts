@@ -43,7 +43,7 @@ async function datosChiperia(p: Prueba) {
     insumo: 'Queso', proveedor: 'Lácteos', fechaIngreso: hoy(), cantidad: 10, vencimiento: sumarDias(hoy(), 30),
   })
   const prod = await p.pedir<Produccion>(t, 'POST', '/producciones', {
-    turno: 'dia', lotesMP: [mp.body.id], items: [{ productoId: CHIPA, cocinado: 5, guardado: 40 }],
+    turno: 'dia', lotesMP: [{ id: mp.body.id, cantidad: 1 }], items: [{ productoId: CHIPA, cocinado: 5, guardado: 40 }],
   })
   expect(prod.status).toBe(200)
   const lote = prod.body.lote!.codigo

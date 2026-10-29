@@ -243,7 +243,7 @@ describe('planilla de comprobación H01–H02 (encadenada desde C01)', () => {
       insumo: 'Harina', proveedor: 'Molino Central', numeroLote: 'H-1', fechaIngreso: hoy, cantidad: 50, vencimiento: sumarDias(hoy, 60),
     }))
     const chipas = ok(await p.pedir<Produccion>(chiperia, 'POST', '/producciones', {
-      turno: 'dia', lotesMP: [harina.id], items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }],
+      turno: 'dia', lotesMP: [{ id: harina.id, cantidad: 1 }], items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }],
     }))
     const codigo = chipas.lote!.codigo
     ok(await p.pedir(chiperia, 'POST', '/envios', { sucursalId: 'suc-ruta1', items: [{ productoId: CHIPA, lote: codigo, cantidad: 100 }] }))

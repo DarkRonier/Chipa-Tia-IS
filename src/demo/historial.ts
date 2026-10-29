@@ -122,6 +122,8 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
   const almidon = await nuevoLoteMP('Almidón de mandioca', 'Codipsa', 'A-1206', inicio, 500, 120)
   const harina = await nuevoLoteMP('Harina de trigo', 'Molinos del Sur', 'H-0921', inicio, 200, 90)
   const queso2 = await nuevoLoteMP('Queso Paraguay', 'Lácteos Tatiana', '', sumarDias(inicio, 7), 120, 27)
+  // Vence en pocos días y no se usa: sale en las alertas de vencimiento (E10).
+  await nuevoLoteMP('Leche en polvo', 'Lácteos Tatiana', 'LP-310', sumarDias(hoy, -2), 25, 3)
   const quesoMalo = await nuevoLoteMP('Queso Paraguay', 'Lácteos San Juan', 'SJ-88', sumarDias(inicio, 9), 40, 15)
   await el(sumarDias(inicio, 10), 9, () => pedir(t.admin, 'PATCH', `/lotes-mp/${quesoMalo.id}`, { bloqueado: true }))
   // Un lote ya vencido, que no se puede elegir (E07).
@@ -142,7 +144,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
 
     // Chipería: dos amasadas (E02–E04), envío por lote (E05) y salida a venta.
     const amasada1 = await el(dia, 5.5, () => pedir<Produccion>(t.chiperia, 'POST', '/producciones', {
-      turno: 'dia', lotesMP: [quesoDelDia, almidon.id],
+      turno: 'dia', lotesMP: [{ id: quesoDelDia, cantidad: 3 }, { id: almidon.id, cantidad: 5 }],
       items: [
         { productoId: 'prod-chiperia-01', cocinado: entre(180, 240), guardado: entre(140, 200) },
         { productoId: 'prod-chiperia-03', cocinado: entre(80, 120), guardado: entre(60, 90) },
@@ -151,7 +153,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     }))
     const lote1 = renombrarLote(amasada1, dia)
     const amasada2 = await el(dia, 9, () => pedir<Produccion>(t.chiperia, 'POST', '/producciones', {
-      turno: 'dia', lotesMP: [quesoDelDia, almidon.id, harina.id],
+      turno: 'dia', lotesMP: [{ id: quesoDelDia, cantidad: 3 }, { id: almidon.id, cantidad: 5 }, { id: harina.id, cantidad: 8 }],
       items: [
         { productoId: 'prod-chiperia-02', cocinado: entre(100, 140), guardado: entre(80, 110) },
         { productoId: 'prod-chiperia-05', cocinado: entre(30, 50), guardado: entre(20, 40) },

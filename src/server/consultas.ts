@@ -36,7 +36,12 @@ interface FilaLoteMP {
   vencimiento: string
   bloqueado: number
   creado_en: string
+  /** Suma de lote_chipa_mp.cantidad (E03); solo viene en las lecturas de leerLotesMP. */
+  consumido?: number
 }
+
+/** Evita que 0,1 + 0,2 deje un saldo de 0,0000000001 en vez de cero. */
+const redondear = (n: number) => Math.round(n * 1000) / 1000
 
 /** "Queso · Lácteos Tatiana · lote 0210", o con la fecha de ingreso si no hay número (como en la planilla). */
 export function descripcionLoteMP(f: Pick<FilaLoteMP, 'insumo' | 'proveedor' | 'numero_lote' | 'fecha_ingreso'>): string {
@@ -46,6 +51,8 @@ export function descripcionLoteMP(f: Pick<FilaLoteMP, 'insumo' | 'proveedor' | '
 
 function aLoteMP(f: FilaLoteMP, hoy: string): LoteMP {
   const bloqueado = !!f.bloqueado
+  const consumido = redondear(f.consumido ?? 0)
+  const saldo = Math.max(0, redondear(f.cantidad - consumido))
   return {
     id: f.id,
     insumo: f.insumo,
@@ -56,24 +63,38 @@ function aLoteMP(f: FilaLoteMP, hoy: string): LoteMP {
     unidad: f.unidad,
     vencimiento: f.vencimiento,
     bloqueado,
-    disponible: !bloqueado && f.vencimiento >= hoy,
+    consumido,
+    saldo,
+    agotado: saldo <= 0,
+    disponible: !bloqueado && f.vencimiento >= hoy && saldo > 0,
     descripcion: descripcionLoteMP(f),
     creadoEn: f.creado_en,
   }
 }
 
-/** Lotes de materia prima, el ingreso más nuevo primero. `disponibles`: ni bloqueados ni vencidos hoy (E07). */
-export async function leerLotesMP(db: BaseD1, filtro: { ids?: string[]; disponibles?: boolean } = {}): Promise<LoteMP[]> {
+/** Cada lote de materia prima con lo que ya consumieron las amasadas (E03). */
+const COLUMNAS_LOTE_MP = `SELECT mp.*, COALESCE((SELECT SUM(r.cantidad) FROM lote_chipa_mp r WHERE r.lote_mp_id = mp.id), 0) AS consumido
+    FROM lotes_mp mp`
+
+/** Lotes de materia prima, el ingreso más nuevo primero. `disponibles`: ni bloqueados, ni vencidos hoy, ni agotados (E07). */
+export async function leerLotesMP(db: BaseD1, filtro: {
+  ids?: string[]
+  disponibles?: boolean
+  /** Sin bloquear, con saldo y que vencen hasta este día inclusive (incluye los ya vencidos): para las alertas (E10). */
+  venceHasta?: string
+} = {}): Promise<LoteMP[]> {
   const hoy = diaPY()
   if (filtro.ids) {
     if (!filtro.ids.length) return []
-    const filas = await todasPorTrozos<FilaLoteMP>(db, filtro.ids, (m) => `SELECT * FROM lotes_mp WHERE id IN (${m})`)
+    const filas = await todasPorTrozos<FilaLoteMP>(db, filtro.ids, (m) => `${COLUMNAS_LOTE_MP} WHERE mp.id IN (${m})`)
     return filas.map((f) => aLoteMP(f, hoy)).filter((l) => !filtro.disponibles || l.disponible)
       .sort((a, b) => b.fechaIngreso.localeCompare(a.fechaIngreso) || b.creadoEn.localeCompare(a.creadoEn))
   }
-  const w = new Filtro().si(!!filtro.disponibles, 'bloqueado = 0 AND vencimiento >= ?', hoy)
-  const filas = await todas<FilaLoteMP>(db, `SELECT * FROM lotes_mp ${w.where} ORDER BY fecha_ingreso DESC, creado_en DESC`, ...w.params)
-  return filas.map((f) => aLoteMP(f, hoy))
+  const w = new Filtro()
+    .si(!!filtro.disponibles, 'mp.bloqueado = 0 AND mp.vencimiento >= ?', hoy)
+    .si(lleno(filtro.venceHasta), 'mp.bloqueado = 0 AND mp.vencimiento <= ?', filtro.venceHasta ?? null)
+  const filas = await todas<FilaLoteMP>(db, `${COLUMNAS_LOTE_MP} ${w.where} ORDER BY mp.fecha_ingreso DESC, mp.creado_en DESC`, ...w.params)
+  return filas.map((f) => aLoteMP(f, hoy)).filter((l) => (!filtro.disponibles || l.disponible) && (!filtro.venceHasta || !l.agotado))
 }
 
 // ---------- Lotes de chipa (E03–E05) ----------
@@ -123,9 +144,9 @@ export async function leerLotesChipa(db: BaseD1, filtro: {
     filas = await todas<FilaLoteChipa>(db, `${columnas} ${w.where} ${orden}`, ...w.params)
   }
   if (!filas.length) return []
-  const usados = await todasPorTrozos<FilaLoteMP & { lote_chipa_id: string }>(
+  const usados = await todasPorTrozos<FilaLoteMP & { lote_chipa_id: string; uso: number | null }>(
     db, filas.map((f) => f.id),
-    (m) => `SELECT r.lote_chipa_id, mp.* FROM lote_chipa_mp r JOIN lotes_mp mp ON mp.id = r.lote_mp_id
+    (m) => `SELECT r.lote_chipa_id, r.cantidad AS uso, mp.* FROM lote_chipa_mp r JOIN lotes_mp mp ON mp.id = r.lote_mp_id
              WHERE r.lote_chipa_id IN (${m}) ORDER BY mp.insumo, mp.fecha_ingreso`,
   )
   return filas.map((f) => ({
@@ -137,7 +158,8 @@ export async function leerLotesChipa(db: BaseD1, filtro: {
     horno: f.horno,
     congelador: f.congelador,
     stock: f.stock,
-    lotesMP: usados.filter((u) => u.lote_chipa_id === f.id).map((u) => ({ id: u.id, descripcion: descripcionLoteMP(u) })),
+    lotesMP: usados.filter((u) => u.lote_chipa_id === f.id)
+      .map((u) => ({ id: u.id, descripcion: descripcionLoteMP(u), cantidad: u.uso, unidad: u.unidad })),
   }))
 }
 

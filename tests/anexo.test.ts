@@ -402,10 +402,10 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
   it('E02 · las chipas registradas eligiendo ese lote quedan ligadas a la harina', async () => {
     const items = [{ productoId: CHIPA, cocinado: 200, guardado: 300 }]
     expect((await pedir(tk.chiperia, 'POST', '/producciones', { turno: 'dia', items })).status).toBe(400)
-    const r = await pedir<Produccion>(tk.chiperia, 'POST', '/producciones', { turno: 'dia', items, lotesMP: [harina.id] })
+    const r = await pedir<Produccion>(tk.chiperia, 'POST', '/producciones', { turno: 'dia', items, lotesMP: [{ id: harina.id, cantidad: 1 }] })
     expect(r.status).toBe(200)
     chipas = r.body
-    expect(chipas.lote!.lotesMP).toEqual([{ id: harina.id, descripcion: harina.descripcion }])
+    expect(chipas.lote!.lotesMP).toEqual([{ id: harina.id, descripcion: harina.descripcion, cantidad: 1, unidad: 'kg' }])
   })
 
   it('E03 · esa producción de chipas tiene su propio número de lote', async () => {
@@ -467,7 +467,7 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     const disponibles = await pedir<LoteMP[]>(tk.chiperia, 'GET', '/lotes-mp?disponibles=1')
     expect(disponibles.body.map((l) => l.id)).not.toContain(harina.id)
     const otra = await pedir(tk.chiperia, 'POST', '/producciones', {
-      turno: 'dia', items: [{ productoId: CHIPA, cocinado: 10, guardado: 0 }], lotesMP: [harina.id],
+      turno: 'dia', items: [{ productoId: CHIPA, cocinado: 10, guardado: 0 }], lotesMP: [{ id: harina.id, cantidad: 1 }],
     })
     expect(otra.status).toBe(409)
     expect(otra.body.error.codigo).toBe('lote_mp_no_disponible')

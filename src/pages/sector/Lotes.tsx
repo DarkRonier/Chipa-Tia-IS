@@ -8,8 +8,9 @@ import { useUsuario } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { IconoLotes } from '../../components/Iconos'
 import Volver from '../../components/Volver'
+import type { Alerta } from '../../shared/alertas'
 import { diaLegible, diaPY, sumarDias } from '../../shared/hora'
-import type { LoteChipa, LoteMP } from '../../shared/tipos'
+import { cantidadConUnidad, DIAS_AVISO_VENCIMIENTO, textoUsoMP, type LoteChipa, type LoteMP } from '../../shared/tipos'
 import '../../styles/lotes.css'
 
 /** Insumos de la planilla de chipas; el campo es libre. */
@@ -20,22 +21,48 @@ const POR_PAGINA = 20
 const formatoNumero = new Intl.NumberFormat('es-PY', { maximumFractionDigits: 2 })
 export const cantidadMP = (l: Pick<LoteMP, 'cantidad' | 'unidad'>) => `${formatoNumero.format(l.cantidad)} ${l.unidad}`
 
+/**
+ * Lo escrito en un campo de cantidad ("25", "12,5", "1.250,5"): null si está vacío, NaN si no es un número.
+ * Con coma, los puntos son separadores de miles.
+ */
+export function leerCantidad(escrito: string): number | null {
+  const t = escrito.trim()
+  if (t === '') return null
+  return Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t)
+}
+
 /** Días de `desde` a `hasta` (AAAA-MM-DD). */
 const diasEntre = (desde: string, hasta: string) => Math.round((Date.parse(`${hasta}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / 86_400_000)
 
 export const vencido = (l: LoteMP, hoy = diaPY()) => l.vencimiento < hoy
 
-/** Chips de estado: Disponible, Vencido, Bloqueado (puede tener los dos últimos). */
+/** Vence dentro del plazo de aviso (E10), todavía sin vencer y con saldo para usar. */
+export const porVencer = (l: LoteMP, hoy = diaPY()) =>
+  !l.bloqueado && !l.agotado && l.vencimiento >= hoy && diasEntre(hoy, l.vencimiento) <= DIAS_AVISO_VENCIMIENTO
+
+/** Chips de estado: Disponible (con «Por vencer» si vence pronto), o Vencido, Bloqueado y Agotado (puede tener varios). */
 export function EstadoLoteMP({ lote }: { lote: LoteMP }) {
   const hoy = diaPY()
-  if (lote.disponible) return <span className="lot-estado disponible">Disponible</span>
+  if (lote.disponible) {
+    return (
+      <span className="lot-estados">
+        <span className="lot-estado disponible">Disponible</span>
+        {porVencer(lote, hoy) && <span className="lot-estado porvencer">Por vencer</span>}
+      </span>
+    )
+  }
   return (
     <span className="lot-estados">
       {vencido(lote, hoy) && <span className="lot-estado vencido">Vencido</span>}
       {lote.bloqueado && <span className="lot-estado bloqueado">Bloqueado</span>}
+      {lote.agotado && <span className="lot-estado agotado">Agotado</span>}
     </span>
   )
 }
+
+/** "Usado 7,5 de 20 kg · quedan 12,5 kg". */
+export const usoLoteMP = (l: LoteMP) =>
+  `Usado ${formatoNumero.format(l.consumido)} de ${cantidadMP(l)}${l.agotado ? '' : ` · quedan ${cantidadConUnidad(l.saldo, l.unidad)}`}`
 
 export const enlaceTrazaMP = (id: string) => `/trazabilidad?mp=${encodeURIComponent(id)}`
 export const enlaceTrazaLote = (codigo: string) => `/trazabilidad?lote=${encodeURIComponent(codigo)}`
@@ -55,6 +82,7 @@ function PantallaLotes({ esAdmin }: { esAdmin: boolean }) {
   const lotesMP = useConsulta<LoteMP[]>('/lotes-mp')
   return (
     <>
+      <AlertasLotes />
       <h2>Ingresar materia prima</h2>
       <FormLoteMP existentes={lotesMP.datos ?? []} />
       <h2>Lotes de materia prima</h2>
@@ -62,6 +90,25 @@ function PantallaLotes({ esAdmin }: { esAdmin: boolean }) {
       <h2>Lotes de chipa</h2>
       <ListaLotesChipa />
     </>
+  )
+}
+
+// ---------- Alertas de vencimiento (E10) ----------
+
+function AlertasLotes() {
+  const alertas = useConsulta<Alerta[]>('/lotes/alertas')
+  // Si no se pueden traer, no estorban: el listado de abajo ya marca cada lote.
+  if (!alertas.datos?.length) return null
+  return (
+    <section className="lot-alertas" aria-label="Avisos de vencimiento">
+      <ul>
+        {alertas.datos.map((a) => (
+          <li key={a.texto} className={a.tipo === 'lote_vencido' ? 'vencido' : 'por-vencer'}>
+            <strong>{a.tipo === 'lote_vencido' ? 'Vencido' : 'Por vencer'}</strong> {a.texto}
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -90,8 +137,7 @@ function FormLoteMP({ existentes }: { existentes: LoteMP[] }) {
 
   const enviar = async (e: FormEvent) => {
     e.preventDefault()
-    const texto = f.cantidad.trim().replace(/\./g, '').replace(',', '.')
-    const cantidad = f.cantidad.trim() === '' ? null : Number(f.cantidad.includes(',') ? texto : f.cantidad.trim())
+    const cantidad = leerCantidad(f.cantidad)
     if (cantidad !== null && !Number.isFinite(cantidad)) return setErrorLocal('La cantidad tiene que ser un número, por ejemplo 25 o 12,5.')
     const lote = await guardar.ejecutar({
       insumo: f.insumo,
@@ -163,7 +209,7 @@ function FormLoteMP({ existentes }: { existentes: LoteMP[] }) {
 
 // ---------- Lotes de materia prima (E07) ----------
 
-type Filtro = 'todos' | 'disponibles' | 'vencidos' | 'bloqueados'
+type Filtro = 'todos' | 'disponibles' | 'porVencer' | 'vencidos' | 'bloqueados' | 'agotados'
 
 function ListaLotesMP({ lotes, esAdmin }: { lotes: LoteMP[]; esAdmin: boolean }) {
   const hoy = diaPY()
@@ -178,10 +224,14 @@ function ListaLotesMP({ lotes, esAdmin }: { lotes: LoteMP[]; esAdmin: boolean })
   const grupos: Record<Filtro, LoteMP[]> = {
     todos: lotes,
     disponibles: lotes.filter((l) => l.disponible),
+    porVencer: lotes.filter((l) => porVencer(l, hoy)),
     vencidos: lotes.filter((l) => vencido(l, hoy)),
     bloqueados: lotes.filter((l) => l.bloqueado),
+    agotados: lotes.filter((l) => l.agotado),
   }
-  const nombres: Record<Filtro, string> = { todos: 'Todos', disponibles: 'Disponibles', vencidos: 'Vencidos', bloqueados: 'Bloqueados' }
+  const nombres: Record<Filtro, string> = {
+    todos: 'Todos', disponibles: 'Disponibles', porVencer: 'Por vencer', vencidos: 'Vencidos', bloqueados: 'Bloqueados', agotados: 'Agotados',
+  }
   const visibles = grupos[filtro]
 
   const confirmar = async (l: LoteMP) => {
@@ -221,11 +271,12 @@ function ListaLotesMP({ lotes, esAdmin }: { lotes: LoteMP[]; esAdmin: boolean })
                     <div className="lot-sub">
                       {l.numeroLote ? `lote ${l.numeroLote} · ` : ''}{cantidadMP(l)} · ingresó {diaLegible(l.fechaIngreso)}
                     </div>
+                    <div className="lot-sub lot-uso">{usoLoteMP(l)}</div>
                     <Link className="chico" to={enlaceTrazaMP(l.id)}>Ver trazabilidad</Link>
                   </td>
                   <td className={l.disponible ? '' : 'apagado'}>
                     {diaLegible(l.vencimiento)}
-                    {l.disponible && faltan <= 7 && (
+                    {l.disponible && faltan <= DIAS_AVISO_VENCIMIENTO && (
                       <div className="lot-sub lot-pronto">{faltan === 0 ? 'vence hoy' : faltan === 1 ? 'vence mañana' : `en ${faltan} días`}</div>
                     )}
                   </td>
@@ -314,7 +365,7 @@ function ListaLotesChipa() {
                     <td colSpan={4}>
                       {l.lotesMP.length > 0 ? (
                         <ul className="lot-mp-usados" aria-label={`Materia prima del lote ${l.codigo}`}>
-                          {l.lotesMP.map((mp) => <li key={mp.id}>{mp.descripcion}</li>)}
+                          {l.lotesMP.map((mp) => <li key={mp.id}>{textoUsoMP(mp)}</li>)}
                         </ul>
                       ) : <span className="lot-sub">Sin materia prima registrada</span>}
                     </td>

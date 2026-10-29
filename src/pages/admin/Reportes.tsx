@@ -14,7 +14,7 @@ import {
   diaLegible, diaPY, esDiaValido, fechaHoraPY, inicioDeMes, inicioDeSemana, rangoResumen, sumarDias,
 } from '../../shared/hora'
 import {
-  NOMBRE_ESTADO, NOMBRE_MOMENTO, NOMBRE_TIPO_MOVIMIENTO, SECTOR_IDS,
+  NOMBRE_ESTADO, NOMBRE_MOMENTO, NOMBRE_TIPO_MOVIMIENTO, SECTOR_IDS, textoUsoMP,
   type Configuracion, type Lectura, type PeriodoResumen, type Reporte, type ResumenCorreo, type SectorId,
 } from '../../shared/tipos'
 import '../../styles/reportes.css'
@@ -299,7 +299,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
                   <td data-etiqueta="Horno" className="num rep-medio">{num(l.horno)}</td>
                   <td data-etiqueta="Congelador" className="num rep-medio">{num(l.congelador)}</td>
                   <td data-etiqueta="Queda" className="num rep-medio">{num(l.stock)}</td>
-                  <td data-etiqueta="Materia prima" className="chico">{l.lotesMP.map((m) => m.descripcion).join(' · ') || '—'}</td>
+                  <td data-etiqueta="Materia prima" className="chico">{l.lotesMP.map(textoUsoMP).join(' · ') || '—'}</td>
                 </tr>
               ))}
             </Tabla>
@@ -431,7 +431,12 @@ function hojasDelReporte(r: Reporte, sector: SectorId | '', nombre: (s: SectorId
       nombre: 'Lotes de chipa',
       arriba: arriba('Lotes de Chipería'),
       encabezados: ['Lote', 'Día', 'Amasada', 'Horno', 'Congelador', 'Queda', 'Materia prima'],
-      filas: r.lotesChipa.map((l) => [l.codigo, celdaDia(l.dia), l.amasada, l.horno, l.congelador, l.stock, l.lotesMP.map((m) => m.descripcion).join(' · ')]),
+      filas: r.lotesChipa.map((l) => [l.codigo, celdaDia(l.dia), l.amasada, l.horno, l.congelador, l.stock, l.lotesMP.map(textoUsoMP).join(' · ')]),
+    }, {
+      nombre: 'Consumo de materia prima',
+      arriba: arriba('Materia prima usada en cada lote de Chipería'),
+      encabezados: ['Lote', 'Día', 'Materia prima', 'Cantidad usada', 'Unidad'],
+      filas: r.lotesChipa.flatMap((l) => l.lotesMP.map((m): Celda[] => [l.codigo, celdaDia(l.dia), m.descripcion, m.cantidad ?? 'Sin dato', m.unidad])),
     })
   }
   const lecturas = (ls: Lectura[]): Celda[][] => ls.map((l) => [

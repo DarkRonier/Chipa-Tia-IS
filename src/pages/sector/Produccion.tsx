@@ -11,7 +11,8 @@ import Numero from '../../components/Numero'
 import { IconoProduccion } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY, fechaHoraPY, turnoActual } from '../../shared/hora'
-import type { LoteMP, PedidoProduccion, Produccion as Registro, Producto, Turno } from '../../shared/tipos'
+import { cantidadConUnidad, textoUsoMP, type LoteMP, type PedidoProduccion, Produccion as Registro, Producto, Turno } from '../../shared/tipos'
+import { leerCantidad } from './Lotes'
 import '../../styles/produccion.css'
 
 type Cantidades = Record<string, { cocinado: number; guardado: number }>
@@ -40,6 +41,8 @@ function Formulario() {
   const [turno, setTurno] = useState<Turno>(() => turnoActual())
   const [cant, setCant] = useState<Cantidades>({})
   const [lotesMP, setLotesMP] = useState<string[]>([])
+  /** Lo escrito en la cantidad usada de cada lote de materia prima (E03), tal cual lo tipeó el operador. */
+  const [usado, setUsado] = useState<Record<string, string>>({})
   const [buscar, setBuscar] = useState('')
   const [listo, setListo] = useState<Registro | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
@@ -49,6 +52,17 @@ function Formulario() {
   const activos = (productos.datos ?? []).filter((p) => p.activo)
   const disponibles = (lotes.datos ?? []).filter((l) => l.disponible)
   const elegidos = lotesMP.filter((id) => disponibles.some((l) => l.id === id))
+  const lotesElegidos = elegidos.map((id) => disponibles.find((l) => l.id === id)!)
+  const cantidadUsada = (l: LoteMP) => leerCantidad(usado[l.id] ?? '')
+  /** Qué está mal con la cantidad de un lote elegido, o null si está bien. */
+  const problemaCantidad = (l: LoteMP): string | null => {
+    const n = cantidadUsada(l)
+    if (n === null) return `Cargá cuánto usaste de ${l.descripcion}.`
+    if (!Number.isFinite(n)) return 'La cantidad tiene que ser un número, por ejemplo 5 o 12,5.'
+    if (n <= 0) return 'La cantidad tiene que ser mayor que cero.'
+    if (n > l.saldo) return `Solo quedan ${cantidadConUnidad(l.saldo, l.unidad)} de ${l.descripcion}.`
+    return null
+  }
   const amasadas = (deHoy.datos ?? []).map((p) => p.lote?.amasada ?? 0)
   const proximaAmasada = deHoy.datos ? Math.max(0, ...amasadas) + 1 : null
 
@@ -68,11 +82,15 @@ function Formulario() {
     guardarProduccion.limpiarError()
     if (!items.length) return setAviso('Cargá al menos una cantidad.')
     if (conLotes && !elegidos.length) return setAviso('Elegí los lotes de materia prima usados.')
-    const r = await guardarProduccion.ejecutar({ sector, turno, items, ...(conLotes ? { lotesMP: elegidos } : {}) })
+    const mala = conLotes ? lotesElegidos.find((l) => problemaCantidad(l)) : undefined
+    if (mala) return setAviso(problemaCantidad(mala))
+    const lotesUsados = lotesElegidos.map((l) => ({ id: l.id, cantidad: cantidadUsada(l)! }))
+    const r = await guardarProduccion.ejecutar({ sector, turno, items, ...(conLotes ? { lotesMP: lotesUsados } : {}) })
     if (r) {
       setListo(r)
       setCant({})
       setLotesMP([])
+      setUsado({})
       setBuscar('')
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else if (conLotes) {
@@ -103,6 +121,9 @@ function Formulario() {
               <li key={i.productoId}>{i.productoNombre}: {i.cocinado} {et.cocinadoCorto}, {i.guardado} {et.guardadoCorto}</li>
             ))}
           </ul>
+          {!!listo.lote?.lotesMP.length && (
+            <span className="chico">Materia prima: {listo.lote.lotesMP.map(textoUsoMP).join(' · ')}</span>
+          )}
         </div>
       )}
 
@@ -127,6 +148,7 @@ function Formulario() {
                     No hay lotes de materia prima disponibles. <Link to="/sector/lotes">Cargalos en Materia prima y lotes</Link>.
                   </p>
                 ) : (
+                  <>
                   <div className="chips">
                     {disponibles.map((l) => {
                       const activo = lotesMP.includes(l.id)
@@ -139,6 +161,7 @@ function Formulario() {
                           onClick={() => {
                             setAviso(null)
                             setLotesMP((s) => (s.includes(l.id) ? s.filter((x) => x !== l.id) : [...s, l.id]))
+                            setUsado((u) => (l.id in u ? Object.fromEntries(Object.entries(u).filter(([k]) => k !== l.id)) : u))
                           }}
                         >
                           {l.descripcion}
@@ -146,6 +169,40 @@ function Formulario() {
                       )
                     })}
                   </div>
+                  {lotesElegidos.length > 0 && (
+                    <div className="prod-consumos">
+                      <span className="suave chico">Cuánto usaste de cada uno</span>
+                      {lotesElegidos.map((l) => {
+                        const n = cantidadUsada(l)
+                        const pasa = n !== null && Number.isFinite(n) && n > l.saldo
+                        return (
+                          <div className="prod-consumo" key={l.id}>
+                            <label htmlFor={`consumo-${l.id}`}>{l.descripcion}</label>
+                            <div className="prod-consumo-campo">
+                              <input
+                                id={`consumo-${l.id}`}
+                                type="text"
+                                inputMode="decimal"
+                                autoComplete="off"
+                                placeholder="0"
+                                value={usado[l.id] ?? ''}
+                                aria-invalid={pasa}
+                                onChange={(e) => {
+                                  setAviso(null)
+                                  setUsado((u) => ({ ...u, [l.id]: e.target.value }))
+                                }}
+                              />
+                              <span>{l.unidad}</span>
+                            </div>
+                            <span className={pasa ? 'error chico' : 'suave chico'}>
+                              {pasa ? `Pasa del saldo: quedan ${cantidadConUnidad(l.saldo, l.unidad)}` : `quedan ${cantidadConUnidad(l.saldo, l.unidad)}`}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  </>
                 )
               }
             </ConDatos>
