@@ -31,3 +31,13 @@
 
 /* Ícono chico al lado del título de la pantalla. */
 .titulo .icono-titulo { color: var(--marca-texto, var(--marca)); font-size: 1.5rem; flex-shrink: 0; display: grid; place-items: center; }
+
+/* Avisos automáticos (stock bajo, lotes por vencer, limpieza atrasada) arriba del inicio y del Resumen. */
+.avisos { display: grid; gap: 0.4rem; margin-bottom: 0.9rem; }
+.aviso-item {
+  display: grid; gap: 0.1rem; padding: 0.6rem 0.8rem; border-radius: 10px; text-decoration: none; color: var(--texto);
+  background: var(--aviso); border: 1px solid var(--borde); border-left: 4px solid var(--acento);
+}
+.aviso-item strong { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.aviso-item.grave { background: var(--error-fondo); border-left-color: var(--error); }
+.aviso-item.grave strong { color: var(--error); }

@@ -2,11 +2,13 @@
 // Todas las fechas y horas van en hora de Paraguay (I04). En la demo, o si falta configurar algo,
 // no se envía nada: se devuelve la vista previa y el motivo.
 import { diaDeSemana, diaLegible, fechaHoraPY, rangoResumen } from '../shared/hora'
+import type { Alerta } from '../shared/alertas'
 import type { PeriodoResumen, Reporte, ResumenCorreo, SectorId } from '../shared/tipos'
 import { NOMBRE_ESTADO, NOMBRE_TIPO_MOVIMIENTO } from '../shared/tipos'
 import { todas } from './db'
 import type { Env } from './entorno'
 import { armarReporte } from './reporte'
+import { todasLasAlertas } from './rutas/alertas'
 import { leerConfiguracion } from './rutas/datos'
 
 const DIAS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
@@ -74,6 +76,8 @@ export function htmlResumen(o: {
   reporte: Reporte
   sectores: Record<string, string>
   enlace: string | null
+  /** Avisos vigentes al armar el correo (stock bajo, lotes por vencer, limpiezas atrasadas). */
+  alertas?: Alerta[]
 }): string {
   const { reporte: r, enlace } = o
   const sector = (id: SectorId) => esc(o.sectores[id] ?? id)
@@ -95,6 +99,11 @@ export function htmlResumen(o: {
     .map((i) => `<tr>${celdaCifra(cifras[i])}${celdaCifra(cifras[i + 1])}</tr>`).join('')}</table>`)
 
   // Alertas primero: es lo que hay que mirar.
+  if (o.alertas?.length) {
+    partes.push(titulo('Avisos', true))
+    partes.push(tabla([['Sector', 'left'], ['Aviso', 'left']],
+      o.alertas.map((a) => [a.sector ? sector(a.sector) : '', esc(a.texto)])))
+  }
   if (r.temperaturasFueraDeRango.length) {
     partes.push(titulo('Temperaturas fuera de rango', true))
     partes.push(tabla([['Fecha y hora', 'left'], ['Máquina', 'left'], ['Temperatura', 'right']],
@@ -186,16 +195,17 @@ ${boton}
 /** Arma el resumen del período que corresponde a `hoy` (día de Paraguay), sin enviarlo. 'hoy' cubre solo el día de hoy, hasta ahora. */
 export async function prepararResumen(env: Env, periodo: PeriodoResumen, hoy: string) {
   const { desde, hasta } = periodo === 'hoy' ? { desde: hoy, hasta: hoy } : rangoResumen(periodo, hoy)
-  const [config, reporte, sectores] = await Promise.all([
+  const [config, reporte, sectores, alertas] = await Promise.all([
     leerConfiguracion(env.DB),
     armarReporte(env.DB, { desde, hasta, sector: null }),
     todas<{ id: string; nombre: string }>(env.DB, 'SELECT id, nombre FROM sectores ORDER BY orden'),
+    todasLasAlertas(env.DB, null),
   ])
   const enlace = enlaceReporte(config.urlPublica, desde, hasta)
   return {
     destino: config.correoReportes,
     asunto: asuntoResumen(periodo, reporte),
-    html: htmlResumen({ periodo, reporte, sectores: Object.fromEntries(sectores.map((s) => [s.id, s.nombre])), enlace }),
+    html: htmlResumen({ periodo, reporte, sectores: Object.fromEntries(sectores.map((s) => [s.id, s.nombre])), enlace, alertas }),
     enlace,
     reporte,
   }
