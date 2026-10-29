@@ -6,8 +6,10 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
 import { mensajeDe, useAccion, useConsulta } from '../../cliente/consultas'
+import { nombreArchivoReporte } from '../../cliente/imprimir'
 import { celdaDia, celdaFechaHora, descargarExcel, negrita, type Celda, type Hoja } from '../../cliente/excel'
 import { Aviso, ConDatos } from '../../components/Estado'
+import { BotonPDF, EncabezadoImpresion } from '../../components/Impresion'
 import {
   diaLegible, diaPY, esDiaValido, fechaHoraPY, inicioDeMes, inicioDeSemana, rangoResumen, sumarDias,
 } from '../../shared/hora'
@@ -68,7 +70,7 @@ export default function Reportes() {
   return (
     <div className="rep-pagina">
       <h1>Reportes</h1>
-      <div className="tarjeta">
+      <div className="tarjeta no-imprimir">
         <div className="segmentado rep-periodos" role="group" aria-label="Período">
           {ATAJOS.map(([a, t]) => (
             <button
@@ -174,6 +176,11 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
 
   return (
     <div aria-busy={actualizando}>
+      <EncabezadoImpresion
+        titulo="Reporte de producción"
+        detalle={<>{sector ? nombre(sector) : 'Todos los sectores'} · {periodoLegible(r.desde, r.hasta)}</>}
+        generado={r.generadoEn}
+      />
       <p className="suave rep-rango">
         {sector ? nombre(sector) : 'Todos los sectores'} · {periodoLegible(r.desde, r.hasta)}
         <br /><span className="chico">Generado el {fechaHoraPY(r.generadoEn)}{actualizando ? ' · actualizando…' : ''}</span>
@@ -196,6 +203,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
         <button type="button" className="btn-primario" onClick={() => void bajarExcel()} disabled={excel?.estado === 'armando'}>
           {excel?.estado === 'armando' ? 'Armando el Excel…' : 'Descargar Excel'}
         </button>
+        <BotonPDF archivo={nombreArchivoReporte(r.desde, r.hasta, sector ? nombre(sector) : '')} />
       </div>
       {excel?.estado === 'listo' && <Aviso tipo="ok">{excel.texto}</Aviso>}
       {excel?.estado === 'error' && <Aviso>{excel.texto}</Aviso>}
@@ -472,7 +480,7 @@ function ResumenPorCorreo({ verPeriodo }: { verPeriodo: (desde: string, hasta: s
   }
 
   return (
-    <section className="rep-seccion">
+    <section className="rep-seccion no-imprimir">
       <h2>Resumen por correo</h2>
       <div className="tarjeta">
         <p className="rep-nota">Se envía solo a las 06:00: a diario, los lunes y el día 1 de cada mes.</p>

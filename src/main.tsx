@@ -4,6 +4,7 @@ import { HashRouter } from 'react-router-dom'
 import { ProveedorSesion } from './cliente/sesion'
 import App from './App'
 import './styles.css'
+import './styles/impresion.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

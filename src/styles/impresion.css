@@ -1,0 +1,66 @@
+/* Impresión y «Guardar como PDF» (H06, H09). En pantalla solo el estilo del botón; el resto vale al imprimir. */
+.solo-impresion { display: none; }
+.lot-pdf { display: flex; justify-content: flex-end; margin: 0.75rem 0 0.25rem; }
+.lot-pdf .btn-secundario { width: auto; margin-bottom: 0; }
+@media (min-width: 640px) {
+  .rep-acciones { grid-template-columns: 1fr 1fr; }
+}
+
+@page {
+  size: A4;
+  margin: 14mm 12mm 16mm;
+  @bottom-right { content: 'Página ' counter(page) ' de ' counter(pages); font-size: 9pt; color: #5c5656; }
+}
+
+@media print {
+  /* Siempre en claro, aunque la pantalla esté en tema oscuro (los selectores repetidos le ganan al tema). */
+  html:root:root:root {
+    --fondo: #ffffff; --superficie: #ffffff; --texto: #000000; --suave: #444040; --borde: #bdb8b6;
+    --marca: #b8001a; --marca-texto: #8f0014; --marca-claro: #f3ecd9; --acento: #ee9b05; --neutro: #eeeceb;
+    --ok: #1f5a23; --ok-fondo: #e6f4e7; --sobre-ok: #ffffff; --error: #b01e1e; --error-fondo: #fdeaea;
+    --aviso: #fff1cc; --sobre-marca: #ffffff; --sombra: none;
+    --serie-chiperia: #b8001a; --serie-chipitas: #d98200; --serie-panaderia: #2a78d6; --serie-cocina: #0f9d7a;
+    --graf-previo: #aaa2a0; --graf-grilla: #e6e2e1; --graf-guia: #8a8180;
+    color-scheme: light;
+  }
+  html, body { background: #fff !important; color: #000; }
+  body { font-size: 10.5pt; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-shadow: none !important; }
+
+  /* Lo que no sirve en papel: barras, pestañas, botones, filtros y todo lo interactivo. */
+  .barra, .pestanas, .pie, .volver, .titulo, .accion-fija, .aviso, .no-imprimir,
+  .contenido button, .contenido select, .contenido input, .contenido textarea, .contenido iframe,
+  .contenido .campo, .contenido .segmentado, .contenido .chips,
+  .rep-pagina > h1, .rep-rango, .rep-acciones, .lot-pdf, .lot-buscar, .lot-fechas { display: none !important; }
+  .solo-impresion { display: block; }
+
+  .contenido { max-width: none; margin: 0; padding: 0; }
+  a { color: inherit; text-decoration: none; }
+  h1, h2, h3 { break-after: avoid; }
+
+  .encabezado-impresion {
+    display: flex !important; align-items: center; gap: 12px; padding-bottom: 8px; margin-bottom: 12px;
+    border-bottom: 3px solid #ee9b05;
+  }
+  .encabezado-impresion img { height: 40px; width: auto; flex: none; }
+  .encabezado-impresion p, .encabezado-impresion h1 { margin: 0; }
+  .ei-empresa { font-size: 9pt; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8f0014; }
+  .ei-titulo { font-size: 17pt; font-weight: 800; margin: 2px 0 !important; }
+  .ei-detalle { font-size: 11pt; }
+  .ei-generado { font-size: 9pt; color: #444040; margin-top: 2px !important; }
+
+  /* Tablas a todo el ancho; ninguna fila ni tarjeta se corta entre páginas. */
+  .contenido .tabla { width: 100%; border-radius: 0; background: #fff; overflow: visible; font-size: 9.5pt; }
+  .contenido .tabla thead { display: table-header-group; }
+  .contenido .tabla tr, .contenido .tabla th, .contenido .tabla td { break-inside: avoid; page-break-inside: avoid; }
+  .contenido .tabla th, .contenido .tabla td { padding: 4px 6px; }
+  .contenido :is(.tarjeta, .cifra, .lot-paso, .graf-tarjeta) { break-inside: avoid; page-break-inside: avoid; }
+  .contenido .tarjeta { border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; }
+  .contenido .cifras { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .contenido .cifra strong { font-size: 14pt; }
+  .contenido .rep-seccion { margin-top: 14px; }
+  .graf-tabla-corre { max-height: none; overflow: visible; }
+  .graf-lienzo svg, .graf-tarjeta svg { max-width: 100%; }
+  .lot-flecha::before { background: #fff; }
+  .graf-superficie { fill: #fff; }
+}
