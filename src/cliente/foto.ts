@@ -1,7 +1,7 @@
 // F03, G06: la foto de la cámara o de la galería se achica en el navegador antes de subirla
 // (lado mayor de 1024 px, JPEG calidad 0,6). Así pesa unas decenas de KB aunque el celular saque 12 MP
 // y no gasta espacio ni datos: sirve para ver el estado de una máquina o de un área, no para imprimir.
-// Las fotos se piden aparte y solo cuando se quieren ver, y el servidor las borra a los 90 días.
+// Las fotos se piden aparte y solo cuando se quieren ver; no se borran automáticamente por antigüedad.
 import { useEffect, useState } from 'react'
 import { get } from './api'
 import { mensajeDe } from './consultas'

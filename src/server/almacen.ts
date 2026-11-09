@@ -82,10 +82,3 @@ export function fotoDelPedido(valor: unknown): FotoPedida | null {
   if (foto.datos.length > FOTO_MAXIMA_BYTES) throw invalido('La foto es muy pesada. Sacala de nuevo o elegí otra.')
   return { ...foto, extension: EXTENSION[foto.tipo] }
 }
-
-/** Borra archivos: en R2 de una sola vez (acepta un arreglo de claves) y sin R2 con un solo DELETE sobre `archivos`. */
-export async function borrarArchivos(env: Env, claves: string[]) {
-  if (!claves.length) return
-  if (env.ARCHIVOS) await env.ARCHIVOS.delete(claves)
-  else await ejecutar(env.DB, 'DELETE FROM archivos WHERE clave IN (SELECT value FROM json_each(?))', JSON.stringify(claves))
-}
