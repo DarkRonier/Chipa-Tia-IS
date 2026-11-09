@@ -1,0 +1,6 @@
+# Cabeceras de seguridad para la app servida por Cloudflare Workers Assets (GitHub Pages las ignora).
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
