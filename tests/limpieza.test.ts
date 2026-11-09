@@ -2,7 +2,8 @@
 import { describe, expect, it } from 'vitest'
 import { diaPY, sumarDias } from '../src/shared/hora'
 import type { AreaLimpieza, Limpieza, Marca } from '../src/shared/tipos'
-import { nuevaPrueba, type Prueba } from './ayuda'
+import type { Alerta } from '../src/shared/alertas'
+import { JPEG_1PX, nuevaPrueba, type Prueba } from './ayuda'
 
 /** Marcas para todas las tareas activas del área: las indicadas y el resto con `resto`. */
 async function marcasDe(p: Prueba, token: string, areaId: string, elegidas: Record<string, Marca> = {}, resto: Marca = '-') {
@@ -207,5 +208,151 @@ describe('limpieza', () => {
     expect(r.body.error.mensaje).toMatch(/baja/)
     const h = await p.pedir<Limpieza[]>(t, 'GET', '/limpiezas')
     expect(h.body.map((l) => [l.id, l.areaNombre])).toEqual([[antes.body.id, 'Depósito de materia prima']])
+  })
+
+  it('guarda una foto opcional del reporte y solo la entrega al pedirla (G06)', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('panaderia')
+    const marcas = await marcasDe(p, t, 'panaderia', {}, 'X')
+    const r = await p.pedir<Limpieza>(t, 'POST', '/limpiezas', { areaId: 'panaderia', marcas, foto: JPEG_1PX })
+    expect(r.status).toBe(200)
+    expect(r.body.tieneFoto).toBe(true)
+    const [fila] = await p.sql('SELECT foto_clave FROM limpiezas WHERE id = ?', r.body.id)
+    expect(fila.foto_clave).toBe(`fotos/limpieza/${r.body.id}.jpg`)
+    const [archivo] = await p.sql('SELECT tipo FROM archivos WHERE clave = ?', fila.foto_clave)
+    expect(archivo.tipo).toBe('image/jpeg')
+
+    // Los listados dicen que hay foto, pero no la traen.
+    const lista = await p.pedir<Limpieza[]>(t, 'GET', '/limpiezas')
+    expect(lista.body[0].tieneFoto).toBe(true)
+    expect(JSON.stringify(lista.body)).not.toContain('base64')
+    expect(lista.body[0]).not.toHaveProperty('foto')
+
+    // Bajo demanda: el dueño del sector y el administrador la ven; otro sector no.
+    const foto = await p.pedir(t, 'GET', `/limpiezas/${r.body.id}/foto`)
+    expect(foto.status).toBe(200)
+    expect(foto.body.dataUrl).toBe(JPEG_1PX)
+    expect((await p.pedir(await p.entrar('admin'), 'GET', `/limpiezas/${r.body.id}/foto`)).body.dataUrl).toBe(JPEG_1PX)
+    expect((await p.pedir(await p.entrar('chiperia'), 'GET', `/limpiezas/${r.body.id}/foto`)).status).toBe(403)
+    expect((await p.pedir(null, 'GET', `/limpiezas/${r.body.id}/foto`)).status).toBe(401)
+
+    // Sin foto: el reporte vale igual y pedir la foto da 404.
+    const sin = await p.pedir<Limpieza>(t, 'POST', '/limpiezas', { areaId: 'panaderia', marcas })
+    expect(sin.body.tieneFoto).toBe(false)
+    expect((await p.pedir(t, 'GET', `/limpiezas/${sin.body.id}/foto`)).status).toBe(404)
+    expect((await p.pedir(t, 'GET', '/limpiezas/no-existe/foto')).status).toBe(404)
+  })
+
+  it('guarda la foto del reporte en R2 cuando hay bucket y rechaza lo que no es una imagen', async () => {
+    const guardados = new Map<string, Uint8Array>()
+    const p = await nuevaPrueba({
+      ARCHIVOS: {
+        async put(clave, datos) {
+          guardados.set(clave, datos as Uint8Array)
+        },
+        async get(clave) {
+          const g = guardados.get(clave)
+          return g ? { arrayBuffer: async () => g.slice().buffer, httpMetadata: { contentType: 'image/jpeg' } } : null
+        },
+        async delete(claves) {
+          for (const k of [claves].flat()) guardados.delete(k)
+        },
+      },
+    })
+    const t = await p.entrar('chiperia')
+    const marcas = await marcasDe(p, t, 'deposito-mp', {}, 'X')
+    for (const foto of ['hola', 'data:text/plain;base64,aG9sYQ==', 42]) {
+      const mala = await p.pedir(t, 'POST', '/limpiezas', { areaId: 'deposito-mp', marcas, foto })
+      expect(mala.status).toBe(400)
+      expect(mala.body.error.mensaje).toMatch(/foto/)
+    }
+    expect(await p.sql('SELECT id FROM limpiezas')).toEqual([])
+    const r = await p.pedir<Limpieza>(t, 'POST', '/limpiezas', { areaId: 'deposito-mp', marcas, foto: JPEG_1PX })
+    expect(r.status).toBe(200)
+    expect([...guardados.keys()]).toEqual([`fotos/limpieza/${r.body.id}.jpg`])
+    expect((await p.sql('SELECT COUNT(*) AS n FROM archivos'))[0].n).toBe(0)
+    expect((await p.pedir(t, 'GET', `/limpiezas/${r.body.id}/foto`)).body.dataUrl).toBe(JPEG_1PX)
+  })
+})
+
+describe('frecuencia mínima de limpieza (G08)', () => {
+  /** Limpieza vieja cargada directo en la base. */
+  const cargarVieja = (p: Prueba, areaId: string, sector: string, dia: string) =>
+    p.sql(
+      'INSERT INTO limpiezas (id, area_id, sector, usuario_id, fecha, dia) VALUES (?, ?, ?, ?, ?, ?)',
+      `vieja-${areaId}`, areaId, sector, `usr-${sector}`, `${dia}T15:00:00.000Z`, dia,
+    )
+
+  it('el administrador fija la frecuencia del área y la puede quitar', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const areas = await p.pedir<AreaLimpieza[]>(admin, 'GET', '/areas')
+    expect(areas.body.every((a) => a.frecuenciaDias === null)).toBe(true)
+    const r = await p.pedir<AreaLimpieza>(admin, 'PATCH', '/areas/panaderia', { frecuenciaDias: 7 })
+    expect(r.status).toBe(200)
+    expect(r.body.frecuenciaDias).toBe(7)
+    expect((await p.pedir<AreaLimpieza[]>(admin, 'GET', '/areas?sector=panaderia')).body[0].frecuenciaDias).toBe(7)
+    for (const frecuenciaDias of [0, -1, 1.5, 400, '7']) {
+      expect((await p.pedir(admin, 'PATCH', '/areas/panaderia', { frecuenciaDias })).status).toBe(400)
+    }
+    expect((await p.pedir<AreaLimpieza>(admin, 'PATCH', '/areas/panaderia', { frecuenciaDias: null })).body.frecuenciaDias).toBeNull()
+    // Un operador no la cambia.
+    expect((await p.pedir(await p.entrar('panaderia'), 'PATCH', '/areas/panaderia', { frecuenciaDias: 3 })).status).toBe(403)
+  })
+
+  it('avisa cuando el área pasó la frecuencia sin limpiarse y el aviso se va al limpiar', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const t = await p.entrar('panaderia')
+    // Sin exigencia no hay aviso, aunque nunca se haya limpiado.
+    expect((await p.pedir<Alerta[]>(t, 'GET', '/limpieza/alertas')).body).toEqual([])
+
+    await p.pedir(admin, 'PATCH', '/areas/panaderia', { frecuenciaDias: 2 })
+    await cargarVieja(p, 'panaderia', 'panaderia', sumarDias(diaPY(), -5))
+    const r = await p.pedir<Alerta[]>(t, 'GET', '/limpieza/alertas')
+    expect(r.status).toBe(200)
+    expect(r.body).toEqual([{
+      tipo: 'limpieza_atrasada', sector: 'panaderia', enlace: '/limpieza',
+      texto: 'Panadería: hace 5 días que no se limpia (se pide limpiar cada 2 días).',
+    }])
+
+    const marcas = await marcasDe(p, t, 'panaderia', {}, 'X')
+    await p.pedir(t, 'POST', '/limpiezas', { areaId: 'panaderia', marcas })
+    expect((await p.pedir<Alerta[]>(t, 'GET', '/limpieza/alertas')).body).toEqual([])
+  })
+
+  it('cuenta los días justos: con «todos los días» avisa recién cuando se saltó uno, y un área sin ninguna limpieza avisa', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    await p.pedir(admin, 'PATCH', '/areas/panaderia', { frecuenciaDias: 1 })
+    await p.pedir(admin, 'PATCH', '/areas/cocina', { frecuenciaDias: 7 })
+    const hoy = diaPY()
+    // Panadería se limpió ayer: todavía está al día. Cocina nunca.
+    await cargarVieja(p, 'panaderia', 'panaderia', sumarDias(hoy, -1))
+    const a = await p.pedir<Alerta[]>(admin, 'GET', '/limpieza/alertas')
+    expect(a.body.map((x) => x.texto)).toEqual(['Cocina: todavía no tiene limpiezas registradas (se pide limpiar cada 7 días).'])
+    await p.sql('UPDATE limpiezas SET dia = ?', sumarDias(hoy, -2))
+    const b = await p.pedir<Alerta[]>(admin, 'GET', '/limpieza/alertas')
+    expect(b.body.map((x) => x.texto)).toEqual([
+      'Panadería: hace 2 días que no se limpia (se pide limpiar todos los días).',
+      'Cocina: todavía no tiene limpiezas registradas (se pide limpiar cada 7 días).',
+    ])
+  })
+
+  it('cada sector ve solo las suyas; el administrador ve todas o filtra por sector; las áreas de baja no avisan', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    for (const id of ['panaderia', 'cocina', 'sanitario', 'lavadero']) await p.pedir(admin, 'PATCH', `/areas/${id}`, { frecuenciaDias: 1 })
+    await p.pedir(admin, 'PATCH', '/areas/lavadero', { activo: false })
+    const nombres = async (token: string, ruta = '/limpieza/alertas') =>
+      (await p.pedir<Alerta[]>(token, 'GET', ruta)).body.map((x) => x.texto.split(':')[0])
+    expect(await nombres(await p.entrar('panaderia'))).toEqual(['Panadería', 'Sanitario'])
+    expect(await nombres(await p.entrar('cocina'))).toEqual(['Cocina', 'Sanitario'])
+    expect(await nombres(await p.entrar('chiperia'))).toEqual(['Sanitario'])
+    expect(await nombres(admin)).toEqual(['Panadería', 'Cocina', 'Sanitario'])
+    expect(await nombres(admin, '/limpieza/alertas?sector=cocina')).toEqual(['Cocina', 'Sanitario'])
+    // Un operador no puede pedir otro sector.
+    expect((await p.pedir(await p.entrar('panaderia'), 'GET', '/limpieza/alertas?sector=cocina')).status).toBe(403)
+    expect((await p.pedir(null, 'GET', '/limpieza/alertas')).status).toBe(401)
   })
 })

@@ -1,7 +1,7 @@
 // Tareas automáticas del Worker, en dos disparadores de Cloudflare (Workers Free permite 50 consultas a D1
 // por ejecución, y juntas pasaban de ese límite un lunes que cae día 1):
 //  - CRON_RESUMENES `0 9 * * *` (09:00 UTC = 06:00 en Paraguay): resumen por correo diario siempre,
-//    semanal los lunes y mensual el día 1 (H04).
+//    semanal los lunes y mensual el día 1 (H04). Las fotos se conservan sin borrado automático.
 //  - CRON_COPIA `30 9 * * 1` (los lunes, 06:30 en Paraguay): copia semanal de toda la base (I05) y borrado
 //    de las sesiones vencidas.
 // Sin disparador (las pruebas) hace todo junto. Un disparador desconocido no hace nada y queda anotado.

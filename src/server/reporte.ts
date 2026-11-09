@@ -48,9 +48,11 @@ export async function armarReporte(db: BaseD1, p: PedidoReporte): Promise<Report
     ),
     una<{ n: number }>(db, `SELECT COUNT(*) AS n FROM producciones p WHERE ${prod.sql}`, ...prod.params),
     // Stock actual (no el del período): la suma del libro de movimientos, sin los productos en cero.
-    todas<{ sector: SectorId; producto_id: string; nombre: string; total: number }>(
+    todas<{ sector: SectorId; producto_id: string; nombre: string; total: number; reposicion: number; distribucion: number }>(
       db,
-      `SELECT m.sector, m.producto_id, pr.nombre, SUM(m.cantidad) AS total
+      `SELECT m.sector, m.producto_id, pr.nombre, SUM(m.cantidad) AS total,
+              SUM(CASE WHEN m.finalidad = 'reposicion' THEN m.cantidad ELSE 0 END) AS reposicion,
+              SUM(CASE WHEN m.finalidad = 'distribucion' THEN m.cantidad ELSE 0 END) AS distribucion
          FROM movimientos m
          JOIN productos pr ON pr.id = m.producto_id
          JOIN sectores s ON s.id = m.sector
@@ -72,13 +74,14 @@ export async function armarReporte(db: BaseD1, p: PedidoReporte): Promise<Report
         ORDER BY su.nombre, s.orden, pr.orden, pr.nombre`,
       ...mov.params,
     ),
-    // Lo que salió del frío en el período, por tipo (en unidades positivas). Los ajustes que suman no son salidas.
+    // Lo que salió del frío en el período, por tipo (en unidades positivas). Los ajustes que suman no son salidas,
+    // y los cambios de finalidad tampoco: no sacan nada del frío, solo pasan unidades de un stock al otro.
     todas<{ sector: SectorId; tipo: TipoMovimiento; cantidad: number }>(
       db,
       `SELECT m.sector, m.tipo, -SUM(m.cantidad) AS cantidad
          FROM movimientos m
          JOIN sectores s ON s.id = m.sector
-        WHERE m.cantidad < 0 AND ${mov.sql}
+        WHERE m.cantidad < 0 AND m.tipo <> 'reasignacion' AND ${mov.sql}
         GROUP BY m.sector, m.tipo
         ORDER BY s.orden,
           CASE m.tipo WHEN 'salida_venta' THEN 1 WHEN 'envio' THEN 2 WHEN 'merma' THEN 3 WHEN 'vencimiento' THEN 4 ELSE 5 END`,
@@ -110,7 +113,9 @@ export async function armarReporte(db: BaseD1, p: PedidoReporte): Promise<Report
     produccion: produccion.map((f) => ({
       sector: f.sector, productoId: f.producto_id, productoNombre: f.nombre, cocinado: f.cocinado, guardado: f.guardado,
     })),
-    stock: stock.map((f) => ({ sector: f.sector, productoId: f.producto_id, productoNombre: f.nombre, total: f.total })),
+    stock: stock.map((f) => ({
+      sector: f.sector, productoId: f.producto_id, productoNombre: f.nombre, total: f.total, reposicion: f.reposicion, distribucion: f.distribucion,
+    })),
     envios: envios.map((f) => ({
       sucursalId: f.sucursal_id, sucursalNombre: f.sucursal_nombre, productoNombre: f.producto_nombre, sector: f.sector, cantidad: f.cantidad,
     })),

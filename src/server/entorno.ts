@@ -31,7 +31,8 @@ export interface ObjetoR2 {
 export interface BucketR2 {
   put(clave: string, datos: ArrayBuffer | Uint8Array | string, opciones?: { httpMetadata?: { contentType?: string } }): Promise<unknown>
   get(clave: string): Promise<ObjetoR2 | null>
-  delete(clave: string): Promise<void>
+  /** R2 acepta una clave o hasta 1000 claves juntas. */
+  delete(claves: string | string[]): Promise<void>
 }
 
 export interface Env {

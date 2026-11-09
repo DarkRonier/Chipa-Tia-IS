@@ -1,6 +1,8 @@
 // E01, E05–E07: lotes de materia prima, lotes de chipa y trazabilidad (Chipería y el administrador).
 // Las producciones, lotes de chipa y envíos se cargan directo en la base: los registra otro módulo.
 import { describe, expect, it } from 'vitest'
+import { alertasLotes, DIAS_AVISO_VENCIMIENTO } from '../src/server/alertasLotes'
+import type { Alerta } from '../src/shared/alertas'
 import { diaLegible, diaPY, sumarDias } from '../src/shared/hora'
 import type {
   LoteChipa, LoteMP, TrazabilidadLote, TrazabilidadMP, TrazabilidadSucursal,
@@ -36,7 +38,9 @@ async function loteMPDirecto(p: Prueba, id: string, o: { insumo?: string; vencim
 let n = 0
 /** Amasada de Chipería como la deja el módulo de producción: producción, ítems, lote, lotes MP y stock guardado. */
 async function amasada(p: Prueba, o: {
-  codigo: string; dia?: string; amasada?: number; mp: string[]
+  codigo: string; dia?: string; amasada?: number
+  /** Lotes de materia prima usados; un texto = sin cantidad (registro anterior a E03). */
+  mp: (string | { id: string; cantidad: number })[]
   items?: { producto: string; cocinado: number; guardado: number }[]
 }) {
   const dia = o.dia ?? hoy()
@@ -49,7 +53,10 @@ async function amasada(p: Prueba, o: {
   }
   await p.sql('INSERT INTO lotes_chipa (id, codigo, produccion_id, amasada, dia) VALUES (?, ?, ?, ?, ?)',
     `lc-${o.codigo}`, o.codigo, prod, o.amasada ?? 1, dia)
-  for (const mp of o.mp) await p.sql('INSERT INTO lote_chipa_mp (lote_chipa_id, lote_mp_id) VALUES (?, ?)', `lc-${o.codigo}`, mp)
+  for (const mp of o.mp) {
+    const uso = typeof mp === 'string' ? { id: mp, cantidad: null } : mp
+    await p.sql('INSERT INTO lote_chipa_mp (lote_chipa_id, lote_mp_id, cantidad) VALUES (?, ?, ?)', `lc-${o.codigo}`, uso.id, uso.cantidad)
+  }
   for (const i of items.filter((x) => x.guardado > 0)) {
     await mov(p, { producto: i.producto, lote: o.codigo, tipo: 'produccion', cantidad: i.guardado, dia, produccion: prod })
   }
@@ -93,7 +100,7 @@ describe('planilla de comprobación E01, E05–E07', () => {
     expect(disponibles.body.map((l) => l.id)).toContain(harina)
 
     // E02–E04 (otro módulo): la amasada usa ese lote; 200 al horno y 300 al congelador.
-    await amasada(p, { codigo: 'CH-261010-1', mp: [harina] })
+    await amasada(p, { codigo: 'CH-261010-1', mp: [{ id: harina, cantidad: 12.5 }] })
 
     // E05: enviar 100 chipas de ese lote → el envío indica el lote y el stock del lote baja a 200.
     let lotes = await p.pedir<LoteChipa[]>(chiperia, 'GET', '/lotes-chipa')
@@ -102,12 +109,13 @@ describe('planilla de comprobación E01, E05–E07', () => {
     await envio(p, 'CH-261010-1', 100)
     lotes = await p.pedir<LoteChipa[]>(chiperia, 'GET', '/lotes-chipa')
     expect(lotes.body[0].stock).toBe(200)
-    expect(lotes.body[0].lotesMP).toEqual([{ id: harina, descripcion: 'Harina · Molinos del Sur · lote H-0210' }])
+    expect(lotes.body[0].lotesMP).toEqual([{ id: harina, descripcion: 'Harina · Molinos del Sur · lote H-0210', cantidad: 12.5, unidad: 'kg' }])
 
     // E06: desde el lote de harina se llega al lote de chipa y a la sucursal…
     const ida = await p.pedir<TrazabilidadMP>(chiperia, 'GET', `/trazabilidad/mp/${harina}`)
     expect(ida.status).toBe(200)
-    expect(ida.body.loteMP.id).toBe(harina)
+    expect(ida.body.loteMP).toMatchObject({ id: harina, cantidad: 50, consumido: 12.5, saldo: 37.5, agotado: false })
+    expect(ida.body.lotesChipa[0].lotesMP).toEqual([expect.objectContaining({ id: harina, cantidad: 12.5, unidad: 'kg' })])
     expect(ida.body.lotesChipa.map((l) => l.codigo)).toEqual(['CH-261010-1'])
     expect(ida.body.envios).toHaveLength(1)
     expect(ida.body.envios[0]).toMatchObject({
@@ -397,6 +405,7 @@ describe('acceso (A03): solo Chipería y el administrador', () => {
     const rutas: [string, string, unknown?][] = [
       ['GET', '/lotes-mp'],
       ['GET', '/lotes-mp?disponibles=1'],
+      ['GET', '/lotes/alertas'],
       ['POST', '/lotes-mp', { insumo: 'Queso', proveedor: 'X', fechaIngreso: hoy(), cantidad: 1, vencimiento: hoy() }],
       ['PATCH', `/lotes-mp/${lote.id}`, { bloqueado: true }],
       ['GET', '/lotes-chipa'],
@@ -423,7 +432,7 @@ describe('acceso (A03): solo Chipería y el administrador', () => {
     const admin = await p.entrar('admin')
     const lote = (await loteMP(p, chiperia)).body
     await amasada(p, { codigo: 'CH-Y-1', mp: [lote.id] })
-    for (const ruta of ['/lotes-mp', '/lotes-chipa', `/trazabilidad/mp/${lote.id}`, '/trazabilidad/lote/CH-Y-1', '/trazabilidad/sucursal/suc-centro']) {
+    for (const ruta of ['/lotes-mp', '/lotes/alertas', '/lotes-chipa', `/trazabilidad/mp/${lote.id}`, '/trazabilidad/lote/CH-Y-1', '/trazabilidad/sucursal/suc-centro']) {
       const a = await p.pedir(chiperia, 'GET', ruta)
       const b = await p.pedir(admin, 'GET', ruta)
       expect(a.status, ruta).toBe(200)
@@ -439,7 +448,7 @@ describe('integración con producción y envíos (E02, E05, E07)', () => {
     const admin = await p.entrar('admin')
     const harina = (await loteMP(p, chiperia)).body
     const prod = await p.pedir(chiperia, 'POST', '/producciones', {
-      turno: 'dia', items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }], lotesMP: [harina.id],
+      turno: 'dia', items: [{ productoId: CHIPA, cocinado: 200, guardado: 300, finalidad: 'distribucion' }], lotesMP: [{ id: harina.id, cantidad: 1 }],
     })
     expect(prod.status).toBe(200)
     const codigo: string = prod.body.lote.codigo
@@ -452,9 +461,87 @@ describe('integración con producción y envíos (E02, E05, E07)', () => {
 
     await p.pedir(admin, 'PATCH', `/lotes-mp/${harina.id}`, { bloqueado: true })
     const otra = await p.pedir(chiperia, 'POST', '/producciones', {
-      turno: 'dia', items: [{ productoId: CHIPA, cocinado: 10, guardado: 0 }], lotesMP: [harina.id],
+      turno: 'dia', items: [{ productoId: CHIPA, cocinado: 10, guardado: 0 }], lotesMP: [{ id: harina.id, cantidad: 1 }],
     })
     expect(otra.status).toBe(409)
     expect(otra.body.error.codigo).toBe('lote_mp_no_disponible')
+  })
+})
+
+describe('cantidades en la trazabilidad (E03)', () => {
+  it('muestra cuánto usó cada lote de chipa en las tres direcciones, y «sin dato» en los usos viejos', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('chiperia')
+    const queso = (await loteMP(p, t, { insumo: 'Queso', proveedor: 'Tatiana', numeroLote: 'Q1', cantidad: 20 })).body
+    const alm = (await loteMP(p, t, { insumo: 'Almidón', proveedor: 'Codipsa', numeroLote: 'A1', cantidad: 100, unidad: 'kg' })).body
+    await amasada(p, { codigo: 'CH-1', amasada: 1, mp: [{ id: queso.id, cantidad: 7.5 }, { id: alm.id, cantidad: 30 }] })
+    await amasada(p, { codigo: 'CH-2', amasada: 2, mp: [queso.id] }) // anterior a E03: sin cantidad
+    await envio(p, 'CH-1', 100, 'suc-centro')
+    await envio(p, 'CH-2', 50, 'suc-centro')
+
+    // Hacia adelante: cuánto de este lote usó cada lote de chipa, y el saldo del lote.
+    const ida = await p.pedir<TrazabilidadMP>(t, 'GET', `/trazabilidad/mp/${queso.id}`)
+    expect(ida.body.loteMP).toMatchObject({ cantidad: 20, consumido: 7.5, saldo: 12.5, agotado: false })
+    const uso = (codigo: string) => ida.body.lotesChipa.find((l) => l.codigo === codigo)!.lotesMP.find((m) => m.id === queso.id)
+    expect(uso('CH-1')).toMatchObject({ cantidad: 7.5, unidad: 'kg' })
+    expect(uso('CH-2')).toMatchObject({ cantidad: null, unidad: 'kg' })
+
+    // Un lote de chipa: de qué materia prima salió y cuánto.
+    const lote = await p.pedir<TrazabilidadLote>(t, 'GET', '/trazabilidad/lote/CH-1')
+    expect(lote.body.lote.lotesMP.map((m) => [m.id, m.cantidad]).sort()).toEqual([[queso.id, 7.5], [alm.id, 30]].sort())
+
+    // Hacia atrás: desde la sucursal, los lotes de chipa traen sus cantidades y los lotes de materia prima su saldo.
+    const vuelta = await p.pedir<TrazabilidadSucursal>(t, 'GET', '/trazabilidad/sucursal/suc-centro')
+    expect(vuelta.body.lotesChipa.find((l) => l.codigo === 'CH-1')!.lotesMP.map((m) => m.cantidad).sort((a, b) => a! - b!)).toEqual([7.5, 30])
+    expect(vuelta.body.lotesMP.find((l) => l.id === alm.id)).toMatchObject({ consumido: 30, saldo: 70 })
+  })
+})
+
+describe('alertas de lotes por vencer y vencidos (E10)', () => {
+  const dm = (dia: string) => `${dia.slice(8)}/${dia.slice(5, 7)}`
+
+  it('avisa de los lotes que vencen en los próximos días y de los vencidos con saldo, ordenados por vencimiento', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('chiperia')
+    await loteMP(p, t, { insumo: 'Harina', proveedor: 'Molinos SA', numeroLote: '123', vencimiento: sumarDias(hoy(), 3) })
+    await loteMP(p, t, { insumo: 'Queso', proveedor: 'Tatiana', numeroLote: '', vencimiento: hoy() })
+    await loteMP(p, t, { insumo: 'Leche', proveedor: 'Lactolanda', numeroLote: 'L9', vencimiento: sumarDias(hoy(), DIAS_AVISO_VENCIMIENTO) })
+    await loteMP(p, t, { insumo: 'Grasa', proveedor: 'Lejos SA', vencimiento: sumarDias(hoy(), DIAS_AVISO_VENCIMIENTO + 1) })
+    await loteMPDirecto(p, 'mp-vencido', { insumo: 'Almidón', vencimiento: sumarDias(hoy(), -4) })
+
+    expect(DIAS_AVISO_VENCIMIENTO).toBe(7)
+    const r = await p.pedir<Alerta[]>(t, 'GET', '/lotes/alertas')
+    expect(r.status).toBe(200)
+    expect(r.body.map((a) => a.tipo)).toEqual(['lote_vencido', 'lote_por_vencer', 'lote_por_vencer', 'lote_por_vencer'])
+    expect(r.body.every((a) => a.sector === 'chiperia' && a.enlace === '/lotes')).toBe(true)
+    expect(r.body[0].texto).toBe(`Almidón (Codipsa), ingreso ${dm(sumarDias(hoy(), -60))}: venció el ${dm(sumarDias(hoy(), -4))} (hace 4 días).`)
+    expect(r.body[1].texto).toBe(`Queso (Tatiana), ingreso ${dm(hoy())}: vence el ${dm(hoy())} (hoy).`)
+    expect(r.body[2].texto).toBe(`Harina, lote 123 (Molinos SA): vence el ${dm(sumarDias(hoy(), 3))} (en 3 días).`)
+    expect(r.body[3].texto).toBe(`Leche, lote L9 (Lactolanda): vence el ${dm(sumarDias(hoy(), DIAS_AVISO_VENCIMIENTO))} (en 7 días).`)
+
+    // Lo mismo desde la función que usan el inicio, el resumen y el correo.
+    expect(await alertasLotes(p.d1)).toEqual(r.body)
+    // El administrador ve las mismas.
+    expect((await p.pedir<Alerta[]>(await p.entrar('admin'), 'GET', '/lotes/alertas')).body).toEqual(r.body)
+  })
+
+  it('no avisa de lotes bloqueados, sin saldo ni de los que vencen lejos; «mañana» y «hace 1 día»', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('chiperia')
+    expect((await p.pedir<Alerta[]>(t, 'GET', '/lotes/alertas')).body).toEqual([])
+    const bloqueado = (await loteMP(p, t, { insumo: 'Queso', vencimiento: sumarDias(hoy(), 2) })).body
+    const agotado = (await loteMP(p, t, { insumo: 'Harina', cantidad: 10, vencimiento: sumarDias(hoy(), 2) })).body
+    await loteMP(p, t, { insumo: 'Leche', numeroLote: 'L1', vencimiento: sumarDias(hoy(), 1) })
+    await loteMPDirecto(p, 'mp-ayer', { insumo: 'Grasa', vencimiento: sumarDias(hoy(), -1) })
+    await loteMPDirecto(p, 'mp-bloq', { insumo: 'Sal', vencimiento: sumarDias(hoy(), -9) })
+    await loteMPDirecto(p, 'mp-agot', { insumo: 'Aceite', vencimiento: sumarDias(hoy(), -9) })
+    await p.pedir(await p.entrar('admin'), 'PATCH', `/lotes-mp/${bloqueado.id}`, { bloqueado: true })
+    await p.sql('UPDATE lotes_mp SET bloqueado = 1 WHERE id = ?', 'mp-bloq')
+    await amasada(p, { codigo: 'CH-G-1', mp: [{ id: agotado.id, cantidad: 10 }, { id: 'mp-agot', cantidad: 10 }] })
+
+    const r = await p.pedir<Alerta[]>(t, 'GET', '/lotes/alertas')
+    expect(r.body.map((a) => a.tipo)).toEqual(['lote_vencido', 'lote_por_vencer'])
+    expect(r.body[0].texto).toMatch(/^Grasa \(Codipsa\), ingreso \d\d\/\d\d: venció el \d\d\/\d\d \(hace 1 día\)\.$/)
+    expect(r.body[1].texto).toBe(`Leche, lote L1 (Molinos del Sur): vence el ${dm(sumarDias(hoy(), 1))} (mañana).`)
   })
 })

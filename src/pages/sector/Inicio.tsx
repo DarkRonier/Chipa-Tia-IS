@@ -1,6 +1,7 @@
 // Inicio del sector: botones grandes a cada tarea, con lo cargado hoy.
 import { Link } from 'react-router-dom'
 import { useConsulta } from '../../cliente/consultas'
+import Avisos from '../../components/Avisos'
 import { Icono, type NombreIcono } from '../../components/Iconos'
 import { useSectorActivo } from '../../components/Layout'
 import { diaPY } from '../../shared/hora'
@@ -42,6 +43,7 @@ export default function Inicio() {
   return (
     <>
       <h1>{sector.nombre || ' '}</h1>
+      <Avisos sector={sector.id} />
       <div className="grilla-botones con-iconos">
         {botones.map((b) => (
           <Link key={b.a} to={b.a} className="boton-grande con-icono">

@@ -123,3 +123,7 @@
 .tarjeta.ctl-confirmar { border-color: var(--acento); background: var(--marca-claro); }
 .ctl-confirmar p { margin: 0; }
 .ctl-confirmar .fila-acciones { margin: 0; }
+
+/* G08: áreas que no se limpiaron con la frecuencia mínima exigida */
+.ctl-alertas { display: grid; gap: 0.4rem; margin-bottom: 0.75rem; }
+.ctl-alerta { margin: 0; padding: 0.6rem 0.75rem; border: 1px solid var(--error); background: var(--error-fondo); color: var(--error); border-radius: 8px; font-weight: 600; }

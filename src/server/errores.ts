@@ -21,3 +21,8 @@ export const conflicto = (codigo: string, m: string) => new ErrorApi(409, codigo
 export function esStockInsuficiente(e: unknown): boolean {
   return e instanceof Error && e.message.includes('STOCK_INSUFICIENTE')
 }
+
+/** Traduce el error del trigger del saldo de los lotes de materia prima (E03). */
+export function esSaldoLoteInsuficiente(e: unknown): boolean {
+  return e instanceof Error && e.message.includes('SALDO_LOTE_INSUFICIENTE')
+}

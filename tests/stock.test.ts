@@ -1,7 +1,7 @@
 // D01–D07 y E05: stock en frío, salidas a venta, envíos a sucursales, mermas, ajustes e historial.
 import { describe, expect, it } from 'vitest'
 import { diaPY } from '../src/shared/hora'
-import type { Movimiento, StockFila } from '../src/shared/tipos'
+import type { Finalidad, Movimiento, StockFila } from '../src/shared/tipos'
 import { nuevaPrueba, type Prueba } from './ayuda'
 
 const EMPANADA = 'prod-cocina-10' // Empanada frita (carne)
@@ -14,14 +14,14 @@ let n = 0
 /** Movimiento cargado directo en la base (lo guardado en producción lo registra otro módulo). */
 async function mov(p: Prueba, o: {
   sector?: string; producto?: string; lote?: string | null; tipo?: string; cantidad: number
-  dia?: string; fecha?: string; sucursal?: string | null; motivo?: string | null; usuario?: string
+  dia?: string; fecha?: string; sucursal?: string | null; motivo?: string | null; usuario?: string; finalidad?: Finalidad
 }) {
   const id = `mov-${++n}`
   const dia = o.dia ?? diaPY()
   await p.sql(
-    `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, motivo, sucursal_id, envio_id, produccion_id, usuario_id, fecha, dia)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
-    id, o.sector ?? 'cocina', o.producto ?? EMPANADA, o.lote ?? null, o.tipo ?? 'produccion', o.cantidad, o.motivo ?? null,
+    `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, finalidad, motivo, sucursal_id, envio_id, produccion_id, usuario_id, fecha, dia)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
+    id, o.sector ?? 'cocina', o.producto ?? EMPANADA, o.lote ?? null, o.tipo ?? 'produccion', o.cantidad, o.finalidad ?? 'reposicion', o.motivo ?? null,
     o.sucursal ?? null, o.usuario ?? 'usr-cocina', o.fecha ?? `${dia}T15:00:00.000Z`, dia,
   )
   return id
@@ -34,12 +34,12 @@ async function stockDe(p: Prueba, token: string, producto: string, sector?: stri
 }
 
 /** Lote de chipa con su producción, como lo deja el módulo de producción. */
-async function loteChipa(p: Prueba, codigo: string, dia: string, amasada: number, guardado: number, producto = CHIPA) {
+async function loteChipa(p: Prueba, codigo: string, dia: string, amasada: number, guardado: number, producto = CHIPA, finalidad: Finalidad = 'reposicion') {
   const prod = `prod-${codigo}`
   await p.sql(`INSERT INTO producciones (id, sector, usuario_id, fecha, dia, turno) VALUES (?, 'chiperia', 'usr-chiperia', ?, ?, 'dia')`,
     prod, `${dia}T12:00:00.000Z`, dia)
   await p.sql('INSERT INTO lotes_chipa (id, codigo, produccion_id, amasada, dia) VALUES (?, ?, ?, ?, ?)', `lc-${codigo}`, codigo, prod, amasada, dia)
-  await mov(p, { sector: 'chiperia', producto, lote: codigo, cantidad: guardado, dia, usuario: 'usr-chiperia' })
+  await mov(p, { sector: 'chiperia', producto, lote: codigo, cantidad: guardado, dia, usuario: 'usr-chiperia', finalidad })
 }
 
 describe('planilla de comprobación D01–D07', () => {
@@ -48,8 +48,9 @@ describe('planilla de comprobación D01–D07', () => {
     const cocina = await p.entrar('cocina')
     const admin = await p.entrar('admin')
 
-    // D01: lo guardado (8 de 38 empanadas) suma al stock en frío del sector.
-    await mov(p, { cantidad: 8 })
+    // D01: lo guardado (8 de 38 empanadas) suma al stock en frío del sector: 5 para reponer la venta y 3 para sucursales.
+    await mov(p, { cantidad: 5 })
+    await mov(p, { cantidad: 3, finalidad: 'distribucion' })
     expect((await stockDe(p, cocina, EMPANADA))?.total).toBe(8)
 
     // D02: sacar 3 para reponer la venta.
@@ -77,7 +78,9 @@ describe('planilla de comprobación D01–D07', () => {
     const diez = await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: EMPANADA, cantidad: 10 }] })
     expect(diez.status).toBe(409)
     expect(diez.body.error.codigo).toBe('stock_insuficiente')
-    expect(diez.body.error.mensaje).toContain('hay 3')
+    expect(diez.body.error.mensaje).toBe(
+      'No hay stock suficiente: de Empanada frita (carne) hay 1 y querés sacar 10. En «Reponer venta» hay 2: cambiales la finalidad en Stock en frío si querés usarlos.',
+    )
     expect((await stockDe(p, cocina, EMPANADA))?.total).toBe(3)
 
     // D06: merma de 1 con motivo; figura en el historial.
@@ -132,12 +135,12 @@ describe('GET /stock', () => {
     const fila = await stockDe(p, t, CHIPA)
     expect(fila?.total).toBe(155)
     expect(fila?.lotes).toEqual([
-      { lote: 'CH-261001-3', cantidad: 5 },
-      { lote: 'CH-261009-2', cantidad: 50 },
-      { lote: 'CH-261009-10', cantidad: 30 },
-      { lote: 'CH-261010-1', cantidad: 70 },
+      { lote: 'CH-261001-3', cantidad: 5, reposicion: 5, distribucion: 0 },
+      { lote: 'CH-261009-2', cantidad: 50, reposicion: 50, distribucion: 0 },
+      { lote: 'CH-261009-10', cantidad: 30, reposicion: 30, distribucion: 0 },
+      { lote: 'CH-261010-1', cantidad: 70, reposicion: 70, distribucion: 0 },
     ])
-    expect((await stockDe(p, t, QUESU))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 8 }])
+    expect((await stockDe(p, t, QUESU))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 8, reposicion: 8, distribucion: 0 }])
   })
 
   it('el administrador tiene que indicar el sector; un operador no puede ver otro (A03)', async () => {
@@ -223,13 +226,14 @@ describe('POST /salidas (D02, D04)', () => {
     const ok = await p.pedir<Movimiento>(t, 'POST', '/salidas', { productoId: CHIPA, lote: 'CH-261008-1', cantidad: 10 })
     expect(ok.status).toBe(200)
     expect(ok.body.lote).toBe('CH-261008-1')
-    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 300 }])
+    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 300, reposicion: 300, distribucion: 0 }])
   })
 
   it('normaliza el lote en salidas y envíos: espacios y minúsculas no cambian el stock del lote (E05)', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('chiperia')
-    await loteChipa(p, 'CH-261009-1', '2026-10-09', 1, 10)
+    await loteChipa(p, 'CH-261009-1', '2026-10-09', 1, 6)
+    await mov(p, { sector: 'chiperia', producto: CHIPA, lote: 'CH-261009-1', cantidad: 4, usuario: 'usr-chiperia', finalidad: 'distribucion' })
     const salida = await p.pedir<Movimiento>(t, 'POST', '/salidas', { productoId: CHIPA, lote: 'ch-261009-1 ', cantidad: 3 })
     expect(salida.status).toBe(200)
     expect(salida.body).toMatchObject({ lote: 'CH-261009-1', cantidad: -3 })
@@ -238,7 +242,7 @@ describe('POST /salidas (D02, D04)', () => {
     })
     expect(envio.status).toBe(200)
     expect(envio.body.movimientos[0]).toMatchObject({ lote: 'CH-261009-1', cantidad: -4 })
-    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 3 }])
+    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 3, reposicion: 3, distribucion: 0 }])
   })
 
   it('en un sector sin lotes ignora el lote', async () => {
@@ -255,8 +259,8 @@ describe('POST /envios (D03, D04, E05)', () => {
   it('registra varias líneas con el mismo envío y sucursal', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('cocina')
-    await mov(p, { cantidad: 10 })
-    await mov(p, { producto: MARINERA, cantidad: 6 })
+    await mov(p, { cantidad: 10, finalidad: 'distribucion' })
+    await mov(p, { producto: MARINERA, cantidad: 6, finalidad: 'distribucion' })
     const r = await p.pedir(t, 'POST', '/envios', {
       sucursalId: 'suc-ruta1',
       items: [{ productoId: MARINERA, cantidad: 6 }, { productoId: EMPANADA, cantidad: 4 }],
@@ -273,8 +277,8 @@ describe('POST /envios (D03, D04, E05)', () => {
   it('si una línea no alcanza no registra ninguna (todo o nada)', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('cocina')
-    await mov(p, { cantidad: 10 })
-    await mov(p, { producto: MARINERA, cantidad: 2 })
+    await mov(p, { cantidad: 10, finalidad: 'distribucion' })
+    await mov(p, { producto: MARINERA, cantidad: 2, finalidad: 'distribucion' })
     const r = await p.pedir(t, 'POST', '/envios', {
       sucursalId: 'suc-centro',
       items: [{ productoId: EMPANADA, cantidad: 5 }, { productoId: MARINERA, cantidad: 3 }],
@@ -318,8 +322,8 @@ describe('POST /envios (D03, D04, E05)', () => {
   it('en Chipería cada línea indica su lote; 100 de un lote de 300 lo dejan en 200 (E05)', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('chiperia')
-    await loteChipa(p, 'CH-261009-1', '2026-10-09', 1, 300)
-    await loteChipa(p, 'CH-261009-2', '2026-10-09', 2, 40)
+    await loteChipa(p, 'CH-261009-1', '2026-10-09', 1, 300, CHIPA, 'distribucion')
+    await loteChipa(p, 'CH-261009-2', '2026-10-09', 2, 40, CHIPA, 'distribucion')
     const sinLote = await p.pedir(t, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: CHIPA, cantidad: 100 }] })
     expect(sinLote.body.error.mensaje).toBe('Elegí el lote de Chipa tradicional.')
     const r = await p.pedir(t, 'POST', '/envios', {
@@ -328,7 +332,7 @@ describe('POST /envios (D03, D04, E05)', () => {
     })
     expect(r.status).toBe(200)
     expect(r.body.movimientos.map((m: Movimiento) => m.lote)).toEqual(['CH-261009-1', 'CH-261009-2'])
-    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 200 }])
+    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 200, reposicion: 0, distribucion: 200 }])
     const otra = await p.pedir(t, 'POST', '/envios', {
       sucursalId: 'suc-ruta1', items: [{ productoId: CHIPA, lote: 'CH-261009-2', cantidad: 1 }],
     })
@@ -409,7 +413,7 @@ describe('POST /ajustes (D06, D07) · solo admin', () => {
     expect(r.body.lote).toBe('CH-261001-1')
     const merma = await p.pedir(admin, 'POST', '/ajustes', { ...base, tipo: 'merma', lote: 'CH-261001-1', cantidad: 5, motivo: 'Rotas' })
     expect(merma.status).toBe(200)
-    expect((await stockDe(p, admin, CHIPA, 'chiperia'))?.lotes).toEqual([{ lote: 'CH-261001-1', cantidad: 45 }])
+    expect((await stockDe(p, admin, CHIPA, 'chiperia'))?.lotes).toEqual([{ lote: 'CH-261001-1', cantidad: 45, reposicion: 45, distribucion: 0 }])
   })
 })
 

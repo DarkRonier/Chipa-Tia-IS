@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useSectores } from '../../cliente/catalogo'
+import Avisos from '../../components/Avisos'
 import { useConsulta } from '../../cliente/consultas'
 import { Aviso, Cargando, ConDatos } from '../../components/Estado'
 import GraficosResumen from '../../components/graficos/GraficosResumen'
@@ -51,6 +52,7 @@ export default function Resumen() {
             </div>
 
             <h2>Para revisar</h2>
+            <Avisos nombreSector={sectores.nombre} />
             <Alertas r={r} pendientes={pendientes} nombre={sectores.nombre} />
 
             <h2>Producción de hoy por sector</h2>

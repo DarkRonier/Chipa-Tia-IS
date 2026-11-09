@@ -1,7 +1,7 @@
 // Lecturas que comparten varios módulos (producción, stock, lotes, trazabilidad, reportes).
 // Cada una arma el objeto de src/shared/tipos.ts listo para devolver por la API.
 import { diaLegible, diaPY } from '../shared/hora'
-import type { LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoMovimiento, Turno } from '../shared/tipos'
+import type { Finalidad, LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoMovimiento, Turno } from '../shared/tipos'
 import { todas, todasPorTrozos } from './db'
 import type { BaseD1, ValorSQL } from './entorno'
 
@@ -36,7 +36,12 @@ interface FilaLoteMP {
   vencimiento: string
   bloqueado: number
   creado_en: string
+  /** Suma de lote_chipa_mp.cantidad (E03); solo viene en las lecturas de leerLotesMP. */
+  consumido?: number
 }
+
+/** Evita que 0,1 + 0,2 deje un saldo de 0,0000000001 en vez de cero. */
+const redondear = (n: number) => Math.round(n * 1000) / 1000
 
 /** "Queso · Lácteos Tatiana · lote 0210", o con la fecha de ingreso si no hay número (como en la planilla). */
 export function descripcionLoteMP(f: Pick<FilaLoteMP, 'insumo' | 'proveedor' | 'numero_lote' | 'fecha_ingreso'>): string {
@@ -46,6 +51,8 @@ export function descripcionLoteMP(f: Pick<FilaLoteMP, 'insumo' | 'proveedor' | '
 
 function aLoteMP(f: FilaLoteMP, hoy: string): LoteMP {
   const bloqueado = !!f.bloqueado
+  const consumido = redondear(f.consumido ?? 0)
+  const saldo = Math.max(0, redondear(f.cantidad - consumido))
   return {
     id: f.id,
     insumo: f.insumo,
@@ -56,24 +63,38 @@ function aLoteMP(f: FilaLoteMP, hoy: string): LoteMP {
     unidad: f.unidad,
     vencimiento: f.vencimiento,
     bloqueado,
-    disponible: !bloqueado && f.vencimiento >= hoy,
+    consumido,
+    saldo,
+    agotado: saldo <= 0,
+    disponible: !bloqueado && f.vencimiento >= hoy && saldo > 0,
     descripcion: descripcionLoteMP(f),
     creadoEn: f.creado_en,
   }
 }
 
-/** Lotes de materia prima, el ingreso más nuevo primero. `disponibles`: ni bloqueados ni vencidos hoy (E07). */
-export async function leerLotesMP(db: BaseD1, filtro: { ids?: string[]; disponibles?: boolean } = {}): Promise<LoteMP[]> {
+/** Cada lote de materia prima con lo que ya consumieron las amasadas (E03). */
+const COLUMNAS_LOTE_MP = `SELECT mp.*, COALESCE((SELECT SUM(r.cantidad) FROM lote_chipa_mp r WHERE r.lote_mp_id = mp.id), 0) AS consumido
+    FROM lotes_mp mp`
+
+/** Lotes de materia prima, el ingreso más nuevo primero. `disponibles`: ni bloqueados, ni vencidos hoy, ni agotados (E07). */
+export async function leerLotesMP(db: BaseD1, filtro: {
+  ids?: string[]
+  disponibles?: boolean
+  /** Sin bloquear, con saldo y que vencen hasta este día inclusive (incluye los ya vencidos): para las alertas (E10). */
+  venceHasta?: string
+} = {}): Promise<LoteMP[]> {
   const hoy = diaPY()
   if (filtro.ids) {
     if (!filtro.ids.length) return []
-    const filas = await todasPorTrozos<FilaLoteMP>(db, filtro.ids, (m) => `SELECT * FROM lotes_mp WHERE id IN (${m})`)
+    const filas = await todasPorTrozos<FilaLoteMP>(db, filtro.ids, (m) => `${COLUMNAS_LOTE_MP} WHERE mp.id IN (${m})`)
     return filas.map((f) => aLoteMP(f, hoy)).filter((l) => !filtro.disponibles || l.disponible)
       .sort((a, b) => b.fechaIngreso.localeCompare(a.fechaIngreso) || b.creadoEn.localeCompare(a.creadoEn))
   }
-  const w = new Filtro().si(!!filtro.disponibles, 'bloqueado = 0 AND vencimiento >= ?', hoy)
-  const filas = await todas<FilaLoteMP>(db, `SELECT * FROM lotes_mp ${w.where} ORDER BY fecha_ingreso DESC, creado_en DESC`, ...w.params)
-  return filas.map((f) => aLoteMP(f, hoy))
+  const w = new Filtro()
+    .si(!!filtro.disponibles, 'mp.bloqueado = 0 AND mp.vencimiento >= ?', hoy)
+    .si(lleno(filtro.venceHasta), 'mp.bloqueado = 0 AND mp.vencimiento <= ?', filtro.venceHasta ?? null)
+  const filas = await todas<FilaLoteMP>(db, `${COLUMNAS_LOTE_MP} ${w.where} ORDER BY mp.fecha_ingreso DESC, mp.creado_en DESC`, ...w.params)
+  return filas.map((f) => aLoteMP(f, hoy)).filter((l) => (!filtro.disponibles || l.disponible) && (!filtro.venceHasta || !l.agotado))
 }
 
 // ---------- Lotes de chipa (E03–E05) ----------
@@ -123,9 +144,9 @@ export async function leerLotesChipa(db: BaseD1, filtro: {
     filas = await todas<FilaLoteChipa>(db, `${columnas} ${w.where} ${orden}`, ...w.params)
   }
   if (!filas.length) return []
-  const usados = await todasPorTrozos<FilaLoteMP & { lote_chipa_id: string }>(
+  const usados = await todasPorTrozos<FilaLoteMP & { lote_chipa_id: string; uso: number | null }>(
     db, filas.map((f) => f.id),
-    (m) => `SELECT r.lote_chipa_id, mp.* FROM lote_chipa_mp r JOIN lotes_mp mp ON mp.id = r.lote_mp_id
+    (m) => `SELECT r.lote_chipa_id, r.cantidad AS uso, mp.* FROM lote_chipa_mp r JOIN lotes_mp mp ON mp.id = r.lote_mp_id
              WHERE r.lote_chipa_id IN (${m}) ORDER BY mp.insumo, mp.fecha_ingreso`,
   )
   return filas.map((f) => ({
@@ -137,7 +158,8 @@ export async function leerLotesChipa(db: BaseD1, filtro: {
     horno: f.horno,
     congelador: f.congelador,
     stock: f.stock,
-    lotesMP: usados.filter((u) => u.lote_chipa_id === f.id).map((u) => ({ id: u.id, descripcion: descripcionLoteMP(u) })),
+    lotesMP: usados.filter((u) => u.lote_chipa_id === f.id)
+      .map((u) => ({ id: u.id, descripcion: descripcionLoteMP(u), cantidad: u.uso, unidad: u.unidad })),
   }))
 }
 
@@ -181,9 +203,9 @@ export async function leerProducciones(db: BaseD1, filtro: {
   }
   if (!filas.length) return []
   const ids = filas.map((f) => f.id)
-  const items = await todasPorTrozos<{ produccion_id: string; producto_id: string; nombre: string; cocinado: number; guardado: number }>(
+  const items = await todasPorTrozos<{ produccion_id: string; producto_id: string; nombre: string; cocinado: number; guardado: number; finalidad: Finalidad }>(
     db, ids,
-    (m) => `SELECT i.produccion_id, i.producto_id, pr.nombre, i.cocinado, i.guardado
+    (m) => `SELECT i.produccion_id, i.producto_id, pr.nombre, i.cocinado, i.guardado, i.finalidad
               FROM produccion_items i JOIN productos pr ON pr.id = i.producto_id
              WHERE i.produccion_id IN (${m}) ORDER BY pr.orden, pr.nombre`,
   )
@@ -199,7 +221,7 @@ export async function leerProducciones(db: BaseD1, filtro: {
     dia: f.dia,
     turno: f.turno,
     items: items.filter((i) => i.produccion_id === f.id).map((i) => ({
-      productoId: i.producto_id, productoNombre: i.nombre, cocinado: i.cocinado, guardado: i.guardado,
+      productoId: i.producto_id, productoNombre: i.nombre, cocinado: i.cocinado, guardado: i.guardado, finalidad: i.finalidad,
     })),
     lote: lotes.find((l) => l.produccionId === f.id) ?? null,
     corregidoPor: f.corregido_por,
@@ -218,6 +240,7 @@ interface FilaMovimiento {
   lote: string | null
   tipo: TipoMovimiento
   cantidad: number
+  finalidad: Finalidad
   motivo: string | null
   sucursal_id: string | null
   sucursal_nombre: string | null
@@ -253,6 +276,7 @@ const aMovimiento = (f: FilaMovimiento): Movimiento => ({
   lote: f.lote,
   tipo: f.tipo,
   cantidad: f.cantidad,
+  finalidad: f.finalidad,
   motivo: f.motivo,
   sucursalId: f.sucursal_id,
   sucursalNombre: f.sucursal_nombre,
@@ -266,7 +290,7 @@ const aMovimiento = (f: FilaMovimiento): Movimiento => ({
 
 /** Movimientos del libro de stock con nombres de producto, sucursal y usuario. El más nuevo primero. */
 export async function leerMovimientos(db: BaseD1, filtro: FiltroMovimientos = {}): Promise<Movimiento[]> {
-  const columnas = `SELECT m.id, m.sector, m.producto_id, p.nombre AS producto_nombre, m.lote, m.tipo, m.cantidad, m.motivo,
+  const columnas = `SELECT m.id, m.sector, m.producto_id, p.nombre AS producto_nombre, m.lote, m.tipo, m.cantidad, m.finalidad, m.motivo,
       m.sucursal_id, s.nombre AS sucursal_nombre, m.envio_id, m.produccion_id, m.usuario_id, u.nombre AS usuario_nombre,
       m.fecha, m.dia
     FROM movimientos m

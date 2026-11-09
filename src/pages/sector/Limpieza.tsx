@@ -1,15 +1,18 @@
 // G01–G03: el operador elige un área de su sector y marca cada tarea de la planilla con X (diaria),
 // XX (profunda) o - (no se hizo), como en las planillas RE-09: no se dejan cuadros en blanco.
 // Si queda alguna sin marcar, se confirma en la pantalla antes de guardarla como «-».
-// Fecha, hora, sector y usuario los pone el servidor; el comentario es opcional. Debajo, el historial
+// Fecha, hora, sector y usuario los pone el servidor; el comentario y la foto son opcionales (G06). Arriba
+// avisa las áreas que no se limpiaron con la frecuencia mínima exigida (G08). Debajo, el historial
 // del sector filtrable por área y fechas, con el "Controlado por" del administrador.
 import { useState, type ReactNode } from 'react'
 import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
+import { CampoFoto, FotoBajoDemanda } from '../../components/Foto'
 import { useSectorActivo } from '../../components/Layout'
 import { IconoLimpieza } from '../../components/Iconos'
 import Volver from '../../components/Volver'
+import type { Alerta } from '../../shared/alertas'
 import { diaPY, fechaHoraPY, sumarDias } from '../../shared/hora'
 import {
   NOMBRE_MARCA,
@@ -50,6 +53,7 @@ export function TarjetaLimpieza({ l, nombreSector, accion }: { l: Limpieza; nomb
         <p className="chico">N° de equipo: {conNumero.map((x) => `${x.tareaNombre} ${x.numero}`).join(' · ')}</p>
       )}
       {l.comentario && <p className="chico ctl-comentario">“{l.comentario}”</p>}
+      {l.tieneFoto && <FotoBajoDemanda ruta={`/limpiezas/${l.id}/foto`} alt="Foto de la limpieza" />}
       <details className="ctl-detalle chico">
         <summary>Ver la planilla completa ({plural(l.marcas.length, 'tarea', 'tareas')})</summary>
         <ul>
@@ -77,9 +81,10 @@ interface Borrador {
   marcas: Record<string, Marca>
   numeros: Record<string, string>
   comentario: string
+  foto: string | null
 }
 
-const VACIO: Borrador = { marcas: {}, numeros: {}, comentario: '' }
+const VACIO: Borrador = { marcas: {}, numeros: {}, comentario: '', foto: null }
 
 export default function LimpiezaPage() {
   const sector = useSectorActivo()
@@ -96,6 +101,7 @@ function Pantalla({ sector, nombreSector }: { sector: SectorId; nombreSector: st
   return (
     <>
       <Volver titulo="Limpieza y desinfección" icono={<IconoLimpieza />} />
+      <AlertasLimpieza sector={sector} />
       <ConDatos consulta={areas}>
         {(lista) => {
           if (lista.length === 0) {
@@ -130,6 +136,19 @@ function Pantalla({ sector, nombreSector }: { sector: SectorId; nombreSector: st
   )
 }
 
+// ---------- Áreas atrasadas (G08) ----------
+
+function AlertasLimpieza({ sector }: { sector: SectorId }) {
+  const alertas = useConsulta<Alerta[]>('/limpieza/alertas', { sector })
+  // Si no se pudo calcular, no estorba: la planilla se puede cargar igual.
+  if (!alertas.datos?.length) return null
+  return (
+    <div className="ctl-alertas" role="region" aria-label="Limpiezas atrasadas">
+      {alertas.datos.map((a) => <p key={a.texto} className="ctl-alerta">{a.texto}</p>)}
+    </div>
+  )
+}
+
 // ---------- Planilla del área (G01, G02) ----------
 
 function Planilla({ area, sector, borrador, cambiar }: {
@@ -143,6 +162,8 @@ function Planilla({ area, sector, borrador, cambiar }: {
   // Aviso en línea: hay tareas sin marcar y el operador decide si se guardan como «-».
   const [avisoFaltan, setAvisoFaltan] = useState(false)
   const [listo, setListo] = useState<Limpieza | null>(null)
+  const [errorFoto, setErrorFoto] = useState<string | null>(null)
+  const [preparandoFoto, setPreparandoFoto] = useState(false)
   const tareas = area.tareas.filter((t) => t.activo)
   const faltan = tareas.filter((t) => !borrador.marcas[t.id])
   const marcadas = tareas.length - faltan.length
@@ -150,6 +171,7 @@ function Planilla({ area, sector, borrador, cambiar }: {
   const tocar = () => {
     setAvisoFaltan(false)
     setListo(null)
+    setErrorFoto(null)
     guardarLimpieza.limpiarError()
   }
   const marcar = (t: TareaLimpieza, m: Marca) => {
@@ -172,6 +194,7 @@ function Planilla({ area, sector, borrador, cambiar }: {
         return { tareaId: t.id, marca, numero }
       }),
       comentario: borrador.comentario.trim(),
+      foto: borrador.foto,
     })
     if (!r) return
     setListo(r)
@@ -194,7 +217,7 @@ function Planilla({ area, sector, borrador, cambiar }: {
   if (tareas.length === 0) return <p className="suave">Esta área no tiene tareas para marcar.</p>
 
   const enviando = guardarLimpieza.enviando
-  const mensaje = guardarLimpieza.error
+  const mensaje = errorFoto ?? guardarLimpieza.error
   return (
     <>
       <div className="ctl-progreso">
@@ -251,6 +274,12 @@ function Planilla({ area, sector, borrador, cambiar }: {
           }}
         />
       </label>
+      <CampoFoto
+        foto={borrador.foto}
+        alCambiar={(f) => { tocar(); cambiar((b) => ({ ...b, foto: f })) }}
+        alError={setErrorFoto}
+        alOcupado={setPreparandoFoto}
+      />
       <div className="accion-fija">
         <div className="ctl-barra">
           {avisoFaltan && faltan.length > 0 && (
@@ -261,7 +290,7 @@ function Planilla({ area, sector, borrador, cambiar }: {
                   : `Quedan ${faltan.length} tareas sin marcar. ¿Las guardamos como «-» (no se hizo)?`}
               </p>
               <div className="fila-acciones">
-                <button type="button" className="btn-primario" disabled={enviando} onClick={() => { tocar(); void enviar() }}>
+                <button type="button" className="btn-primario" disabled={enviando || preparandoFoto} onClick={() => { tocar(); void enviar() }}>
                   Sí, guardar
                 </button>
                 <button type="button" className="btn-secundario" onClick={() => setAvisoFaltan(false)}>Volver a marcar</button>
@@ -274,7 +303,7 @@ function Planilla({ area, sector, borrador, cambiar }: {
               Limpieza de {listo.areaNombre} guardada · {fechaHoraPY(listo.fecha)}.
             </p>
           )}
-          <button className="btn-primario" onClick={() => void guardar()} disabled={enviando}>
+          <button className="btn-primario" onClick={() => void guardar()} disabled={enviando || preparandoFoto}>
             {enviando ? 'Guardando…' : 'Guardar limpieza'}
           </button>
         </div>

@@ -101,8 +101,8 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | GET | `/sectores` | | `Sector[]` (los cuatro, en orden) |
 | PATCH | `/sectores/:id` | `{ nombre }` | `Sector` |
 | GET | `/productos` | `?sector&todos` | `Producto[]` |
-| POST | `/productos` | `{ sector, nombre, unidad? }` | `Producto` (`unidad` por defecto `unidades`; queda al final de su sector) |
-| PATCH | `/productos/:id` | `{ nombre?, unidad?, activo? }` | `Producto` |
+| POST | `/productos` | `{ sector, nombre, unidad?, stockMinimo? }` | `Producto` (`unidad` por defecto `unidades`; queda al final de su sector) |
+| PATCH | `/productos/:id` | `{ nombre?, unidad?, activo?, stockMinimo? }` | `Producto` (`stockMinimo`: entero ≥ 0, o `null`/vacío para quitarlo; C08) |
 | GET | `/maquinas` | `?sector&todos` | `Maquina[]` (por sector y N°) |
 | POST | `/maquinas` | `{ sector, numero?, nombre, tipo, tempMin?, tempMax? }` | `Maquina` |
 | PATCH | `/maquinas/:id` | `{ numero?, nombre?, tipo?, tempMin?, tempMax?, activo? }` | `Maquina` |
@@ -134,8 +134,13 @@ Los `PATCH` sin ningún campo editable dan `400`.
 - `POST`: `turno` (`dia` o `noche`) obligatorio. Cada producto una sola vez (hasta 300), enteros ≥ 0; las líneas
   en 0 y 0 no se guardan y tiene que quedar al menos una. Productos activos del sector.
 - Lo `guardado` entra al stock en frío como movimiento `produccion` (+guardado); lo `cocinado` va directo a venta.
-- **Chipería**: exige `lotesMP` (de 1 a 50 ids; `400` si falta) disponibles (`409 lote_mp_no_disponible` si
-  alguno está bloqueado, vencido o no existe) y crea el lote de chipa `CH-AAMMDD-N` (N = número de amasada del
+  Cada línea lleva `finalidad` (C05): `reposicion` (por defecto, reponer la venta del sector) o `distribucion` (enviar a
+  sucursales); `400` si es otra. Al corregir, lo ya guardado conserva su finalidad.
+- **Chipería**: exige `lotesMP` (de 1 a 50 objetos `{ id, cantidad }`; `400` si falta) disponibles (`409
+  lote_mp_no_disponible` si alguno está bloqueado, vencido, sin saldo o no existe). `cantidad` es lo usado de ese
+  lote en su unidad (E03): obligatoria, número > 0 y no más que el saldo del lote (`400`); cada lote va una sola
+  vez; se guarda en `lote_chipa_mp.cantidad` (NULL = registro anterior, «sin dato»). Un trigger de la base
+  rechaza (`409 lote_mp_sin_saldo`) dos cargas simultáneas que pasarían del saldo. Crea el lote de chipa `CH-AAMMDD-N` (N = número de amasada del
   día, desde 1), con `amasada = N`; los movimientos de stock llevan ese código en `lote`. En los otros sectores
   `lotesMP` se ignora.
 - Corrección (C04): **mezcla**, no reemplaza: los productos que no vienen en `items` quedan como estaban; los
@@ -154,8 +159,18 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | POST | `/salidas` | `PedidoSalida` | `Movimiento` (`salida_venta`, cantidad negativa) |
 | POST | `/envios` | `PedidoEnvio` | `RespuestaEnvio` (una línea por ítem, mismo `envioId`, todo o nada) |
 | POST | `/ajustes` | `PedidoAjuste` · admin | `Movimiento` |
+| POST | `/reasignaciones` | `PedidoReasignacion` | `Movimiento[]` (par `reasignacion`: −N en `desde`, +N en la otra) |
+| GET | `/stock/alertas` | `?sector` (admin: todos si falta) | `Alerta[]` (`stock_minimo`, C08) |
 | GET | `/movimientos` | `?sector&desde&hasta&sucursal&producto&tipo&lote` | `Movimiento[]` |
 
+- **Finalidad (C05).** Cada movimiento lleva `finalidad`: `reposicion` o `distribucion` (los anteriores a la migración 0007 quedan
+  como `reposicion`). `StockFila` trae `total`, `reposicion` y `distribucion` (y lo mismo por lote). `/salidas` saca de
+  `reposicion`, `/envios` de `distribucion`, `/ajustes` de la `finalidad` indicada (por defecto `reposicion`). El trigger
+  de D04 controla por producto, lote y finalidad; el `409` dice cuánto hay en la otra finalidad. `/reasignaciones`
+  (`{ sector?, productoId, lote?, cantidad, desde }`, operador del sector o admin) pasa unidades a la otra finalidad
+  con dos movimientos `reasignacion`, que no cuentan como salida en los reportes.
+- **Stock mínimo (C08).** `alertasStock(db, sector)` (src/server/rutas/stock.ts) devuelve una `Alerta` por producto
+  activo con menos que su `stockMinimo` en frío (todas las finalidades y lotes), con enlace `/stock`.
 - `/stock`: los productos activos del sector (aunque estén en 0) y los inactivos con stock ≠ 0. En Chipería,
   `lotes` trae los lotes con cantidad > 0, el más viejo primero; en los demás sectores viene vacío.
 - **Chipería exige `lote`** en salidas, envíos (en cada línea) y ajustes (`400` si falta); en los otros
@@ -176,12 +191,18 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | GET | `/lotes-mp` | `?disponibles` | `LoteMP[]` (el ingreso más nuevo primero) |
 | POST | `/lotes-mp` | `{ insumo, proveedor, numeroLote?, fechaIngreso, cantidad, unidad?, vencimiento }` | `LoteMP` |
 | PATCH | `/lotes-mp/:id` | `{ bloqueado }` · admin | `LoteMP` |
-| GET | `/lotes-chipa` | `?desde&hasta` | `LoteChipa[]` (horno, congelador, lo que queda y sus lotes de materia prima) |
+| GET | `/lotes/alertas` | | `Alerta[]` (E10) |
+| GET | `/lotes-chipa` | `?desde&hasta` | `LoteChipa[]` (horno, congelador, lo que queda y sus lotes de materia prima con la cantidad usada) |
 | GET | `/trazabilidad/mp/:id` | | `TrazabilidadMP` |
 | GET | `/trazabilidad/lote/:codigo` | | `TrazabilidadLote` |
 | GET | `/trazabilidad/sucursal/:id` | `?desde&hasta` | `TrazabilidadSucursal` |
 
-- `disponible = !bloqueado && vencimiento ≥ hoy (Paraguay)`; `?disponibles=1` trae solo esos (E07).
+- `consumido` = suma de lo usado por las amasadas (E03); `saldo = cantidad − consumido` (nunca negativo);
+  `agotado = saldo = 0`. Los usos sin cantidad (anteriores) no descuentan.
+- `GET /lotes/alertas`: `lote_vencido` (vencido, sin bloquear y con saldo) y `lote_por_vencer` (vence en los
+  próximos `DIAS_AVISO_VENCIMIENTO` = 7 días, sin bloquear y con saldo); sector `chiperia`, enlace `/lotes`.
+  La función `alertasLotes(db)` está en `src/server/alertasLotes.ts`.
+- `disponible = !bloqueado && vencimiento ≥ hoy (Paraguay) && saldo > 0`; `?disponibles=1` trae solo esos (E07).
   `descripcion` = "Harina · Molinos del Sur · lote 123" (o "ingreso 02/10/2026" si no hay número), como en la planilla.
 - `POST /lotes-mp`: `fechaIngreso` no posterior a hoy; `cantidad` > 0 (admite decimales); `unidad` por defecto
   `kg`; `vencimiento` no anterior al ingreso ni a hoy.

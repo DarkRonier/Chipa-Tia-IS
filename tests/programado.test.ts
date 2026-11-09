@@ -59,7 +59,7 @@ function simularR2() {
       return g ? { arrayBuffer: async () => g.slice().buffer } : null
     },
     async delete(clave) {
-      guardados.delete(clave)
+      for (const k of [clave].flat()) guardados.delete(k)
     },
   }
   return { r2, guardados }
@@ -193,7 +193,7 @@ describe('disparadores (T6)', () => {
     expect(resend.asuntos()).toHaveLength(3)
     expect(await p.sql('SELECT origen FROM copias')).toEqual([{ origen: 'automatica' }])
     expect(await hashes(p)).not.toContain('hash-vencida-1')
-    // (Todo junto son unas 59 consultas, más que el límite: por eso se separó.)
+    // Ambos disparadores siguen separados para respetar el límite de consultas.
     expect(cuenta.n).toBeGreaterThan(0)
 
     const otro = await preparar()
@@ -237,5 +237,73 @@ describe('disparadores (T6)', () => {
     const rota = { ...p.env, DB: { prepare: () => { throw new Error('D1 caída') }, batch: async () => { throw new Error('D1 caída') } } }
     const r3 = await tareasProgramadas(rota, LUNES_DIA_1, CRON_COPIA)
     expect(r3.errores).toEqual(['copia semanal: D1 caída'])
+  })
+})
+
+describe('conservación de fotos', () => {
+  const AHORA = new Date('2026-10-14T09:00:00Z')
+  const haceDias = (n: number) => new Date(AHORA.getTime() - n * 86_400_000 - 60_000).toISOString()
+
+  /** Una lectura y una limpieza con foto cada una, con la antigüedad indicada; las fotos van a R2 o a `archivos`. */
+  async function cargarFotos(p: Prueba, edades: number[], r2?: ReturnType<typeof simularR2>) {
+    const claves: string[] = []
+    for (const dias of edades) {
+      const fecha = haceDias(dias)
+      const dia = fecha.slice(0, 10)
+      for (const [tabla, clave] of [['lecturas', `fotos/lec-${dias}.jpg`], ['limpiezas', `fotos/limpieza/lim-${dias}.jpg`]] as const) {
+        if (tabla === 'lecturas') {
+          await p.sql(
+            `INSERT INTO lecturas (id, maquina_id, usuario_id, fecha, dia, momento, estado, temperatura, fuera_de_rango, observacion, foto_clave)
+             VALUES (?, 'maq-cocina-1', 'usr-cocina', ?, ?, 'inicio', 'funciona', 3, 0, '', ?)`,
+            `lec-${dias}`, fecha, dia, clave,
+          )
+        } else {
+          await p.sql(
+            "INSERT INTO limpiezas (id, area_id, sector, usuario_id, fecha, dia, foto_clave) VALUES (?, 'cocina', 'cocina', 'usr-cocina', ?, ?, ?)",
+            `lim-${dias}`, fecha, dia, clave,
+          )
+        }
+        if (r2) r2.guardados.set(clave, new Uint8Array([1, 2, 3]))
+        else await p.sql("INSERT INTO archivos (clave, tipo, datos, bytes, creado_en) VALUES (?, 'image/jpeg', 'AAAA', 3, ?)", clave, fecha)
+        claves.push(clave)
+      }
+    }
+    return claves
+  }
+
+  it.each(['R2', 'D1'] as const)('el disparador diario conserva las claves y los bytes de fotos antiguas en %s', async (almacen) => {
+    const r2 = almacen === 'R2' ? simularR2() : undefined
+    const p = await nuevaPrueba({ ARCHIVOS: r2?.r2 })
+    const claves = await cargarFotos(p, [200, 100, 5], r2)
+    const filas = async () => ({
+      lecturas: await p.sql('SELECT id, foto_clave FROM lecturas ORDER BY id'),
+      limpiezas: await p.sql('SELECT id, foto_clave FROM limpiezas ORDER BY id'),
+    })
+    const archivos = async () => r2
+      ? [...r2.guardados.entries()].map(([clave, datos]) => [clave, [...datos]]).sort()
+      : await p.sql('SELECT clave, datos, bytes FROM archivos ORDER BY clave')
+    const antesFilas = await filas()
+    const antesArchivos = await archivos()
+    expect(claves).toHaveLength(6)
+    expect(antesArchivos).toHaveLength(6)
+
+    const resultado = await tareasProgramadas(p.env, AHORA, CRON_RESUMENES)
+
+    expect(resultado.errores).toEqual([])
+    expect(await archivos()).toEqual(antesArchivos)
+    expect(await filas()).toEqual(antesFilas)
+  })
+
+  it('el disparador de la copia conserva las fotos', async () => {
+    const p = await nuevaPrueba()
+    await cargarFotos(p, [200])
+    const antes = await p.sql('SELECT clave, datos, bytes FROM archivos ORDER BY clave')
+    const lecturas = await p.sql('SELECT id, foto_clave FROM lecturas ORDER BY id')
+    const limpiezas = await p.sql('SELECT id, foto_clave FROM limpiezas ORDER BY id')
+    const r = await tareasProgramadas(p.env, new Date('2026-10-12T09:30:00Z'), CRON_COPIA)
+    expect(r.errores).toEqual([])
+    expect(await p.sql("SELECT clave, datos, bytes FROM archivos WHERE clave LIKE 'fotos/%' ORDER BY clave")).toEqual(antes)
+    expect(await p.sql('SELECT id, foto_clave FROM lecturas ORDER BY id')).toEqual(lecturas)
+    expect(await p.sql('SELECT id, foto_clave FROM limpiezas ORDER BY id')).toEqual(limpiezas)
   })
 })

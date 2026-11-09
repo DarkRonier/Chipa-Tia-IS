@@ -1,7 +1,7 @@
 // C01–C04 y E02–E04: registros de producción, lotes de chipa y correcciones del administrador.
 import { describe, expect, it } from 'vitest'
 import { diaPY } from '../src/shared/hora'
-import type { Produccion } from '../src/shared/tipos'
+import type { LoteMP, Produccion } from '../src/shared/tipos'
 import { nuevaPrueba, type Prueba } from './ayuda'
 
 const EMPANADA = 'prod-cocina-10' // Empanada frita (carne)
@@ -60,9 +60,9 @@ describe('registrar producción (C01–C03)', () => {
     expect(r.body.lote).toBeNull()
     // Lo que vino en 0 y 0 no se registra.
     expect(r.body.items).toEqual([
-      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 30, guardado: 8 },
-      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0 },
-      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0 },
+      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 30, guardado: 8, finalidad: 'reposicion' },
+      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0, finalidad: 'reposicion' },
+      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0, finalidad: 'reposicion' },
     ])
     const lista = await p.pedir<Produccion[]>(t, 'GET', '/producciones')
     expect(lista.body).toHaveLength(1)
@@ -207,7 +207,7 @@ describe('sector de cada usuario (A03)', () => {
     expect(deHoy.body.map((x) => x.id)).toEqual([nueva.body.id])
     const deAyer = await p.pedir<Produccion[]>(t, 'GET', `/producciones?desde=${ayer}&hasta=${ayer}`)
     expect(deAyer.body.map((x) => x.id)).toEqual(['vieja'])
-    expect(deAyer.body[0].items).toEqual([{ productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 4, guardado: 0 }])
+    expect(deAyer.body[0].items).toEqual([{ productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 4, guardado: 0, finalidad: 'reposicion' }])
     expect((await p.pedir(t, 'GET', '/producciones?desde=10-10-2026')).status).toBe(400)
     expect((await p.pedir(t, 'GET', `/producciones?desde=${hoy}&hasta=${ayer}`)).status).toBe(400)
   })
@@ -219,16 +219,16 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
     const t = await p.entrar('chiperia')
     const harina = await loteMP(p, { insumo: 'Harina', proveedor: 'Molino Central', numero: 'H-77' })
     const r = await p.pedir<Produccion>(t, 'POST', '/producciones', {
-      turno: 'dia', lotesMP: [harina], items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }],
+      turno: 'dia', lotesMP: [{ id: harina, cantidad: 1 }], items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }],
     })
     expect(r.status).toBe(200)
     const codigo = `CH-${diaPY().slice(2).replaceAll('-', '')}-1`
-    expect(r.body.items).toEqual([{ productoId: CHIPA, productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300 }])
+    expect(r.body.items).toEqual([{ productoId: CHIPA, productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300, finalidad: 'reposicion' }])
     expect(r.body.lote).toMatchObject({
       codigo, amasada: 1, dia: diaPY(), produccionId: r.body.id, horno: 200, congelador: 300, stock: 300,
-      lotesMP: [{ id: harina, descripcion: 'Harina · Molino Central · lote H-77' }],
+      lotesMP: [{ id: harina, descripcion: 'Harina · Molino Central · lote H-77', cantidad: 1, unidad: 'kg' }],
     })
-    expect(await p.sql('SELECT lote_mp_id FROM lote_chipa_mp')).toEqual([{ lote_mp_id: harina }])
+    expect(await p.sql('SELECT lote_mp_id, cantidad FROM lote_chipa_mp')).toEqual([{ lote_mp_id: harina, cantidad: 1 }])
     const movs = await p.sql('SELECT tipo, cantidad, lote, produccion_id FROM movimientos')
     expect(movs).toEqual([{ tipo: 'produccion', cantidad: 300, lote: codigo, produccion_id: r.body.id }])
     expect(await stock(p, 'chiperia', CHIPA, codigo)).toBe(300)
@@ -243,12 +243,13 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
     const codigos: string[] = []
     for (let i = 0; i < 3; i++) {
       const r = await p.pedir<Produccion>(t, 'POST', '/producciones', {
-        turno: 'noche', lotesMP: [queso, almidon, queso],
+        turno: 'noche', lotesMP: [{ id: queso, cantidad: 2 }, { id: almidon, cantidad: 3.5 }],
         items: [{ productoId: CHIPA, cocinado: 10, guardado: 20 }, { productoId: QUESU, cocinado: 0, guardado: 5 }],
       })
       expect(r.status).toBe(200)
       expect(r.body.lote!.amasada).toBe(i + 1)
       expect(r.body.lote!.lotesMP.map((l) => l.id).sort()).toEqual([queso, almidon].sort())
+      expect(r.body.lote!.lotesMP.map((l) => [l.id, l.cantidad]).sort()).toEqual([[queso, 2], [almidon, 3.5]].sort())
       expect(r.body.lote!.lotesMP.find((l) => l.id === queso)!.descripcion).toMatch(/^Queso · Lácteos Tatiana · ingreso \d\d\/\d\d\/\d{4}$/)
       codigos.push(r.body.lote!.codigo)
     }
@@ -275,7 +276,7 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
     const bloqueado = await loteMP(p, { insumo: 'Queso', bloqueado: true })
     const vencido = await loteMP(p, { insumo: 'Almidón', vence: sumarDias(diaPY(), -1) })
     for (const [lotes, texto] of [[[bueno, bloqueado], /bloqueado/], [[vencido], /vencido/], [[bueno, 'no-existe'], /ya no existe/]] as const) {
-      const r = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items, lotesMP: lotes })
+      const r = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items, lotesMP: lotes.map((id) => ({ id, cantidad: 1 })) })
       expect(r.status).toBe(409)
       expect(r.body.error.codigo).toBe('lote_mp_no_disponible')
       expect(r.body.error.mensaje).toMatch(texto)
@@ -285,7 +286,7 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
 
     // Vence hoy: todavía se puede usar.
     const venceHoy = await loteMP(p, { vence: diaPY() })
-    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items, lotesMP: [venceHoy] })).status).toBe(200)
+    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items, lotesMP: [{ id: venceHoy, cantidad: 1 }] })).status).toBe(200)
   })
 
   it('el administrador también carga Chipería con lote; los otros sectores no crean lotes', async () => {
@@ -293,7 +294,7 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
     const admin = await p.entrar('admin')
     const mp = await loteMP(p)
     const r = await p.pedir<Produccion>(admin, 'POST', '/producciones', {
-      sector: 'chiperia', turno: 'dia', lotesMP: [mp], items: [{ productoId: CHIPA, cocinado: 5, guardado: 0 }],
+      sector: 'chiperia', turno: 'dia', lotesMP: [{ id: mp, cantidad: 1 }], items: [{ productoId: CHIPA, cocinado: 5, guardado: 0 }],
     })
     expect(r.status).toBe(200)
     expect(r.body.lote?.amasada).toBe(1)
@@ -302,7 +303,7 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
     expect(await p.sql('SELECT COUNT(*) AS n FROM movimientos')).toEqual([{ n: 0 }])
 
     const cocina = await p.pedir<Produccion>(admin, 'POST', '/producciones', {
-      sector: 'cocina', turno: 'dia', lotesMP: [mp], items: [{ productoId: EMPANADA, cocinado: 5, guardado: 2 }],
+      sector: 'cocina', turno: 'dia', lotesMP: [{ id: mp, cantidad: 1 }], items: [{ productoId: EMPANADA, cocinado: 5, guardado: 2 }],
     })
     expect(cocina.status).toBe(200)
     expect(cocina.body.lote).toBeNull()
@@ -326,9 +327,9 @@ describe('corrección del administrador (C04)', () => {
     // El autor y la fecha original no cambian; lo que no vino en el pedido queda igual.
     expect(r.body).toMatchObject({ usuarioId: 'usr-cocina', fecha: original.body.fecha })
     expect(r.body.items).toEqual([
-      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 32, guardado: 6 },
-      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0 },
-      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0 },
+      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 32, guardado: 6, finalidad: 'reposicion' },
+      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0, finalidad: 'reposicion' },
+      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0, finalidad: 'reposicion' },
     ])
 
     const ajustes = await p.sql("SELECT * FROM movimientos WHERE tipo = 'ajuste'")
@@ -372,7 +373,7 @@ describe('corrección del administrador (C04)', () => {
     const admin = await p.entrar('admin')
     const mp = await loteMP(p)
     const r = await p.pedir<Produccion>(await p.entrar('chiperia'), 'POST', '/producciones', {
-      turno: 'dia', lotesMP: [mp], items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }],
+      turno: 'dia', lotesMP: [{ id: mp, cantidad: 1 }], items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }],
     })
     const codigo = r.body.lote!.codigo
     const c = await p.pedir<Produccion>(admin, 'PATCH', `/producciones/${r.body.id}`, {
@@ -434,5 +435,131 @@ describe('corrección del administrador (C04)', () => {
     await p.sql('UPDATE productos SET activo = 0 WHERE id = ?', EMPANADA)
     const viejo = await p.pedir(admin, 'PATCH', ruta, { items: [{ productoId: EMPANADA, cocinado: 31, guardado: 8 }] })
     expect(viejo.status).toBe(200)
+  })
+})
+
+describe('consumo de materia prima por lote (E03)', () => {
+  const ITEMS = [{ productoId: CHIPA, cocinado: 10, guardado: 5 }]
+
+  it('guarda la cantidad usada de cada lote y la API muestra lo consumido y el saldo', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('chiperia')
+    const harina = await loteMP(p, { insumo: 'Harina' }) // 50 kg
+    const queso = await loteMP(p, { insumo: 'Queso', numero: '' })
+    const r = await p.pedir<Produccion>(t, 'POST', '/producciones', {
+      turno: 'dia', items: ITEMS, lotesMP: [{ id: harina, cantidad: 7.5 }, { id: queso, cantidad: 12 }],
+    })
+    expect(r.status).toBe(200)
+    expect(r.body.lote!.lotesMP.map((l) => [l.id, l.cantidad, l.unidad]).sort())
+      .toEqual([[harina, 7.5, 'kg'], [queso, 12, 'kg']].sort())
+    expect(await p.sql('SELECT lote_mp_id, cantidad FROM lote_chipa_mp ORDER BY cantidad')).toEqual([
+      { lote_mp_id: harina, cantidad: 7.5 }, { lote_mp_id: queso, cantidad: 12 },
+    ])
+
+    const lotes = await p.pedir<LoteMP[]>(t, 'GET', '/lotes-mp')
+    expect(lotes.body.find((l) => l.id === harina)).toMatchObject({ cantidad: 50, consumido: 7.5, saldo: 42.5, agotado: false, disponible: true })
+
+    // Una segunda amasada descuenta del mismo saldo.
+    const otra = await p.pedir<Produccion>(t, 'POST', '/producciones', { turno: 'noche', items: ITEMS, lotesMP: [{ id: harina, cantidad: 2.25 }] })
+    expect(otra.status).toBe(200)
+    const despues = await p.pedir<LoteMP[]>(t, 'GET', '/lotes-mp?disponibles=1')
+    expect(despues.body.find((l) => l.id === harina)).toMatchObject({ consumido: 9.75, saldo: 40.25 })
+  })
+
+  it('rechaza cantidades faltantes, cero, negativas, no numéricas, repetidas o que pasan del saldo (400) sin guardar nada', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('chiperia')
+    const harina = await loteMP(p) // 50 kg
+    const casos: [unknown, RegExp][] = [
+      [[{ id: harina }], /Cargá cuánto usaste/],
+      [[{ id: harina, cantidad: 0 }], /mayor que cero/],
+      [[{ id: harina, cantidad: -3 }], /mayor que cero/],
+      [[{ id: harina, cantidad: '5' }], /número/],
+      [[{ id: harina, cantidad: null }], /Cargá cuánto usaste/],
+      [[harina], /lote de materia prima/], // el formato anterior (solo el id) ya no vale
+      [[{ id: harina, cantidad: 5 }, { id: harina, cantidad: 5 }], /una sola vez/],
+      [[{ id: harina, cantidad: 50.5 }], /solo quedan 50 kg/],
+    ]
+    for (const [lotes, texto] of casos) {
+      const r = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: ITEMS, lotesMP: lotes })
+      expect(r.status, JSON.stringify(lotes)).toBe(400)
+      expect(r.body.error.mensaje).toMatch(texto)
+    }
+    expect(await p.sql('SELECT COUNT(*) AS n FROM producciones')).toEqual([{ n: 0 }])
+    expect(await p.sql('SELECT COUNT(*) AS n FROM lote_chipa_mp')).toEqual([{ n: 0 }])
+    // Justo el saldo sí se puede.
+    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: ITEMS, lotesMP: [{ id: harina, cantidad: 50 }] })).status).toBe(200)
+  })
+
+  it('no deja pasar del saldo que queda después de otras amasadas, y avisa cuánto queda', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('chiperia')
+    const harina = await loteMP(p)
+    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: ITEMS, lotesMP: [{ id: harina, cantidad: 30 }] })).status).toBe(200)
+    const r = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: ITEMS, lotesMP: [{ id: harina, cantidad: 20.5 }] })
+    expect(r.status).toBe(400)
+    expect(r.body.error.mensaje).toMatch(/solo quedan 20 kg/)
+    expect(await p.sql('SELECT COUNT(*) AS n FROM producciones')).toEqual([{ n: 1 }])
+  })
+
+  it('un lote sin saldo ya no se puede elegir, pero sigue en la lista y en el historial', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('chiperia')
+    const harina = await loteMP(p)
+    const queso = await loteMP(p, { insumo: 'Queso' })
+    const usada = await p.pedir<Produccion>(t, 'POST', '/producciones', {
+      turno: 'dia', items: ITEMS, lotesMP: [{ id: harina, cantidad: 50 }, { id: queso, cantidad: 1 }],
+    })
+    expect(usada.status).toBe(200)
+
+    const lista = await p.pedir<LoteMP[]>(t, 'GET', '/lotes-mp')
+    expect(lista.body.find((l) => l.id === harina)).toMatchObject({ consumido: 50, saldo: 0, agotado: true, disponible: false, bloqueado: false })
+    const disponibles = await p.pedir<LoteMP[]>(t, 'GET', '/lotes-mp?disponibles=1')
+    expect(disponibles.body.map((l) => l.id)).toEqual([queso])
+
+    const otra = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: ITEMS, lotesMP: [{ id: harina, cantidad: 1 }] })
+    expect(otra.status).toBe(409)
+    expect(otra.body.error.codigo).toBe('lote_mp_no_disponible')
+    expect(otra.body.error.mensaje).toMatch(/ya no tiene saldo/)
+
+    // En el historial sigue ligado con su cantidad.
+    const traza = await p.pedir(t, 'GET', `/trazabilidad/mp/${harina}`)
+    expect(traza.body.lotesChipa).toHaveLength(1)
+    expect(traza.body.lotesChipa[0].lotesMP.find((m: any) => m.id === harina)).toMatchObject({ cantidad: 50, unidad: 'kg' })
+  })
+
+  it('la base impide que dos cargas simultáneas dejen el saldo en negativo', async () => {
+    const p = await nuevaPrueba()
+    const harina = await loteMP(p)
+    await p.sql("INSERT INTO lotes_chipa (id, codigo, amasada, dia) VALUES ('lc1', 'CH-T-1', 1, ?), ('lc2', 'CH-T-2', 2, ?)", diaPY(), diaPY())
+    await p.sql('INSERT INTO lote_chipa_mp (lote_chipa_id, lote_mp_id, cantidad) VALUES (?, ?, 40)', 'lc1', harina)
+    await expect(p.sql('INSERT INTO lote_chipa_mp (lote_chipa_id, lote_mp_id, cantidad) VALUES (?, ?, 11)', 'lc2', harina))
+      .rejects.toThrow(/SALDO_LOTE_INSUFICIENTE/)
+    await p.sql('INSERT INTO lote_chipa_mp (lote_chipa_id, lote_mp_id, cantidad) VALUES (?, ?, 10)', 'lc2', harina)
+  })
+
+  it('los usos anteriores a E03 (sin cantidad) quedan como «sin dato» y no descuentan saldo', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('chiperia')
+    const harina = await loteMP(p)
+    await p.sql("INSERT INTO lotes_chipa (id, codigo, amasada, dia) VALUES ('lc-viejo', 'CH-V-1', 1, ?)", diaPY())
+    await p.sql('INSERT INTO lote_chipa_mp (lote_chipa_id, lote_mp_id) VALUES (?, ?)', 'lc-viejo', harina)
+    const lotes = await p.pedir<LoteMP[]>(t, 'GET', '/lotes-mp')
+    expect(lotes.body[0]).toMatchObject({ consumido: 0, saldo: 50, disponible: true })
+    const chipa = await p.pedir(t, 'GET', '/lotes-chipa')
+    expect(chipa.body[0].lotesMP).toEqual([expect.objectContaining({ id: harina, cantidad: null, unidad: 'kg' })])
+  })
+
+  it('corregir una producción no toca la materia prima ni su cantidad', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const harina = await loteMP(p)
+    const r = await p.pedir<Produccion>(await p.entrar('chiperia'), 'POST', '/producciones', {
+      turno: 'dia', items: [{ productoId: CHIPA, cocinado: 200, guardado: 300 }], lotesMP: [{ id: harina, cantidad: 8 }],
+    })
+    const c = await p.pedir<Produccion>(admin, 'PATCH', `/producciones/${r.body.id}`, { items: [{ productoId: CHIPA, cocinado: 210, guardado: 290 }] })
+    expect(c.status).toBe(200)
+    expect(c.body.lote!.lotesMP).toEqual([expect.objectContaining({ id: harina, cantidad: 8 })])
+    expect((await p.pedir<LoteMP[]>(admin, 'GET', '/lotes-mp')).body[0]).toMatchObject({ consumido: 8, saldo: 42 })
   })
 })

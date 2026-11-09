@@ -6,7 +6,7 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSectorActivo } from '../../components/Layout'
 import { diaPY, fechaHoraPY, inicioDeMes, sumarDias } from '../../shared/hora'
-import type { Produccion, Producto, Turno } from '../../shared/tipos'
+import { textoUsoMP, type Produccion, type Producto, type Turno } from '../../shared/tipos'
 import '../../styles/produccion.css'
 
 const NOMBRE_TURNO: Record<Turno, string> = { dia: 'turno día', noche: 'turno noche' }
@@ -161,7 +161,7 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
         {!editando && <button className="btn-texto" onClick={empezar}>Corregir</button>}
       </div>
       {p.lote && p.lote.lotesMP.length > 0 && (
-        <span className="suave chico">Materia prima: {p.lote.lotesMP.map((l) => l.descripcion).join(' · ')}</span>
+        <span className="suave chico">Materia prima: {p.lote.lotesMP.map(textoUsoMP).join(' · ')}</span>
       )}
       {p.corregidoEn && (
         <span className="prod-corregido">Corregido por {p.corregidoPorNombre} el {fechaHoraPY(p.corregidoEn)}</span>

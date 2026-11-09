@@ -34,7 +34,7 @@ describe('productos (B01)', () => {
 
     const r = await p.pedir(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Hamburguesa doble' })
     expect(r.status).toBe(200)
-    expect(r.body).toEqual({ id: expect.any(String), sector: 'cocina', nombre: 'Hamburguesa doble', unidad: 'unidades', activo: true })
+    expect(r.body).toEqual({ id: expect.any(String), sector: 'cocina', nombre: 'Hamburguesa doble', unidad: 'unidades', activo: true, stockMinimo: null })
     const id = r.body.id
 
     const ren = await p.pedir(admin, 'PATCH', `/productos/${id}`, { nombre: 'Hamburguesa completa' })
@@ -250,7 +250,7 @@ describe('áreas y tareas de limpieza (B03)', () => {
     const admin = await p.entrar('admin')
     const r = await p.pedir(admin, 'POST', '/areas', { nombre: 'Vestuario', codigo: 'RE-09.10', sectores: ['panaderia', 'chipitas', 'chipitas'] })
     expect(r.status).toBe(200)
-    expect(r.body).toEqual({ id: expect.any(String), nombre: 'Vestuario', codigo: 'RE-09.10', sectores: ['chipitas', 'panaderia'], activo: true, tareas: [] })
+    expect(r.body).toEqual({ id: expect.any(String), nombre: 'Vestuario', codigo: 'RE-09.10', sectores: ['chipitas', 'panaderia'], activo: true, frecuenciaDias: null, tareas: [] })
     const id = r.body.id
     await p.pedir(admin, 'POST', `/areas/${id}/tareas`, { nombre: 'Piso' })
     await p.pedir(admin, 'POST', `/areas/${id}/tareas`, { nombre: 'Lockers' })

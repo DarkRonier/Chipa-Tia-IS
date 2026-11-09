@@ -76,3 +76,14 @@ a.lot-codigo { color: var(--marca-texto); display: inline-block; padding: 0.15re
 .lot-lista-mp li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.25rem 0.5rem; }
 .lot-lista-mp a { color: var(--marca-texto); font-weight: 600; }
 .lot-modos button { font-size: 0.9rem; line-height: 1.15; padding: 0.3rem 0.2rem; }
+
+/* E03/E10: saldo de cada lote y avisos de vencimiento. */
+.lot-estado.porvencer { background: var(--aviso); color: var(--error); border-color: var(--error); }
+.lot-estado.agotado { background: var(--fondo); color: var(--suave); border-color: var(--borde); }
+.lot-tabla .lot-uso { font-weight: 600; color: var(--texto); }
+.lot-alertas { margin-bottom: 0.75rem; }
+.lot-alertas ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.lot-alertas li { padding: 0.6rem 0.8rem; border-radius: 10px; border: 1px solid var(--borde); background: var(--aviso); }
+.lot-alertas li.vencido { border-color: var(--error); background: var(--error-fondo); color: var(--error); }
+.lot-alertas li strong { text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.04em; margin-right: 0.3rem; }
+.lot-lista-mp .cant { font-weight: 600; white-space: nowrap; }
