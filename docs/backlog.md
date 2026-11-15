@@ -126,3 +126,15 @@ correr `npx tsc -b` y las pruebas del ticket (`npx vitest run tests/<archivo>`),
 
 Después de cada ola: `npx tsc -b`, `npx vitest run`, `npx vite build --mode demo`, `npm run build`,
 `npx wrangler deploy --dry-run`, revisar el diff de cada ticket, commit y push al PR #2.
+
+## Preguntas pendientes para el cliente (próxima presentación)
+
+### P1 · Compra sin detalle: solo el monto y la foto del comprobante
+Para proveedores que traen cosas de las que no importa el stock, ¿se quiere cargar la compra sin renglones,
+indicando solo el monto a pagar y subiendo una foto del comprobante? (pedido por Mati el 15/11/2026; no se construye
+hasta que el cliente lo confirme).
+
+Cómo quedaría si se aprueba: la compra ya admite renglones de texto libre sin producto (no tocan el stock), así que la
+compra sin detalle sería un único renglón «Compra sin detalle» por el monto total. Falta la foto del comprobante: se
+guardaría en R2 como las fotos de limpieza (columna `foto_comprobante` en `compras`), y habría que decidir quién puede
+cargarla (¿también los sectores, o solo supervisor y administrador?).

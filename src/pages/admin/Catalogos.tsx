@@ -8,7 +8,7 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector } from '../../components/Layout'
 import {
-  FRECUENCIAS_LIMPIEZA, IVAS, NOMBRE_IVA, NOMBRE_TIPO_MAQUINA, SECTOR_IDS, type Iva,
+  FRECUENCIAS_LIMPIEZA, IVAS, NOMBRE_IVA, NOMBRE_TIPO_MAQUINA, NOMBRE_TIPO_PRODUCTO, SECTOR_IDS, TIPOS_PRODUCTO, type Iva, type TipoProducto,
   type AreaLimpieza, type Categoria, type Maquina, type Producto, type Sector, type SectorId, type Sucursal, type TareaLimpieza, type TipoMaquina,
 } from '../../shared/tipos'
 import { gs, miles } from '../../shared/dinero'
@@ -217,6 +217,7 @@ function FormAlta({ titulo, children, enviando, error, ok, alEnviar, boton = 'Ag
 /** Lo que se cuenta aparte de «unidades» y el aviso de stock mínimo (C08). */
 const detalleProducto = (p: Producto) =>
   [
+    p.tipo === 'materia_prima' ? 'Materia prima' : p.tipo === 'reventa' ? 'Venta directa' : null,
     p.codigo ? `Código ${p.codigo}` : null,
     p.precioVenta !== null ? `Precio ${gs(p.precioVenta)} · ${NOMBRE_IVA[p.iva]}` : 'Sin precio de venta',
     p.unidad !== 'unidades' ? `Se cuenta en ${p.unidad}` : null,
@@ -273,6 +274,21 @@ function VentaProducto({ p }: { p: Producto }) {
 }
 
 /** Categoría de compras (M10): define qué sectores pueden comprar el producto. */
+function TipoDeProducto({ p }: { p: Producto }) {
+  const cambiar = useAccion((v: TipoProducto) => patch<Producto>(`/productos/${p.id}`, { tipo: v }))
+  return (
+    <>
+      <label className="check pide-numero" title="Solo las materias primas y los productos de venta directa se pueden comprar">
+        <span className="chico">Tipo</span>
+        <select value={p.tipo} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar(e.target.value as TipoProducto)}>
+          {TIPOS_PRODUCTO.map((t) => <option key={t} value={t}>{NOMBRE_TIPO_PRODUCTO[t]}</option>)}
+        </select>
+      </label>
+      <Aviso>{cambiar.error}</Aviso>
+    </>
+  )
+}
+
 function CategoriaProducto({ p, categorias }: { p: Producto; categorias: Categoria[] }) {
   const cambiar = useAccion((v: string | null) => patch<Producto>(`/productos/${p.id}`, { categoriaId: v }))
   const visibles = categorias.filter((k) => k.activo || k.id === p.categoriaId)
@@ -298,9 +314,10 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
   const [obligatorio, setObligatorio] = useState(true)
   const [precio, setPrecio] = useState('')
   const [codigo, setCodigo] = useState('')
+  const [tipo, setTipo] = useState<TipoProducto>('elaborado')
   const [ok, setOk] = useState<string | null>(null)
   const crear = useAccion(() => post<Producto>('/productos', {
-    sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio, precioVenta: precio.trim() || null, codigo,
+    sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio, precioVenta: precio.trim() || null, codigo, tipo,
   }))
   const agregar = async () => {
     setOk(null)
@@ -312,6 +329,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
       setObligatorio(true)
       setPrecio('')
       setCodigo('')
+      setTipo('elaborado')
     }
   }
 
@@ -339,7 +357,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
                 ]}
                 guardar={(cambios) => patch(`/productos/${p.id}`, cambios)}
                 cambiarActivo={(activo) => patch(`/productos/${p.id}`, { activo })}
-                debajo={p.activo && <><StockObligatorio p={p} /><VentaProducto p={p} /><CategoriaProducto p={p} categorias={categorias.datos ?? []} /></>}
+                debajo={p.activo && <><StockObligatorio p={p} /><TipoDeProducto p={p} /><VentaProducto p={p} />{p.tipo !== 'elaborado' && <CategoriaProducto p={p} categorias={categorias.datos ?? []} />}</>}
               />
             )}
           />
@@ -349,6 +367,12 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
         <label className="campo">
           <span>Nombre</span>
           <input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={100} />
+        </label>
+        <label className="campo">
+          <span>Tipo</span>
+          <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoProducto)}>
+            {TIPOS_PRODUCTO.map((t) => <option key={t} value={t}>{NOMBRE_TIPO_PRODUCTO[t]}</option>)}
+          </select>
         </label>
         <label className="campo">
           <span>Código (opcional, para buscarlo)</span>

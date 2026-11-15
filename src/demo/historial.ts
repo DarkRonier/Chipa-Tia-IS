@@ -125,6 +125,17 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
   ] as const) {
     await pedir(t.admin, 'PATCH', `/productos/${productoId}`, { precioVenta })
   }
+  // Productos de compra: materias primas y venta directa (lo elaborado no se compra).
+  for (const [sector, nombre, unidad, tipo, precioVenta] of [
+    ['chiperia', 'Queso Paraguay', 'kg', 'materia_prima', null], ['chiperia', 'Almidón de mandioca', 'kg', 'materia_prima', null],
+    ['panaderia', 'Harina 000', 'kg', 'materia_prima', null], ['cocina', 'Carne fileteada', 'kg', 'materia_prima', null],
+    ['cocina', 'Gaseosa 500 ml', 'unidades', 'reventa', 8000], ['cocina', 'Cerveza 1 L', 'unidades', 'reventa', 15000],
+    ['cocina', 'Agua 500 ml', 'unidades', 'reventa', 5000],
+  ] as const) {
+    await pedir(t.admin, 'POST', '/productos', {
+      sector, nombre, unidad, tipo, precioVenta, stockObligatorio: false, ventaDescuentaStock: tipo === 'reventa',
+    })
+  }
   // M14: un gasto fijo y un sueldo, para que la pantalla de Finanzas tenga algo.
   await pedir(t.admin, 'POST', '/gastos-fijos', { nombre: 'Alquiler del local', categoria: 'Alquiler', importe: 4_500_000, diaDelMes: 5 })
   await pedir(t.admin, 'POST', '/gastos-fijos', { nombre: 'Sueldo de cajera', importe: 2_800_000, diaDelMes: 30, esSueldo: true })

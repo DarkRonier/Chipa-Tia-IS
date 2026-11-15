@@ -53,7 +53,7 @@ function Formulario() {
   const guardarProduccion = useAccion((p: PedidoProduccion) => post<Registro>('/producciones', p))
 
   const et = etiquetas(conLotes)
-  const activos = (productos.datos ?? []).filter((p) => p.activo)
+  const activos = (productos.datos ?? []).filter((p) => p.activo && p.tipo === 'elaborado')
   const disponibles = (lotes.datos ?? []).filter((l) => l.disponible)
   const elegidos = lotesMP.filter((id) => disponibles.some((l) => l.id === id))
   const lotesElegidos = elegidos.map((id) => disponibles.find((l) => l.id === id)!)

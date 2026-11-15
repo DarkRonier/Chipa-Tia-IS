@@ -5,7 +5,7 @@ import { Hono, type Context } from 'hono'
 import type {
   AreaLimpieza, Categoria, Maquina, Producto, Sector, SectorId, Sucursal, TareaLimpieza, TipoMaquina,
 } from '../../shared/tipos'
-import { IVAS, NOMBRE_TIPO_MAQUINA, SECTOR_IDS, type Iva } from '../../shared/tipos'
+import { IVAS, NOMBRE_TIPO_MAQUINA, SECTOR_IDS, TIPOS_PRODUCTO, type Iva, type TipoProducto } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, ValorSQL } from '../entorno'
@@ -102,13 +102,14 @@ interface FilaProducto {
   iva: Iva
   venta_descuenta_stock: number
   codigo: string
+  tipo: TipoProducto
 }
 const aProducto = (f: FilaProducto): Producto => ({
   id: f.id, sector: f.sector, nombre: f.nombre, unidad: f.unidad, activo: !!f.activo, stockMinimo: f.stock_minimo,
   stockObligatorio: !!f.stock_obligatorio, categoriaId: f.categoria_id,
-  precioVenta: f.precio_venta, iva: f.iva, ventaDescuentaStock: !!f.venta_descuenta_stock, codigo: f.codigo,
+  precioVenta: f.precio_venta, iva: f.iva, ventaDescuentaStock: !!f.venta_descuenta_stock, codigo: f.codigo, tipo: f.tipo,
 })
-const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo, p.stock_minimo, p.stock_obligatorio, p.categoria_id, p.precio_venta, p.iva, p.venta_descuenta_stock, p.codigo'
+const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo, p.stock_minimo, p.stock_obligatorio, p.categoria_id, p.precio_venta, p.iva, p.venta_descuenta_stock, p.codigo, p.tipo'
 
 /** Precio de venta (M11): entero ≥ 0 en guaraníes, o vacío / null = no se vende. Acepta "12.000". */
 function precioOpcional(v: unknown): number | null {
@@ -151,6 +152,11 @@ async function stockNegativo(db: BaseD1, productoId: string): Promise<string | n
 }
 
 /** Stock mínimo (C08): entero ≥ 0, o vacío / null para quitarlo. Acepta número o texto con el número. */
+function tipoProducto(v: unknown): TipoProducto {
+  if (!(TIPOS_PRODUCTO as unknown[]).includes(v)) throw invalido('El tipo de producto no es válido.')
+  return v as TipoProducto
+}
+
 function stockMinimoOpcional(v: unknown): number | null {
   if (v === null || v === undefined || (typeof v === 'string' && !v.trim())) return null
   const n = typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v.trim()) : v
@@ -195,16 +201,17 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
   const iva = b.iva === undefined ? 10 : ivaDe(b.iva)
   const ventaDescuentaStock = b.ventaDescuentaStock === undefined ? false : booleano(b.ventaDescuentaStock, 'La venta descuenta stock')
   const codigo = textoOpcional(b.codigo, 'El código', 30) ?? ''
+  const tipo = b.tipo === undefined ? 'elaborado' : tipoProducto(b.tipo)
   const nuevo: Producto = {
-    id: nuevoId(), sector, nombre, unidad, activo: true, stockMinimo, stockObligatorio, categoriaId, precioVenta, iva, ventaDescuentaStock, codigo,
+    id: nuevoId(), sector, nombre, unidad, activo: true, stockMinimo, stockObligatorio, categoriaId, precioVenta, iva, ventaDescuentaStock, codigo, tipo,
   }
   await db.batch([
     sentencia(
       db,
       `INSERT INTO productos (id, sector, nombre, unidad, activo, stock_minimo, stock_obligatorio, categoria_id, precio_venta, iva,
-                             venta_descuenta_stock, codigo, orden)
-       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
-      nuevo.id, sector, nombre, unidad, stockMinimo, stockObligatorio, categoriaId, precioVenta, iva, ventaDescuentaStock, codigo, sector,
+                             venta_descuenta_stock, codigo, tipo, orden)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
+      nuevo.id, sector, nombre, unidad, stockMinimo, stockObligatorio, categoriaId, precioVenta, iva, ventaDescuentaStock, codigo, tipo, sector,
     ),
     sentenciaAuditoria(db, { tabla: 'productos', registroId: nuevo.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nuevo }),
   ])
@@ -214,7 +221,7 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
 rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  algoParaCambiar(b, ['nombre', 'unidad', 'activo', 'stockMinimo', 'stockObligatorio', 'categoriaId', 'precioVenta', 'iva', 'ventaDescuentaStock', 'codigo'])
+  algoParaCambiar(b, ['nombre', 'unidad', 'activo', 'stockMinimo', 'stockObligatorio', 'categoriaId', 'precioVenta', 'iva', 'ventaDescuentaStock', 'codigo', 'tipo'])
   const antes = aProducto(await leerProducto(db, c.req.param('id')))
   const despues: Producto = { ...antes }
   if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre del producto', { max: 100 })
@@ -227,6 +234,7 @@ rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
   if (b.iva !== undefined) despues.iva = ivaDe(b.iva)
   if (b.ventaDescuentaStock !== undefined) despues.ventaDescuentaStock = booleano(b.ventaDescuentaStock, 'La venta descuenta stock')
   if (b.codigo !== undefined) despues.codigo = textoOpcional(b.codigo, 'El código', 30) ?? ''
+  if (b.tipo !== undefined) despues.tipo = tipoProducto(b.tipo)
   if (despues.nombre !== antes.nombre) await productoSinRepetir(db, antes.sector, despues.nombre, antes.id)
   if (despues.stockObligatorio && !antes.stockObligatorio) {
     const problema = await stockNegativo(db, antes.id)
@@ -235,9 +243,9 @@ rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
     }
   }
   await db.batch([
-    sentencia(db, 'UPDATE productos SET nombre = ?, unidad = ?, activo = ?, stock_minimo = ?, stock_obligatorio = ?, categoria_id = ?, precio_venta = ?, iva = ?, venta_descuenta_stock = ?, codigo = ? WHERE id = ?',
+    sentencia(db, 'UPDATE productos SET nombre = ?, unidad = ?, activo = ?, stock_minimo = ?, stock_obligatorio = ?, categoria_id = ?, precio_venta = ?, iva = ?, venta_descuenta_stock = ?, codigo = ?, tipo = ? WHERE id = ?',
       despues.nombre, despues.unidad, despues.activo, despues.stockMinimo, despues.stockObligatorio, despues.categoriaId,
-      despues.precioVenta, despues.iva, despues.ventaDescuentaStock, despues.codigo, antes.id),
+      despues.precioVenta, despues.iva, despues.ventaDescuentaStock, despues.codigo, despues.tipo, antes.id),
     sentenciaAuditoria(db, {
       tabla: 'productos', registroId: antes.id, accion: accionDe(antes.activo, despues.activo), usuarioId: c.get('usuario').id, antes, despues,
     }),
