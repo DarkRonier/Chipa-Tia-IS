@@ -131,6 +131,8 @@ export interface Producto {
    * que sale del frío) la venta no toca el stock: ya bajó con «Sacar para la venta».
    */
   ventaDescuentaStock: boolean
+  /** Código del producto (opcional), para buscarlo. */
+  codigo: string
 }
 
 export interface Maquina {
@@ -660,14 +662,13 @@ export interface PedidoCompraItem {
 }
 
 export interface PedidoCompra {
-  proveedorId: string
+  /** Vacío = proveedor «Sin nombre» (proveedores locales que no dan nombre ni factura). */
+  proveedorId?: string | null
   comprobante?: string
   diaCompra?: string
   vencimiento?: string | null
   nota?: string
   items: PedidoCompraItem[]
-  /** Solo administrador y supervisor: pago en el momento (al contado o una entrega). */
-  pago?: { importe: number; medio: MedioPago } | null
 }
 
 /** Producto que el usuario puede comprar, con el nombre de su sector y categoría. */
@@ -675,6 +676,7 @@ export interface ProductoCompra {
   id: string
   nombre: string
   unidad: string
+  codigo: string
   sector: SectorId
   sectorNombre: string
   conLotes: boolean

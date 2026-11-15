@@ -27,7 +27,7 @@ import Reportes, { RecordarEnlaceReporte } from './pages/admin/Reportes'
 import Datos from './pages/admin/Datos'
 import Caja from './pages/caja/Caja'
 import Finanzas from './pages/finanzas/Finanzas'
-import Compras from './pages/compras/Compras'
+import Compras, { NuevaCompra, PaginaProveedores } from './pages/compras/Compras'
 
 export default function App() {
   const { usuario, cargando } = useSesion()
@@ -75,6 +75,8 @@ export default function App() {
         {ruta('admin/reportes', 'reportes.ver', <Reportes />)}
         {ruta('admin/datos', 'datos.gestionar', <Datos />)}
         {ruta('compras', 'compras.registrar', <Compras />)}
+        {ruta('compras/nueva', 'compras.registrar', <NuevaCompra />)}
+        {ruta('proveedores', 'proveedores.gestionar', <PaginaProveedores />)}
         {ruta('caja', 'caja.operar', <Caja />)}
         {(p('ie.completo') || p('ie.egresos_proveedores')) && <Route path="finanzas" element={<Finanzas />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

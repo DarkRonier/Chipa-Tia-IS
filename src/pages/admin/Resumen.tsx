@@ -24,6 +24,7 @@ const hora = (iso: string) => fechaHoraPY(iso).slice(11)
 const ATAJOS: [string, NombreIcono, string, Permiso][] = [
   ['/admin/reportes', 'reportes', 'Reportes', 'reportes.ver'],
   ['/compras', 'compras', 'Compras', 'compras.pagar'],
+  ['/proveedores', 'compras', 'Proveedores', 'proveedores.gestionar'],
   ['/admin/registros', 'registros', 'Producción', 'produccion.ver'],
   ['/admin/stock', 'ajustes', 'Stock', 'stock.ver'],
   ['/sector/maquinas', 'maquinas', 'Máquinas', 'maquinas.ver'],

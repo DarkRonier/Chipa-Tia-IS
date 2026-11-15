@@ -1,14 +1,15 @@
-// M10: compras a proveedores. Una sola pantalla con pestañas según el rol:
-// - Sectores: «Nueva compra» (solo productos de su sector en categorías habilitadas) y «Compras» (las que cargó).
-// - Supervisor y administrador: además «Por pagar» (pagos parciales y totales), «Proveedores» (alta, edición y cuenta
-//   con el historial de saldos) y «Resumen» (reporte simple de compras y pagos, con Excel).
+// M10: compras a proveedores. La compra se carga en su propia página (/compras/nueva) y queda pendiente de pago.
+// Pestañas: «Pendientes de pago» (el supervisor y el administrador marcan pagos parciales o totales; los sectores solo
+// miran), «Todas las compras» y, para supervisor y administrador, «Resumen» (reporte simple con Excel).
+// Los proveedores tienen su propio menú (/proveedores).
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { get, patch, post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { celdaDia, descargarExcel, negrita } from '../../cliente/excel'
 import { usePuede, useUsuario } from '../../cliente/sesion'
+import Buscador from '../../components/Buscador'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { Icono } from '../../components/Iconos'
 import Volver from '../../components/Volver'
@@ -22,23 +23,29 @@ import {
 } from '../../shared/tipos'
 import '../../styles/compras.css'
 
-type Pestana = 'nueva' | 'lista' | 'pendientes' | 'proveedores' | 'resumen'
+type Pestana = 'pendientes' | 'lista' | 'resumen'
 
 export default function Compras() {
   const puede = usePuede()
   const [params, setParams] = useSearchParams()
   const pestanas: [Pestana, string][] = [
-    ['nueva', 'Nueva compra'],
-    ['lista', 'Compras'],
-    ...(puede('compras.pagar') ? [['pendientes', 'Por pagar'] as [Pestana, string]] : []),
-    ...(puede('proveedores.gestionar') ? [['proveedores', 'Proveedores'] as [Pestana, string]] : []),
+    ['pendientes', 'Pendientes de pago'],
+    ['lista', 'Todas las compras'],
     ...(puede('reportes.compras') ? [['resumen', 'Resumen'] as [Pestana, string]] : []),
   ]
   const pedida = params.get('ver')
-  const pestana: Pestana = pestanas.some(([p]) => p === pedida) ? (pedida as Pestana) : 'nueva'
+  const pestana: Pestana = pestanas.some(([p]) => p === pedida) ? (pedida as Pestana) : 'pendientes'
+  const nueva = params.get('nueva')
   return (
     <>
       <Volver titulo="Compras" icono={<Icono nombre="compras" />} />
+      <Link to="/compras/nueva" className="btn-primario btn-bloque">+ Nueva compra</Link>
+      {nueva && pestana === 'pendientes' && (
+        <Aviso tipo="ok">
+          Compra guardada: lo comprado ya suma al stock y quedó pendiente de pago
+          {puede('compras.pagar') ? '. Tocala para marcar el pago.' : '. El pago lo marcan el supervisor o el administrador.'}
+        </Aviso>
+      )}
       <div className="segmentado" role="tablist">
         {pestanas.map(([p, t]) => (
           <button key={p} type="button" role="tab" aria-selected={pestana === p} className={pestana === p ? 'activo' : ''}
@@ -47,11 +54,19 @@ export default function Compras() {
           </button>
         ))}
       </div>
-      {pestana === 'nueva' && <NuevaCompra alGuardar={() => setParams({ ver: 'lista' }, { replace: true })} />}
+      {pestana === 'pendientes' && <ListaCompras soloPendientes abrir={nueva} />}
       {pestana === 'lista' && <ListaCompras />}
-      {pestana === 'pendientes' && <ListaCompras soloPendientes />}
-      {pestana === 'proveedores' && <Proveedores />}
       {pestana === 'resumen' && <Resumen />}
+    </>
+  )
+}
+
+/** Menú propio de proveedores (supervisor y administrador). */
+export function PaginaProveedores() {
+  return (
+    <>
+      <Volver titulo="Proveedores" icono={<Icono nombre="compras" />} />
+      <Proveedores />
     </>
   )
 }
@@ -88,7 +103,7 @@ export function EtiquetaEstado({ c }: { c: Pick<Compra, 'estado' | 'vencida'> })
   )
 }
 
-// ---------- Nueva compra ----------
+// ---------- Nueva compra (página propia: /compras/nueva) ----------
 
 interface RenglonForm {
   clave: number
@@ -106,36 +121,35 @@ const renglonVacio = (): RenglonForm => ({ clave: siguienteClave++, productoId: 
 
 const aCantidad = (s: string) => Number(s.replace(',', '.')) || 0
 
-function NuevaCompra({ alGuardar }: { alGuardar: () => void }) {
+/**
+ * Carga de una compra. Proveedor y comprobante son opcionales (hay proveedores locales sin nombre ni factura, como el
+ * del huevo o el queso). La compra se guarda siempre pendiente de pago y se pasa a «Pendientes de pago», donde el
+ * supervisor o el administrador marcan el pago.
+ */
+export function NuevaCompra() {
   const u = useUsuario()
   const puede = usePuede()
+  const navegar = useNavigate()
   const libre = sectorDeRol(u.rol) === null
   const hoy = diaPY()
   const proveedores = useConsulta<Proveedor[]>('/proveedores')
   const productos = useConsulta<ProductoCompra[]>('/compras/productos')
-  const [proveedorId, setProveedorId] = useState('')
+  const [proveedor, setProveedor] = useState<Proveedor | null>(null)
   const [comprobante, setComprobante] = useState('')
   const [diaCompra, setDiaCompra] = useState(hoy)
   const [vencimiento, setVencimiento] = useState('')
   const [nota, setNota] = useState('')
   const [renglones, setRenglones] = useState<RenglonForm[]>([renglonVacio()])
-  const [pago, setPago] = useState<'no' | 'total' | 'parte'>('no')
-  const [pagoImporte, setPagoImporte] = useState(0)
-  const [medio, setMedio] = useState<MedioPago>('efectivo')
   const [aviso, setAviso] = useState<string | null>(null)
-  const [listo, setListo] = useState<string | null>(null)
   const guardar = useAccion((p: PedidoCompra) => post<Compra>('/compras', p))
 
   const lista = productos.datos ?? []
   const porId = useMemo(() => new Map(lista.map((p) => [p.id, p])), [lista])
-  const grupos = useMemo(() => {
-    const m = new Map<string, ProductoCompra[]>()
-    for (const p of lista) {
-      const g = libre ? p.sectorNombre : p.categoriaNombre ?? 'Sin categoría'
-      m.set(g, [...(m.get(g) ?? []), p])
-    }
-    return [...m.entries()]
-  }, [lista, libre])
+  const opciones = useMemo(() => lista.map((p) => ({
+    ...p,
+    detalle: [libre ? p.sectorNombre : null, p.categoriaNombre, p.unidad !== 'unidades' ? p.unidad : null].filter(Boolean).join(' · '),
+  })), [lista, libre])
+  const opcionesProveedor = useMemo(() => (proveedores.datos ?? []).map((p) => ({ ...p, codigo: p.ruc, detalle: p.telefono })), [proveedores.datos])
 
   const cantidadDe = (r: RenglonForm) => (r.productoId ? aCantidad(r.cantidad) : r.libre ? aCantidad(r.cantidad) || 1 : 0)
   const subtotal = (r: RenglonForm) => Math.round(cantidadDe(r) * r.precio)
@@ -144,9 +158,7 @@ function NuevaCompra({ alGuardar }: { alGuardar: () => void }) {
 
   const enviar = async () => {
     setAviso(null)
-    setListo(null)
     guardar.limpiarError()
-    if (!proveedorId) return setAviso('Elegí el proveedor.')
     const usados = renglones.filter((r) => r.productoId || (r.libre && r.detalle.trim()))
     if (!usados.length) return setAviso('Cargá al menos un producto.')
     for (const r of usados) {
@@ -154,9 +166,8 @@ function NuevaCompra({ alGuardar }: { alGuardar: () => void }) {
       if (r.productoId && aCantidad(r.cantidad) <= 0) return setAviso(`Cargá la cantidad de ${nombre}.`)
       if (r.precio <= 0) return setAviso(`Cargá el precio de ${nombre}.`)
     }
-    if (pago === 'parte' && (pagoImporte <= 0 || pagoImporte > total)) return setAviso('La entrega tiene que ser mayor que cero y no más que el total.')
     const r = await guardar.ejecutar({
-      proveedorId,
+      proveedorId: proveedor?.id ?? null,
       comprobante,
       diaCompra,
       vencimiento: vencimiento || null,
@@ -168,37 +179,15 @@ function NuevaCompra({ alGuardar }: { alGuardar: () => void }) {
         precioUnitario: x.precio,
         lote: x.lote || null,
       })),
-      pago: pago === 'no' ? null : { importe: pago === 'total' ? total : pagoImporte, medio },
     })
-    if (r) {
-      setListo(`Compra a ${r.proveedorNombre} guardada por ${gs(r.total)} (${NOMBRE_ESTADO_COMPRA[r.estado].toLowerCase()}). Lo comprado ya suma al stock.`)
-      setComprobante('')
-      setVencimiento('')
-      setNota('')
-      setRenglones([renglonVacio()])
-      setPago('no')
-      setPagoImporte(0)
-    }
+    if (r) navegar(`/compras?ver=pendientes&nueva=${r.id}`)
   }
 
-  const sinProveedores = proveedores.datos && proveedores.datos.length === 0
   const sinProductos = productos.datos && productos.datos.length === 0
 
   return (
     <>
-      {listo && (
-        <>
-          <Aviso tipo="ok">{listo}</Aviso>
-          <button type="button" className="btn-texto" onClick={alGuardar}>Ver las compras</button>
-        </>
-      )}
-      {sinProveedores && (
-        <Aviso>
-          {puede('proveedores.gestionar')
-            ? 'Todavía no hay proveedores: cargalos en la pestaña Proveedores.'
-            : 'Todavía no hay proveedores cargados. Pedile al supervisor o al administrador que los cargue.'}
-        </Aviso>
-      )}
+      <Volver titulo="Nueva compra" icono={<Icono nombre="compras" />} a="/compras" />
       {sinProductos && (
         <Aviso>
           {libre
@@ -207,15 +196,12 @@ function NuevaCompra({ alGuardar }: { alGuardar: () => void }) {
         </Aviso>
       )}
       <div className="tarjeta filtros">
+        <Buscador
+          etiqueta="Proveedor (opcional)" opciones={opcionesProveedor} elegido={proveedor ? opcionesProveedor.find((p) => p.id === proveedor.id) ?? null : null}
+          onElegir={(p) => setProveedor(p)} textoVacio="Sin nombre" placeholder="Escribí el nombre o el RUC…"
+        />
         <label className="campo">
-          <span>Proveedor</span>
-          <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)}>
-            <option value="">Elegí…</option>
-            {(proveedores.datos ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-          </select>
-        </label>
-        <label className="campo">
-          <span>Comprobante (N° de factura o recibo)</span>
+          <span>N° de factura o recibo (opcional)</span>
           <input value={comprobante} maxLength={60} onChange={(e) => setComprobante(e.target.value)} placeholder="001-001-0001234" />
         </label>
         <label className="campo">
@@ -227,35 +213,29 @@ function NuevaCompra({ alGuardar }: { alGuardar: () => void }) {
           <input type="date" value={vencimiento} min={diaCompra} onChange={(e) => setVencimiento(e.target.value)} />
         </label>
       </div>
+      {puede('proveedores.gestionar') && !proveedores.cargando && !opcionesProveedor.length && (
+        <p className="suave chico">Todavía no hay proveedores cargados: podés cargar la compra «Sin nombre» o crearlos en el menú Proveedores.</p>
+      )}
 
       <h2>Detalle</h2>
       <div className="lista-renglones">
         {renglones.map((r, i) => {
           const p = porId.get(r.productoId)
-          const esLibre = r.libre
           return (
             <div key={r.clave} className="tarjeta renglon-compra">
-              <label className="campo ancho">
-                <span>Producto {i + 1}</span>
-                <select value={r.productoId || (esLibre ? '__libre' : '')} onChange={(e) => {
-                  const v = e.target.value
-                  if (v === '__libre') cambiar(r.clave, { productoId: '', libre: true })
-                  else cambiar(r.clave, { productoId: v, libre: false, detalle: '' })
-                }}>
-                  <option value="">Elegí…</option>
-                  {grupos.map(([g, ps]) => (
-                    <optgroup key={g} label={g}>
-                      {ps.map((x) => <option key={x.id} value={x.id}>{x.nombre}{x.unidad !== 'unidades' ? ` (${x.unidad})` : ''}</option>)}
-                    </optgroup>
-                  ))}
-                  {libre && <option value="__libre">Otro gasto (flete, servicio…), sin stock</option>}
-                </select>
-              </label>
-              {esLibre && (
+              {r.libre ? (
                 <label className="campo ancho">
-                  <span>Detalle</span>
-                  <input value={r.detalle} maxLength={200} placeholder="Flete" onChange={(e) => cambiar(r.clave, { detalle: e.target.value })} />
+                  <span>Otro gasto, sin stock (renglón {i + 1}) <button type="button" className="btn-texto" onClick={() => cambiar(r.clave, { libre: false, detalle: '' })}>Elegir un producto</button></span>
+                  <input value={r.detalle} maxLength={200} placeholder="Flete" autoFocus onChange={(e) => cambiar(r.clave, { detalle: e.target.value })} />
                 </label>
+              ) : (
+                <div className="ancho">
+                  <Buscador
+                    etiqueta={`Producto ${i + 1}`} opciones={opciones} elegido={opciones.find((x) => x.id === r.productoId) ?? null}
+                    onElegir={(x) => cambiar(r.clave, { productoId: x?.id ?? '', libre: false, detalle: '' })}
+                    extra={libre ? { texto: 'Otro gasto (flete, servicio…), sin stock', alElegir: () => cambiar(r.clave, { productoId: '', libre: true }) } : undefined}
+                  />
+                </div>
               )}
               <label className="campo">
                 <span>Cantidad{p && p.unidad !== 'unidades' ? ` (${p.unidad})` : ''}</span>
@@ -286,35 +266,24 @@ function NuevaCompra({ alGuardar }: { alGuardar: () => void }) {
           <span>Nota (opcional)</span>
           <input value={nota} maxLength={300} onChange={(e) => setNota(e.target.value)} />
         </label>
-        {puede('compras.pagar') ? (
-          <>
-            <div className="segmentado" role="group" aria-label="Pago">
-              {([['no', 'Queda a pagar'], ['total', 'Ya está pagada'], ['parte', 'Se pagó una parte']] as const).map(([v, t]) => (
-                <button key={v} type="button" className={pago === v ? 'activo' : ''} aria-pressed={pago === v} onClick={() => setPago(v)}>{t}</button>
-              ))}
-            </div>
-            {pago !== 'no' && (
-              <div className="filtros">
-                {pago === 'parte' && <CampoImporte etiqueta="Entregado (Gs.)" valor={pagoImporte} onChange={setPagoImporte} />}
-                <ElegirMedio valor={medio} onChange={setMedio} />
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="suave chico">La compra queda «a pagar». El pago lo marcan el supervisor o el administrador.</p>
-        )}
+        <p className="suave chico">
+          La compra queda «pendiente de pago» y lo comprado suma al stock. El pago lo marcan el supervisor o el administrador en Pendientes de pago.
+        </p>
       </div>
       <Aviso>{aviso ?? guardar.error}</Aviso>
-      <button type="button" className="btn-primario" disabled={guardar.enviando} onClick={() => void enviar()}>
-        {guardar.enviando ? 'Guardando…' : 'Guardar compra'}
-      </button>
+      <div className="fila-acciones">
+        <button type="button" className="btn-primario" disabled={guardar.enviando} onClick={() => void enviar()}>
+          {guardar.enviando ? 'Guardando…' : 'Guardar compra'}
+        </button>
+        <Link to="/compras" className="btn-texto">Cancelar</Link>
+      </div>
     </>
   )
 }
 
 // ---------- Lista de compras ----------
 
-function ListaCompras({ soloPendientes = false }: { soloPendientes?: boolean }) {
+function ListaCompras({ soloPendientes = false, abrir = null }: { soloPendientes?: boolean; abrir?: string | null }) {
   const u = useUsuario()
   const hoy = diaPY()
   const sectores = useSectores()
@@ -326,7 +295,7 @@ function ListaCompras({ soloPendientes = false }: { soloPendientes?: boolean }) 
   const compras = useConsulta<Compra[]>('/compras', {
     desde, hasta, proveedor, estado: soloPendientes ? 'pendiente,parcial' : estado,
   })
-  const [abierta, setAbierta] = useState<string | null>(null)
+  const [abierta, setAbierta] = useState<string | null>(abrir)
 
   return (
     <>
