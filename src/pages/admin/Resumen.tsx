@@ -5,6 +5,8 @@ import { Link } from 'react-router-dom'
 import { useSectores } from '../../cliente/catalogo'
 import Avisos from '../../components/Avisos'
 import { useConsulta } from '../../cliente/consultas'
+import { usePuede } from '../../cliente/sesion'
+import type { Permiso } from '../../shared/permisos'
 import { Aviso, Cargando, ConDatos } from '../../components/Estado'
 import GraficosResumen from '../../components/graficos/GraficosResumen'
 import { Icono, type NombreIcono } from '../../components/Iconos'
@@ -19,13 +21,14 @@ const num = (n: number) => n.toLocaleString('es-PY')
 const grados = (t: number | null) => (t === null ? '—' : `${String(t).replace('.', ',').replace('-', '−')} °C`)
 const hora = (iso: string) => fechaHoraPY(iso).slice(11)
 
-const ATAJOS: [string, NombreIcono, string][] = [
-  ['/admin/reportes', 'reportes', 'Reportes'],
-  ['/admin/registros', 'registros', 'Producción'],
-  ['/admin/stock', 'ajustes', 'Stock'],
-  ['/admin/controles', 'controles', 'Limpieza y temperatura'],
-  ['/sector/lotes', 'lotes', 'Lotes'],
-  ['/admin/datos', 'datos', 'Datos'],
+const ATAJOS: [string, NombreIcono, string, Permiso][] = [
+  ['/admin/reportes', 'reportes', 'Reportes', 'reportes.ver'],
+  ['/admin/registros', 'registros', 'Producción', 'produccion.ver'],
+  ['/admin/stock', 'ajustes', 'Stock', 'stock.ver'],
+  ['/sector/maquinas', 'maquinas', 'Máquinas', 'maquinas.ver'],
+  ['/admin/controles', 'controles', 'Limpieza y temperatura', 'limpieza.ver'],
+  ['/sector/lotes', 'lotes', 'Lotes', 'lotes.ver'],
+  ['/admin/datos', 'datos', 'Datos', 'datos.gestionar'],
 ]
 
 export default function Resumen() {
@@ -33,6 +36,7 @@ export default function Resumen() {
   const reporte = useConsulta<Reporte>('/reportes', { desde: hoy, hasta: hoy })
   const pendientes = useConsulta<Limpieza[]>('/limpiezas', { sinControlar: true })
   const sectores = useSectores()
+  const puede = usePuede()
 
   return (
     <div className="rep-pagina">
@@ -80,7 +84,7 @@ export default function Resumen() {
 
       <h2>Accesos rápidos</h2>
       <div className="grilla-botones con-iconos">
-        {ATAJOS.map(([a, i, t]) => (
+        {ATAJOS.filter(([, , , p]) => puede(p)).map(([a, i, t]) => (
           <Link key={a} to={a} className="boton-grande con-icono">
             <div className="icono-caja"><Icono nombre={i} /></div><strong>{t}</strong>
           </Link>

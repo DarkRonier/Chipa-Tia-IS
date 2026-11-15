@@ -52,7 +52,7 @@ export interface UsuarioSesion {
   nombre: string
   usuario: string
   rol: Rol
-  /** El sector propio del operador; null para el administrador. */
+  /** El sector propio del operador; null para administrador, supervisor y cajero. */
   sector: SectorId | null
   debeCambiarClave: boolean
 }

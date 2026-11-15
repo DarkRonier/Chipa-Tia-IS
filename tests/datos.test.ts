@@ -99,7 +99,7 @@ describe('descargar todos los datos (I03)', () => {
     expect(Date.parse(r.body.generadoEn)).toBeGreaterThan(Date.now() - 60_000)
     expect(Object.keys(tablas)).toEqual([
       'sectores', 'usuarios', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales',
-      'lotes_mp', 'producciones', 'produccion_items', 'lotes_chipa', 'lote_chipa_mp', 'movimientos', 'lecturas',
+      'lotes_mp', 'producciones', 'produccion_items', 'lotes_chipa', 'lote_chipa_mp', 'movimientos', 'lecturas', 'incidencias',
       'limpiezas', 'limpieza_marcas', 'auditoria', 'copias', 'configuracion', 'archivos',
     ])
     expect(tablas.sesiones).toBeUndefined()
@@ -109,7 +109,7 @@ describe('descargar todos los datos (I03)', () => {
     expect(tablas.movimientos).toHaveLength(1)
     expect(tablas.productos.length).toBeGreaterThan(40)
     // Usuarios sin el hash de la contraseña.
-    expect(tablas.usuarios).toHaveLength(5)
+    expect(tablas.usuarios).toHaveLength(7)
     expect(tablas.usuarios[0]).toEqual(expect.objectContaining({ usuario: 'chiperia', rol: 'chiperia' }))
     for (const u of tablas.usuarios) expect(Object.keys(u)).not.toContain('clave_hash')
     expect(JSON.stringify(r.body)).not.toMatch(/pbkdf2/)

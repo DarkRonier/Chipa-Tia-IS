@@ -213,15 +213,43 @@ function FormAlta({ titulo, children, enviando, error, ok, alEnviar, boton = 'Ag
 
 /** Lo que se cuenta aparte de «unidades» y el aviso de stock mínimo (C08). */
 const detalleProducto = (p: Producto) =>
-  [p.unidad !== 'unidades' ? `Se cuenta en ${p.unidad}` : null, p.stockMinimo !== null ? `Avisa con menos de ${p.stockMinimo} en frío` : null]
-    .filter(Boolean).join(' · ') || null
+  [
+    p.unidad !== 'unidades' ? `Se cuenta en ${p.unidad}` : null,
+    p.stockMinimo !== null ? `Avisa con menos de ${p.stockMinimo} en frío` : null,
+    !p.activo && !p.stockObligatorio ? 'Stock libre' : null,
+  ].filter(Boolean).join(' · ') || null
+
+/**
+ * Stock obligatorio: con la marca, el stock nunca queda negativo y frena las salidas que no alcanzan (la chipa).
+ * Sin la marca (cocido, harina…) puede quedar sin cargar o en negativo y no frena nada.
+ */
+function StockObligatorio({ p }: { p: Producto }) {
+  const cambiar = useAccion((v: boolean) => patch<Producto>(`/productos/${p.id}`, { stockObligatorio: v }))
+  // Se marca al instante; si la API lo rechaza (por ejemplo, el stock está en negativo) vuelve a como estaba.
+  const [marcado, setMarcado] = useState(p.stockObligatorio)
+  useEffect(() => setMarcado(p.stockObligatorio), [p.stockObligatorio])
+  const alternar = async (v: boolean) => {
+    setMarcado(v)
+    if (!(await cambiar.ejecutar(v))) setMarcado(p.stockObligatorio)
+  }
+  return (
+    <>
+      <label className="check pide-numero" title="Con la marca, el stock no puede quedar negativo y frena las salidas que no alcanzan">
+        <input type="checkbox" checked={marcado} disabled={cambiar.enviando} onChange={(e) => void alternar(e.target.checked)} />
+        <span className="chico">Stock obligatorio</span>
+      </label>
+      <Aviso>{cambiar.error}</Aviso>
+    </>
+  )
+}
 
 function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: string }) {
   const c = useConsulta<Producto[]>('/productos', { sector, todos: true })
   const [nombre, setNombre] = useState('')
   const [unidad, setUnidad] = useState('')
+  const [obligatorio, setObligatorio] = useState(true)
   const [ok, setOk] = useState<string | null>(null)
-  const crear = useAccion(() => post<Producto>('/productos', { sector, nombre, unidad: unidad || undefined }))
+  const crear = useAccion(() => post<Producto>('/productos', { sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio }))
   const agregar = async () => {
     setOk(null)
     const p = await crear.ejecutar()
@@ -229,6 +257,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
       setOk(`«${p.nombre}» agregado a ${nombreSector}.`)
       setNombre('')
       setUnidad('')
+      setObligatorio(true)
     }
   }
 
@@ -254,6 +283,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
                 ]}
                 guardar={(cambios) => patch(`/productos/${p.id}`, cambios)}
                 cambiarActivo={(activo) => patch(`/productos/${p.id}`, { activo })}
+                debajo={p.activo && <StockObligatorio p={p} />}
               />
             )}
           />
@@ -268,6 +298,14 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
           <span>Unidad (vacío = unidades)</span>
           <input value={unidad} onChange={(e) => setUnidad(e.target.value)} maxLength={30} placeholder="unidades" />
         </label>
+        <label className="check">
+          <input type="checkbox" checked={obligatorio} onChange={(e) => setObligatorio(e.target.checked)} />
+          <span>Stock obligatorio</span>
+        </label>
+        <p className="pista-campo ancho">
+          Con stock obligatorio el stock nunca queda en negativo y no deja sacar más de lo que hay (por ejemplo, la chipa).
+          Sin la marca puede quedar sin cargar o en negativo y nunca frena (por ejemplo, el cocido o la harina).
+        </p>
       </FormAlta>
     </>
   )

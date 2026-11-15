@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
+import { usePuede } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector, useSectorActivo } from '../../components/Layout'
 import Numero from '../../components/Numero'
@@ -40,6 +41,7 @@ export default function Ajustes() {
 
 function Pantalla() {
   const { id: sector, nombre, conLotes } = useSectorActivo()
+  const puede = usePuede()
   const stock = useStock(sector)
   const recientes = useConsulta<Movimiento[]>('/movimientos', { sector, tipo: TIPOS_AJUSTE })
   const [tipo, setTipo] = useState<TipoAjuste>('merma')
@@ -84,7 +86,7 @@ function Pantalla() {
     if (conLotes && !lote.trim()) return setAviso(loteEscrito ? 'Escribí el lote.' : 'Elegí el lote.')
     if (cantidad <= 0) return setAviso('Cargá una cantidad mayor que cero.')
     if (!motivo.trim()) return setAviso('Escribí el motivo.')
-    if (signo < 0 && cantidad > disponible) return setAviso(`Solo hay ${disponible} en «${NOMBRE_FINALIDAD[finalidad]}»${conLotes ? ' en ese lote' : ''}.`)
+    if (signo < 0 && fila.obligatorio && cantidad > disponible) return setAviso(`Solo hay ${disponible} en «${NOMBRE_FINALIDAD[finalidad]}»${conLotes ? ' en ese lote' : ''}.`)
     const r = await guardarAjuste.ejecutar({
       sector, productoId, tipo, cantidad, finalidad, motivo: motivo.trim(),
       ...(conLotes ? { lote: lote.trim() } : {}),
@@ -108,11 +110,13 @@ function Pantalla() {
         {(datos) => (
           <>
             <TablaStock filas={datos} conLotes={conLotes} ocultarCeros />
-            <CambiarFinalidad key={sector} sector={sector} conLotes={conLotes} filas={datos} />
+            {puede('stock.mover') && <CambiarFinalidad key={sector} sector={sector} conLotes={conLotes} filas={datos} />}
           </>
         )}
       </ConDatos>
 
+      {/* Solo el administrador ajusta; el supervisor ve el stock y los ajustes. */}
+      {puede('stock.ajustar') && (<>
       <h2>Registrar merma, vencimiento o ajuste</h2>
       <div className="tarjeta">
         <div className="segmentado stk-tipos" role="group" aria-label="Tipo">
@@ -185,6 +189,7 @@ function Pantalla() {
           {guardarAjuste.enviando ? 'Guardando…' : 'Guardar'}
         </button>
       </div>
+      </>)}
 
       <h2>Últimos ajustes · {nombre}</h2>
       <ConDatos consulta={recientes}>

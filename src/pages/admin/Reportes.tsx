@@ -6,6 +6,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
 import { mensajeDe, useAccion, useConsulta } from '../../cliente/consultas'
+import { usePuede } from '../../cliente/sesion'
 import { nombreArchivoReporte } from '../../cliente/imprimir'
 import { celdaDia, celdaFechaHora, descargarExcel, negrita, type Celda, type Hoja } from '../../cliente/excel'
 import { Aviso, ConDatos } from '../../components/Estado'
@@ -50,6 +51,7 @@ export default function Reportes() {
   const hoy = diaPY()
   const [params, setParams] = useSearchParams()
   const sectores = useSectores()
+  const puede = usePuede()
   const pDesde = params.get('desde')
   const pHasta = params.get('hasta')
   const desde = esDiaValido(pDesde) ? pDesde : hoy
@@ -108,10 +110,12 @@ export default function Reportes() {
         </ConDatos>
       )}
 
-      <ResumenPorCorreo verPeriodo={(d, h) => {
-        fijar({ desde: d, hasta: h, sector: '' })
-        window.scrollTo({ top: 0, behavior: 'smooth' })
-      }} />
+      {puede('reportes.correo') && (
+        <ResumenPorCorreo verPeriodo={(d, h) => {
+          fijar({ desde: d, hasta: h, sector: '' })
+          window.scrollTo({ top: 0, behavior: 'smooth' })
+        }} />
+      )}
     </div>
   )
 }

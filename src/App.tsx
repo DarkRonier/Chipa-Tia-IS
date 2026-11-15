@@ -1,5 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import type { ReactElement } from 'react'
 import { useSesion } from './cliente/sesion'
+import { inicioDe, puede, type Permiso } from './shared/permisos'
 import { Cargando } from './components/Estado'
 import Layout from './components/Layout'
 import Login from './pages/Login'
@@ -23,6 +25,7 @@ import Registros from './pages/admin/Registros'
 import Controles from './pages/admin/Controles'
 import Reportes, { RecordarEnlaceReporte } from './pages/admin/Reportes'
 import Datos from './pages/admin/Datos'
+import InicioCaja from './pages/caja/Inicio'
 
 export default function App() {
   const { usuario, cargando } = useSesion()
@@ -39,36 +42,38 @@ export default function App() {
     )
   }
   if (usuario.debeCambiarClave) return <CambiarClave />
-  const esAdmin = usuario.rol === 'admin'
+  const p = (permiso: Permiso) => puede(usuario.rol, permiso)
+  // Cada pantalla se monta solo si el rol tiene el permiso (src/shared/permisos.ts); si no, vuelve a su inicio.
+  const ruta = (path: string, permiso: Permiso | Permiso[], element: ReactElement) =>
+    ([] as Permiso[]).concat(permiso).every(p) ? <Route key={path} path={path} element={element} /> : null
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Navigate to={esAdmin ? '/admin' : '/sector'} replace />} />
-        <Route path="sector" element={<InicioSector />} />
-        <Route path="sector/produccion" element={<Produccion />} />
-        <Route path="sector/stock" element={<Stock />} />
-        <Route path="sector/salida" element={<Salida />} />
-        <Route path="sector/envio" element={<Envio />} />
-        <Route path="sector/historial" element={<Historial />} />
-        <Route path="sector/maquinas" element={<Maquinas />} />
-        <Route path="sector/limpieza" element={<LimpiezaPage />} />
-        <Route path="sector/lotes" element={<Lotes />} />
-        <Route path="trazabilidad" element={<Trazabilidad />} />
+        <Route index element={<Navigate to={inicioDe(usuario.rol)} replace />} />
+        {/* Inicio del sector: los sectores y el administrador (que carga en cualquier sector). */}
+        {ruta('sector', 'produccion.cargar', <InicioSector />)}
+        {ruta('sector/produccion', 'produccion.cargar', <Produccion />)}
+        {ruta('sector/stock', 'stock.mover', <Stock />)}
+        {ruta('sector/salida', 'stock.mover', <Salida />)}
+        {ruta('sector/envio', 'stock.mover', <Envio />)}
+        {ruta('sector/historial', 'stock.ver', <Historial />)}
+        {ruta('sector/maquinas', 'maquinas.ver', <Maquinas />)}
+        {ruta('sector/limpieza', 'limpieza.cargar', <LimpiezaPage />)}
+        {ruta('sector/lotes', 'lotes.ver', <Lotes />)}
+        {ruta('trazabilidad', 'trazabilidad.ver', <Trazabilidad />)}
         <Route path="clave" element={<CambiarClave />} />
         <Route path="configuracion" element={<Configuracion />} />
-        {esAdmin && (
-          <>
-            <Route path="admin" element={<Resumen />} />
-            <Route path="admin/usuarios" element={<Usuarios />} />
-            <Route path="admin/catalogos" element={<Catalogos />} />
-            <Route path="admin/stock" element={<Ajustes />} />
-            <Route path="admin/registros" element={<Registros />} />
-            <Route path="admin/controles" element={<Controles />} />
-            <Route path="admin/historial" element={<Historial />} />
-            <Route path="admin/reportes" element={<Reportes />} />
-            <Route path="admin/datos" element={<Datos />} />
-          </>
-        )}
+        {ruta('admin', 'reportes.ver', <Resumen />)}
+        {ruta('admin/usuarios', 'usuarios.gestionar', <Usuarios />)}
+        {ruta('admin/catalogos', 'catalogos.editar', <Catalogos />)}
+        {ruta('admin/stock', 'stock.ver', <Ajustes />)}
+        {ruta('admin/registros', 'produccion.ver', <Registros />)}
+        {ruta('admin/controles', 'limpieza.ver', <Controles />)}
+        {ruta('admin/historial', 'stock.ver', <Historial />)}
+        {ruta('admin/reportes', 'reportes.ver', <Reportes />)}
+        {ruta('admin/datos', 'datos.gestionar', <Datos />)}
+        {/* Etapa 3: venta, factura y caja. Por ahora, el inicio del cajero. */}
+        {usuario.rol === 'cajero' && <Route path="caja" element={<InicioCaja />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

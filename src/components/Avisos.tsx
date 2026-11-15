@@ -1,4 +1,5 @@
-// Avisos automáticos (C08, E10, G08) juntos: arriba del inicio de cada sector y en el Resumen del administrador.
+// Avisos automáticos (C08, E10, G08 e incidencias de máquinas) juntos: arriba del inicio de cada sector y en el Resumen
+// del administrador y del supervisor.
 import { Link } from 'react-router-dom'
 import { useConsulta } from '../cliente/consultas'
 import type { Alerta, TipoAlerta } from '../shared/alertas'
@@ -9,11 +10,14 @@ const TITULO: Record<TipoAlerta, string> = {
   lote_por_vencer: 'Por vencer',
   lote_vencido: 'Vencido',
   limpieza_atrasada: 'Limpieza atrasada',
+  incidencia_maquina: 'Máquina',
 }
 
-/** Pantalla donde se resuelve cada aviso: la del sector o, para el administrador, la suya. */
+/** Pantalla donde se resuelve cada aviso: la del sector o, para el administrador y el supervisor, la suya. */
 function destino(a: Alerta, admin: boolean): string {
   if (!admin) return `/sector${a.enlace}`
+  // La máquina puede ser de otro sector que el elegido arriba: el enlace lo lleva para cambiarlo.
+  if (a.tipo === 'incidencia_maquina') return `/sector${a.enlace}${a.sector ? `&sector=${a.sector}` : ''}`
   if (a.tipo === 'stock_minimo') return '/admin/stock'
   if (a.tipo === 'limpieza_atrasada') return '/admin/controles'
   return `/sector${a.enlace}`
@@ -27,7 +31,7 @@ export default function Avisos({ sector, nombreSector }: { sector?: SectorId; no
   return (
     <section className="avisos" aria-label="Avisos">
       {alertas.datos.map((a) => (
-        <Link key={`${a.tipo}-${a.texto}`} to={destino(a, admin)} className={`aviso-item ${a.tipo === 'lote_vencido' ? 'grave' : ''}`}>
+        <Link key={`${a.tipo}-${a.texto}`} to={destino(a, admin)} className={`aviso-item ${a.tipo === 'lote_vencido' || a.tipo === 'incidencia_maquina' ? 'grave' : ''}`}>
           <strong>{TITULO[a.tipo]}{admin && a.sector && nombreSector ? ` · ${nombreSector(a.sector)}` : ''}</strong>
           <span>{a.texto}</span>
         </Link>

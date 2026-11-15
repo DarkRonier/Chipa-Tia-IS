@@ -6,6 +6,12 @@
   display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.45rem; border-radius: 999px;
   border: 1px solid var(--borde); color: var(--suave); font-size: 0.75rem; vertical-align: middle;
 }
+/* Stock libre: sin stock obligatorio, puede quedar sin cargar o en negativo. */
+.stk-libre {
+  display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.45rem; border-radius: 999px;
+  border: 1px dashed var(--borde); color: var(--suave); font-size: 0.75rem; vertical-align: middle;
+}
+.stk-negativo { color: var(--error, #b42318); }
 /* Finalidad (C05) y stock mínimo (C08) */
 .stk-reparto { margin-top: 0.15rem; }
 .stk-bajo {

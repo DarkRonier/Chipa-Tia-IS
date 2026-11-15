@@ -6,6 +6,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useConsulta } from '../../cliente/consultas'
 import { nombreArchivoTrazabilidad } from '../../cliente/imprimir'
 import { useUsuario } from '../../cliente/sesion'
+import { inicioDe, puede } from '../../shared/permisos'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { BotonPDF, EncabezadoImpresion } from '../../components/Impresion'
 import { IconoTrazabilidad } from '../../components/Iconos'
@@ -41,11 +42,10 @@ function ParaImprimir({ titulo, que, detalle }: { titulo: string; que: string; d
 
 export default function Trazabilidad() {
   const usuario = useUsuario()
-  const esAdmin = usuario.rol === 'admin'
   return (
     <>
-      <Volver titulo="Trazabilidad" a={esAdmin ? '/admin' : '/sector'} icono={<IconoTrazabilidad />} />
-      {esAdmin || usuario.rol === 'chiperia' ? <PantallaTrazabilidad /> : <Aviso>Los lotes y la trazabilidad son solo de Chipería.</Aviso>}
+      <Volver titulo="Trazabilidad" a={inicioDe(usuario.rol)} icono={<IconoTrazabilidad />} />
+      {puede(usuario.rol, 'trazabilidad.ver') ? <PantallaTrazabilidad /> : <Aviso>Los lotes y la trazabilidad son solo de Chipería.</Aviso>}
     </>
   )
 }

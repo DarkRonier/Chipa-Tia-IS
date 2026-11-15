@@ -3,7 +3,7 @@
 // como en la planilla de producción de chipas. Nunca se borra: el administrador lo bloquea (E07).
 // La trazabilidad sigue la cadena lote de materia prima → lotes de chipa (lote_chipa_mp) → envíos a
 // sucursales (movimientos con el código del lote), y al revés.
-import { Hono, type MiddlewareHandler } from 'hono'
+import { Hono } from 'hono'
 import { diaPY } from '../../shared/hora'
 import type { Alerta } from '../../shared/alertas'
 import type {
@@ -14,8 +14,8 @@ import { sentenciaAuditoria } from '../auditoria'
 import { leerLotesChipa, leerLotesMP, leerMovimientos, leerProducciones } from '../consultas'
 import { ahora, nuevoId, sentencia, una } from '../db'
 import type { BaseD1, Entorno } from '../entorno'
-import { invalido, noEncontrado, prohibido } from '../errores'
-import { soloAdmin } from '../sesion'
+import { invalido, noEncontrado } from '../errores'
+import { requiere } from '../sesion'
 import { booleano, cuerpo, dia, diaOpcional, numero, texto, textoOpcional } from '../validar'
 
 export const rutasLotes = new Hono<Entorno>()
@@ -24,12 +24,11 @@ export const rutasLotes = new Hono<Entorno>()
 const CHIPERIA = 'chiperia'
 const MAX_CANTIDAD = 1_000_000
 
-/** Solo Chipería y el administrador; los otros sectores reciben 403. */
-const soloChiperia: MiddlewareHandler<Entorno> = async (c, next) => {
-  const rol = c.get('usuario').rol
-  if (rol !== 'admin' && rol !== CHIPERIA) throw prohibido('Los lotes y la trazabilidad son solo de Chipería.')
-  await next()
-}
+/** Chipería, el supervisor y el administrador ven lotes y trazabilidad; los otros sectores reciben 403. */
+const SOLO_CHIPERIA = 'Los lotes y la trazabilidad son solo de Chipería.'
+const soloChiperia = requiere('lotes.ver', SOLO_CHIPERIA)
+const trazabilidad = requiere('trazabilidad.ver', SOLO_CHIPERIA)
+const cargaLotes = requiere('lotes.cargar', 'Los lotes de materia prima los carga Chipería.')
 
 const vacio = (v: unknown) => v === undefined || v === null || v === ''
 
@@ -57,7 +56,7 @@ rutasLotes.get('/lotes-mp', soloChiperia, async (c) => {
   return c.json<LoteMP[]>(await leerLotesMP(c.env.DB, { disponibles: siFiltro(c.req.query('disponibles')) }))
 })
 
-rutasLotes.post('/lotes-mp', soloChiperia, async (c) => {
+rutasLotes.post('/lotes-mp', soloChiperia, cargaLotes, async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
@@ -89,7 +88,7 @@ rutasLotes.post('/lotes-mp', soloChiperia, async (c) => {
 })
 
 // E07: el administrador bloquea o desbloquea un lote; queda en la auditoría.
-rutasLotes.patch('/lotes-mp/:id', soloChiperia, soloAdmin, async (c) => {
+rutasLotes.patch('/lotes-mp/:id', soloChiperia, requiere('lotes.bloquear', 'Solo el administrador puede hacer esto.'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
@@ -123,7 +122,7 @@ rutasLotes.get('/lotes-chipa', soloChiperia, async (c) => {
 // ---------- Trazabilidad (E06) ----------
 
 /** Hacia adelante: el lote de materia prima, los lotes de chipa que lo usaron y sus envíos. */
-rutasLotes.get('/trazabilidad/mp/:id', soloChiperia, async (c) => {
+rutasLotes.get('/trazabilidad/mp/:id', trazabilidad, async (c) => {
   const db = c.env.DB
   const loteMP = await unLoteMP(db, c.req.param('id'))
   const lotesChipa = await leerLotesChipa(db, { loteMpId: loteMP.id })
@@ -136,7 +135,7 @@ rutasLotes.get('/trazabilidad/mp/:id', soloChiperia, async (c) => {
 })
 
 /** Un lote de chipa: su producción y materia prima (hacia atrás) y adónde fue (hacia adelante). */
-rutasLotes.get('/trazabilidad/lote/:codigo', soloChiperia, async (c) => {
+rutasLotes.get('/trazabilidad/lote/:codigo', trazabilidad, async (c) => {
   const db = c.env.DB
   const pedido = c.req.param('codigo').trim()
   if (!pedido) throw invalido('Escribí el código del lote.')
@@ -171,7 +170,7 @@ rutasLotes.get('/trazabilidad/lote/:codigo', soloChiperia, async (c) => {
 })
 
 /** Hacia atrás: lo que recibió una sucursal de Chipería, de qué lotes de chipa y de qué materia prima. */
-rutasLotes.get('/trazabilidad/sucursal/:id', soloChiperia, async (c) => {
+rutasLotes.get('/trazabilidad/sucursal/:id', trazabilidad, async (c) => {
   const db = c.env.DB
   const { desde, hasta } = rango(c.req.query())
   const fila = await una<{ id: string; nombre: string; activo: number }>(

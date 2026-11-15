@@ -36,7 +36,8 @@ function Formulario() {
   const filas = stock.datos ?? []
   const fila = filas.find((f) => f.productoId === productoId)
   // Se listan los productos con stock para reponer la venta (y el elegido, aunque se haya quedado en 0).
-  const conStock = filas.filter((f) => f.reposicion > 0 || f.productoId === productoId)
+  // Los productos sin stock obligatorio (cocido, harina…) se pueden sacar aunque no haya nada cargado.
+  const conStock = filas.filter((f) => f.reposicion > 0 || (!f.obligatorio && f.activo) || f.productoId === productoId)
   const lotes = (fila?.lotes ?? []).filter((l) => l.reposicion > 0)
   const disponible = !fila ? 0 : conLotes ? (lotes.find((l) => l.lote === lote)?.reposicion ?? 0) : fila.reposicion
   const soloParaSucursales = filas.some((f) => f.distribucion > 0)
@@ -59,7 +60,7 @@ function Formulario() {
     if (!fila) return setAviso('Elegí el producto.')
     if (conLotes && !lote) return setAviso('Elegí de qué lote sale.')
     if (cantidad <= 0) return setAviso('Cargá la cantidad que sale.')
-    if (cantidad > disponible) {
+    if (fila.obligatorio && cantidad > disponible) {
       return setAviso(disponible === 0 ? 'No queda stock de eso.' : `Solo hay ${disponible} en stock${conLotes ? ' en ese lote' : ''}.`)
     }
     const r = await registrar.ejecutar({ sector, productoId, lote: conLotes ? lote : null, cantidad })
@@ -110,7 +111,7 @@ function Formulario() {
               valor={cantidad}
               onChange={(n) => { limpiarMensajes(); setCantidad(n) }}
             />
-            {fila && cantidad > disponible && !error && (
+            {fila && fila.obligatorio && cantidad > disponible && !error && (
               <p className="error">Es más de lo que hay ({disponible}).</p>
             )}
             <Aviso>{error}</Aviso>

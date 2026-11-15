@@ -4,7 +4,8 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { patch, post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
-import { useUsuario } from '../../cliente/sesion'
+import { usePuede, useUsuario } from '../../cliente/sesion'
+import { inicioDe } from '../../shared/permisos'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { IconoLotes } from '../../components/Iconos'
 import Volver from '../../components/Volver'
@@ -69,24 +70,30 @@ export const enlaceTrazaLote = (codigo: string) => `/trazabilidad?lote=${encodeU
 
 export default function Lotes() {
   const usuario = useUsuario()
-  const esAdmin = usuario.rol === 'admin'
+  const puede = usePuede()
   return (
     <>
-      <Volver titulo="Materia prima y lotes" a={esAdmin ? '/admin' : '/sector'} icono={<IconoLotes />} />
-      {esAdmin || usuario.rol === 'chiperia' ? <PantallaLotes esAdmin={esAdmin} /> : <Aviso>Los lotes y la trazabilidad son solo de Chipería.</Aviso>}
+      <Volver titulo="Materia prima y lotes" a={inicioDe(usuario.rol)} icono={<IconoLotes />} />
+      {puede('lotes.ver')
+        ? <PantallaLotes cargar={puede('lotes.cargar')} bloquear={puede('lotes.bloquear')} />
+        : <Aviso>Los lotes y la trazabilidad son solo de Chipería.</Aviso>}
     </>
   )
 }
 
-function PantallaLotes({ esAdmin }: { esAdmin: boolean }) {
+function PantallaLotes({ cargar, bloquear }: { cargar: boolean; bloquear: boolean }) {
   const lotesMP = useConsulta<LoteMP[]>('/lotes-mp')
   return (
     <>
       <AlertasLotes />
-      <h2>Ingresar materia prima</h2>
-      <FormLoteMP existentes={lotesMP.datos ?? []} />
+      {cargar && (
+        <>
+          <h2>Ingresar materia prima</h2>
+          <FormLoteMP existentes={lotesMP.datos ?? []} />
+        </>
+      )}
       <h2>Lotes de materia prima</h2>
-      <ConDatos consulta={lotesMP}>{(lotes) => <ListaLotesMP lotes={lotes} esAdmin={esAdmin} />}</ConDatos>
+      <ConDatos consulta={lotesMP}>{(lotes) => <ListaLotesMP lotes={lotes} esAdmin={bloquear} />}</ConDatos>
       <h2>Lotes de chipa</h2>
       <ListaLotesChipa />
     </>

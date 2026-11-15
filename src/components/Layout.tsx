@@ -1,14 +1,18 @@
 import { createContext, useContext, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useSectores } from '../cliente/catalogo'
-import { useSesion, useUsuario } from '../cliente/sesion'
+import { usePuede, useSesion, useUsuario } from '../cliente/sesion'
+import { NOMBRE_ROL_GENERAL, sectorDeRol, veTodosLosSectores } from '../shared/permisos'
 import { SECTOR_IDS, type Sector, type SectorId } from '../shared/tipos'
 
 const SectorActivo = createContext<Sector>({ id: 'chiperia', nombre: 'Chipería', conLotes: true })
+const ElegirSector = createContext<(s: SectorId) => void>(() => undefined)
 
-/** Sector que se está mirando: el propio para un operador; el elegido arriba para el administrador. */
+/** Sector que se está mirando: el propio para un operador; el elegido arriba para el administrador y el supervisor. */
 export const useSector = () => useContext(SectorActivo).id
 export const useSectorActivo = () => useContext(SectorActivo)
+/** Cambia el sector elegido arriba (administrador y supervisor); para un operador no hace nada. */
+export const useElegirSector = () => useContext(ElegirSector)
 
 const CLAVE_ELEGIDO = 'chipa-tia-sector'
 
@@ -25,14 +29,19 @@ export default function Layout() {
   const usuario = useUsuario()
   const { salir } = useSesion()
   const sectores = useSectores()
-  const esAdmin = usuario.rol === 'admin'
-  // «Lotes» vive bajo /sector pero tiene su propia pestaña: «Vista del sector» no se marca ahí.
-  const enLotes = useLocation().pathname.startsWith('/sector/lotes')
+  const puede = usePuede()
+  // Administrador y supervisor miran todos los sectores y eligen cuál arriba; el cajero no tiene sector.
+  const general = veTodosLosSectores(usuario.rol)
+  const propio = sectorDeRol(usuario.rol)
+  // «Lotes» y «Máquinas» viven bajo /sector pero tienen su propia pestaña: «Vista del sector» no se marca ahí.
+  const ruta = useLocation().pathname
+  const conPestanaPropia = ruta.startsWith('/sector/lotes') || ruta.startsWith('/sector/maquinas')
   const [elegido, setElegido] = useState<SectorId>(leerElegido)
-  const id: SectorId = esAdmin ? elegido : (usuario.rol as SectorId)
+  const id: SectorId = propio ?? elegido
   const sector: Sector = sectores.lista.find((s) => s.id === id) ?? { id, nombre: '', conLotes: id === 'chiperia' }
 
   const elegir = (s: SectorId) => {
+    if (!general || s === elegido) return
     setElegido(s)
     try {
       sessionStorage.setItem(CLAVE_ELEGIDO, s)
@@ -43,15 +52,18 @@ export default function Layout() {
 
   return (
     <SectorActivo.Provider value={sector}>
+    <ElegirSector.Provider value={elegir}>
       <header className="barra">
         <Link to="/" className="marca"><img className="logo" src="./logo.png" alt="Chipa Tía" width="50" height="40" /></Link>
         <div className="barra-der">
-          {esAdmin ? (
+          {general ? (
             <select aria-label="Sector a ver" title={sector.nombre} value={elegido} onChange={(e) => elegir(e.target.value as SectorId)}>
               {sectores.lista.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
             </select>
-          ) : (
+          ) : propio ? (
             <span className="chip" title={sector.nombre}>{sector.nombre}</span>
+          ) : (
+            <span className="chip">{NOMBRE_ROL_GENERAL[usuario.rol as keyof typeof NOMBRE_ROL_GENERAL]}</span>
           )}
           <NavLink className="btn-texto btn-icono" to="/configuracion" aria-label="Configuración" title="Configuración">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -62,20 +74,23 @@ export default function Layout() {
           <button className="btn-texto" onClick={() => void salir()}>Salir</button>
         </div>
       </header>
-      {esAdmin && (
+      {general && (
         <nav className="pestanas">
-          <NavLink to="/admin" end>Resumen</NavLink>
-          <NavLink to="/admin/registros">Producción</NavLink>
-          <NavLink to="/admin/stock">Stock</NavLink>
-          <NavLink to="/admin/historial">Salidas</NavLink>
-          <NavLink to="/admin/controles">Limpieza y temp.</NavLink>
-          <NavLink to="/sector/lotes">Lotes</NavLink>
-          <NavLink to="/trazabilidad">Trazabilidad</NavLink>
-          <NavLink to="/admin/reportes">Reportes</NavLink>
-          <NavLink to="/admin/catalogos">Catálogos</NavLink>
-          <NavLink to="/admin/usuarios">Usuarios</NavLink>
-          <NavLink to="/admin/datos">Datos</NavLink>
-          <NavLink to="/sector" className={({ isActive }) => (isActive && !enLotes ? 'active' : '')}>Vista del sector</NavLink>
+          {puede('reportes.ver') && <NavLink to="/admin" end>Resumen</NavLink>}
+          {puede('produccion.ver') && <NavLink to="/admin/registros">Producción</NavLink>}
+          {puede('stock.ver') && <NavLink to="/admin/stock">Stock</NavLink>}
+          {puede('stock.ver') && <NavLink to="/admin/historial">Salidas</NavLink>}
+          {puede('maquinas.ver') && <NavLink to="/sector/maquinas">Máquinas</NavLink>}
+          {puede('limpieza.ver') && <NavLink to="/admin/controles">Limpieza y temp.</NavLink>}
+          {puede('lotes.ver') && <NavLink to="/sector/lotes">Lotes</NavLink>}
+          {puede('trazabilidad.ver') && <NavLink to="/trazabilidad">Trazabilidad</NavLink>}
+          {puede('reportes.ver') && <NavLink to="/admin/reportes">Reportes</NavLink>}
+          {puede('catalogos.editar') && <NavLink to="/admin/catalogos">Catálogos</NavLink>}
+          {puede('usuarios.gestionar') && <NavLink to="/admin/usuarios">Usuarios</NavLink>}
+          {puede('datos.gestionar') && <NavLink to="/admin/datos">Datos</NavLink>}
+          {puede('produccion.cargar') && (
+            <NavLink to="/sector" className={({ isActive }) => (isActive && !conPestanaPropia ? 'active' : '')}>Vista del sector</NavLink>
+          )}
         </nav>
       )}
       <main className="contenido">
@@ -84,6 +99,7 @@ export default function Layout() {
       <footer className="pie">
         {usuario.nombre}
       </footer>
+    </ElegirSector.Provider>
     </SectorActivo.Provider>
   )
 }

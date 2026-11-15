@@ -10,7 +10,9 @@ import { sentenciaAuditoria } from '../auditoria'
 import { nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, ValorSQL } from '../entorno'
 import { conflicto, invalido, noEncontrado } from '../errores'
-import { esSector, sectorPara, soloAdmin } from '../sesion'
+import { esSector, requiere, sectorPara } from '../sesion'
+
+const soloAdmin = requiere('catalogos.editar', 'Solo el administrador puede hacer esto.')
 import { booleano, cuerpo, entero, texto, textoOpcional } from '../validar'
 
 export const rutasCatalogos = new Hono<Entorno>()
@@ -18,7 +20,7 @@ export const rutasCatalogos = new Hono<Entorno>()
 // ---------- Ayudas ----------
 
 /** `todos=1` (incluir desactivados) solo vale para el administrador; el operador ve lo activo. */
-const verTodos = (c: Context<Entorno>) => c.get('usuario').rol === 'admin' && ['1', 'true'].includes(c.req.query('todos') ?? '')
+const verTodos = (c: Context<Entorno>) => c.get('usuario').sector === null && ['1', 'true'].includes(c.req.query('todos') ?? '')
 
 /** Lanza 400 si el cuerpo de un PATCH no trae ninguno de los campos editables. */
 function algoParaCambiar(b: Record<string, unknown>, campos: string[]) {
@@ -87,11 +89,38 @@ rutasCatalogos.patch('/sectores/:id', soloAdmin, async (c) => {
 
 // ---------- Productos (B01) ----------
 
-interface FilaProducto { id: string; sector: SectorId; nombre: string; unidad: string; activo: number; stock_minimo: number | null }
+interface FilaProducto {
+  id: string
+  sector: SectorId
+  nombre: string
+  unidad: string
+  activo: number
+  stock_minimo: number | null
+  stock_obligatorio: number
+}
 const aProducto = (f: FilaProducto): Producto => ({
   id: f.id, sector: f.sector, nombre: f.nombre, unidad: f.unidad, activo: !!f.activo, stockMinimo: f.stock_minimo,
+  stockObligatorio: !!f.stock_obligatorio,
 })
-const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo, p.stock_minimo'
+const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo, p.stock_minimo, p.stock_obligatorio'
+
+/**
+ * Para volver a marcar un producto con stock obligatorio, su stock no puede estar en negativo (ni en total, ni en una
+ * finalidad, ni en un lote): con la marca puesta el stock solo puede ser 0 o más. Devuelve el texto del problema o null.
+ */
+async function stockNegativo(db: BaseD1, productoId: string): Promise<string | null> {
+  const f = await una<{ finalidad: string; lote: string | null; total: number }>(
+    db,
+    `SELECT finalidad, lote, total FROM (
+       SELECT finalidad, NULL AS lote, SUM(cantidad) AS total FROM movimientos WHERE producto_id = ? GROUP BY finalidad
+       UNION ALL
+       SELECT finalidad, lote, SUM(cantidad) AS total FROM movimientos WHERE producto_id = ? AND lote IS NOT NULL GROUP BY finalidad, lote
+     ) WHERE total < 0 ORDER BY lote IS NOT NULL, total LIMIT 1`,
+    productoId, productoId,
+  )
+  if (!f) return null
+  return `${f.lote ? `el lote ${f.lote}` : 'el stock'} está en ${f.total}`
+}
 
 /** Stock mínimo (C08): entero ≥ 0, o vacío / null para quitarlo. Acepta número o texto con el número. */
 function stockMinimoOpcional(v: unknown): number | null {
@@ -131,13 +160,15 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
   const unidad = textoOpcional(b.unidad, 'La unidad', 30) ?? 'unidades'
   await productoSinRepetir(db, sector, nombre, null)
   const stockMinimo = stockMinimoOpcional(b.stockMinimo)
-  const nuevo: Producto = { id: nuevoId(), sector, nombre, unidad, activo: true, stockMinimo }
+  // Si no se indica, el producto nuevo tiene stock obligatorio, como todos los que ya había.
+  const stockObligatorio = b.stockObligatorio === undefined ? true : booleano(b.stockObligatorio, 'Stock obligatorio')
+  const nuevo: Producto = { id: nuevoId(), sector, nombre, unidad, activo: true, stockMinimo, stockObligatorio }
   await db.batch([
     sentencia(
       db,
-      `INSERT INTO productos (id, sector, nombre, unidad, activo, stock_minimo, orden)
-       VALUES (?, ?, ?, ?, 1, ?, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
-      nuevo.id, sector, nombre, unidad, stockMinimo, sector,
+      `INSERT INTO productos (id, sector, nombre, unidad, activo, stock_minimo, stock_obligatorio, orden)
+       VALUES (?, ?, ?, ?, 1, ?, ?, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
+      nuevo.id, sector, nombre, unidad, stockMinimo, stockObligatorio, sector,
     ),
     sentenciaAuditoria(db, { tabla: 'productos', registroId: nuevo.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nuevo }),
   ])
@@ -147,17 +178,24 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
 rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  algoParaCambiar(b, ['nombre', 'unidad', 'activo', 'stockMinimo'])
+  algoParaCambiar(b, ['nombre', 'unidad', 'activo', 'stockMinimo', 'stockObligatorio'])
   const antes = aProducto(await leerProducto(db, c.req.param('id')))
   const despues: Producto = { ...antes }
   if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre del producto', { max: 100 })
   if (b.unidad !== undefined) despues.unidad = texto(b.unidad, 'la unidad', { max: 30 })
   if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
   if (b.stockMinimo !== undefined) despues.stockMinimo = stockMinimoOpcional(b.stockMinimo)
+  if (b.stockObligatorio !== undefined) despues.stockObligatorio = booleano(b.stockObligatorio, 'Stock obligatorio')
   if (despues.nombre !== antes.nombre) await productoSinRepetir(db, antes.sector, despues.nombre, antes.id)
+  if (despues.stockObligatorio && !antes.stockObligatorio) {
+    const problema = await stockNegativo(db, antes.id)
+    if (problema) {
+      throw conflicto('stock_negativo', `No se puede hacer obligatorio el stock de ${antes.nombre}: ${problema}. Corregilo primero con un ajuste en Stock.`)
+    }
+  }
   await db.batch([
-    sentencia(db, 'UPDATE productos SET nombre = ?, unidad = ?, activo = ?, stock_minimo = ? WHERE id = ?',
-      despues.nombre, despues.unidad, despues.activo, despues.stockMinimo, antes.id),
+    sentencia(db, 'UPDATE productos SET nombre = ?, unidad = ?, activo = ?, stock_minimo = ?, stock_obligatorio = ? WHERE id = ?',
+      despues.nombre, despues.unidad, despues.activo, despues.stockMinimo, despues.stockObligatorio, antes.id),
     sentenciaAuditoria(db, {
       tabla: 'productos', registroId: antes.id, accion: accionDe(antes.activo, despues.activo), usuarioId: c.get('usuario').id, antes, despues,
     }),

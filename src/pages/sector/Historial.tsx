@@ -7,6 +7,7 @@ import { useSectorActivo } from '../../components/Layout'
 import { IconoHistorial } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { useUsuario } from '../../cliente/sesion'
+import { inicioDe } from '../../shared/permisos'
 import { fechaHoraPY } from '../../shared/hora'
 import { NOMBRE_FINALIDAD, NOMBRE_TIPO_MOVIMIENTO, type Movimiento, type Producto, type Sucursal, type TipoMovimiento } from '../../shared/tipos'
 import { useStock } from './Stock'
@@ -71,7 +72,8 @@ export default function Historial() {
 
 function Pantalla() {
   const usuario = useUsuario()
-  const esAdmin = usuario.rol === 'admin'
+  // Administrador y supervisor (sin sector propio) ven todos los sectores, también lo desactivado.
+  const esAdmin = usuario.rol === 'admin' || usuario.rol === 'supervisor'
   const { id: sector, nombre: nombreSector } = useSectorActivo()
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
@@ -103,7 +105,7 @@ function Pantalla() {
 
   return (
     <>
-      <Volver titulo={esAdmin ? `Historial de salidas · ${nombreSector}` : 'Historial de salidas'} a={esAdmin ? '/admin' : '/sector'} icono={<IconoHistorial />} />
+      <Volver titulo={esAdmin ? `Historial de salidas · ${nombreSector}` : 'Historial de salidas'} a={inicioDe(usuario.rol)} icono={<IconoHistorial />} />
       <div className="tarjeta filtros stk-filtros">
         <label className="campo"><span>Desde</span><input type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} /></label>
         <label className="campo"><span>Hasta</span><input type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} /></label>
