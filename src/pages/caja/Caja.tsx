@@ -38,7 +38,7 @@ export default function Caja() {
   return (
     <>
       <div className="titulo"><span className="icono-titulo"><Icono nombre="caja" /></span><h1>Caja</h1></div>
-      <Avisos />
+      <Avisos tipos={['caja_sin_cerrar']} />
       <div className="segmentado" role="tablist">
         {pestanas.map(([p, t]) => (
           <button key={p} type="button" role="tab" aria-selected={pestana === p} className={pestana === p ? 'activo' : ''} onClick={() => ir(p)}>{t}</button>
@@ -74,7 +74,7 @@ function AbrirCaja() {
   const [fondo, setFondo] = useState(0)
   const abrir = useAccion(() => post<TipoCaja>('/caja/abrir', { fondoInicial: fondo }))
   return (
-    <div className="tarjeta">
+    <div className="tarjeta abrir-caja">
       <p>La caja está cerrada. Para empezar a vender, abrila con el efectivo que hay para dar cambio.</p>
       <CampoImporte etiqueta="Fondo inicial en efectivo (Gs.)" valor={fondo} onChange={setFondo} autoFocus />
       <Aviso>{abrir.error}</Aviso>
@@ -173,7 +173,9 @@ function Vender() {
           {factura.ultima?.id === hecha.id && factura.ultima.factura && <p className="chico">Factura {factura.ultima.factura.numeroCompleto}</p>}
         </div>
       )}
-      <input className="buscar" type="search" placeholder="Buscar producto…" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+      <div className="pos">
+      <div className="pos-productos">
+      <input className="buscar" type="search" placeholder="Buscar producto por nombre…" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
       <ConDatos consulta={productos}>
         {() => (
           <div className="grilla-venta">
@@ -191,8 +193,9 @@ function Vender() {
           </div>
         )}
       </ConDatos>
+      </div>
 
-      <div className="tarjeta">
+      <div className="tarjeta pos-carrito">
         <h2>Venta</h2>
         {lineas.length ? (
           <div className="carrito">
@@ -238,6 +241,7 @@ function Vender() {
           </button>
           {lineas.length > 0 && <button type="button" className="btn-texto" onClick={limpiar}>Vaciar</button>}
         </div>
+      </div>
       </div>
       {factura.vista}
     </>

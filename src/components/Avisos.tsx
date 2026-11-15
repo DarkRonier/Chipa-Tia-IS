@@ -30,13 +30,14 @@ function destino(a: Alerta, admin: boolean): string {
 }
 
 /** Con `sector` muestra solo los de ese sector; el administrador, sin sector, ve todos con el nombre del sector. */
-export default function Avisos({ sector, nombreSector }: { sector?: SectorId; nombreSector?: (s: SectorId) => string }) {
+export default function Avisos({ sector, nombreSector, tipos }: { sector?: SectorId; nombreSector?: (s: SectorId) => string; tipos?: Alerta['tipo'][] }) {
   const admin = sector === undefined
   const alertas = useConsulta<Alerta[]>('/alertas', admin ? {} : { sector })
-  if (!alertas.datos?.length) return null
+  const lista = (alertas.datos ?? []).filter((a) => !tipos || tipos.includes(a.tipo))
+  if (!lista.length) return null
   return (
     <section className="avisos" aria-label="Avisos">
-      {alertas.datos.map((a) => (
+      {lista.map((a) => (
         <Link key={`${a.tipo}-${a.texto}`} to={destino(a, admin)} className={`aviso-item ${a.tipo === 'lote_vencido' || a.tipo === 'incidencia_maquina' || a.tipo === 'compra_vencida' ? 'grave' : ''}`}>
           <strong>{TITULO[a.tipo]}{admin && a.sector && nombreSector ? ` · ${nombreSector(a.sector)}` : ''}</strong>
           <span>{a.texto}</span>
