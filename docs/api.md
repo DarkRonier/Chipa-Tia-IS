@@ -291,7 +291,7 @@ Lo pagado nunca supera el total (trigger `pagos_proveedor_sin_exceso`). Importes
 | GET | `/categorias` | `?todos` (admin/supervisor) | `Categoria[]` |
 | POST | `/categorias` | `{ nombre, sectores?: SectorId[] }` · admin | `Categoria` |
 | PATCH | `/categorias/:id` | `{ nombre?, activo?, sectores? }` · admin | `Categoria` |
-| PATCH | `/productos/:id` | `{ categoriaId: string \| null }` (además de lo de B01) · admin | `Producto` |
+| PATCH | `/productos/:id` | `{ categoriaId: string \| null, codigo?: string }` (además de lo de B01; `codigo` opcional, para buscar) · admin | `Producto` |
 | GET | `/proveedores` | `?todos` (quien gestiona) | `Proveedor[]` (`saldo` solo para quien marca pagos) |
 | POST | `/proveedores` | `{ nombre, ruc?, telefono?, notas? }` · supervisor y admin | `Proveedor` |
 | PATCH | `/proveedores/:id` | `{ nombre?, ruc?, telefono?, notas?, activo? }` · supervisor y admin | `Proveedor` |
@@ -299,7 +299,7 @@ Lo pagado nunca supera el total (trigger `pagos_proveedor_sin_exceso`). Importes
 | GET | `/compras/productos` | — | `ProductoCompra[]` (lo que ese usuario puede comprar) |
 | GET | `/compras` | `?desde&hasta&proveedor&estado=pendiente,parcial,pagada,anulada&sector` | `Compra[]` |
 | GET | `/compras/:id` | — | `Compra` con `pagos` (si puede verlos) |
-| POST | `/compras` | `PedidoCompra`: `{ proveedorId, comprobante?, diaCompra?, vencimiento?, nota?, items: [{ productoId? \| detalle?, cantidad, precioUnitario, lote? }], pago?: { importe, medio } }` | `Compra` |
+| POST | `/compras` | `PedidoCompra`: `{ proveedorId?, comprobante?, diaCompra?, vencimiento?, nota?, items: [{ productoId? \| detalle?, cantidad, precioUnitario, lote? }] }`. Sin `proveedorId` queda el proveedor fijo «Sin nombre» (`prov-sin-nombre`, no se lista ni se edita). Se guarda siempre pendiente: con `pago` da 400 | `Compra` |
 | POST | `/compras/:id/pagos` | `{ importe \| total: true, medio, diaPago?, nota?, desdeCaja? }` (`desdeCaja`: el pago sale de la caja abierta) · supervisor y admin | `Compra` |
 | POST | `/compras/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` (`409 compra_con_pagos`) |
 | POST | `/pagos-proveedor/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` |

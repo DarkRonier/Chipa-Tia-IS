@@ -116,7 +116,7 @@ describe('compras de un sector', () => {
     expect((await p.pedir(panaderia, 'POST', '/compras', item(PAN))).status).toBe(403)
     expect((await p.pedir(cocina, 'POST', '/compras', { ...base, items: [{ detalle: 'Flete', precioUnitario: 1000 }] })).status).toBe(400)
     const conPago = await p.pedir(cocina, 'POST', '/compras', { ...item(gaseosa.id), pago: { importe: 100, medio: 'efectivo' } })
-    expect(conPago.status).toBe(403)
+    expect(conPago.status).toBe(400)
     const compra = (await p.pedir<Compra>(cocina, 'POST', '/compras', item(gaseosa.id))).body
     expect((await p.pedir(cocina, 'POST', `/compras/${compra.id}/pagos`, { importe: 100, medio: 'efectivo' })).status).toBe(403)
     expect((await p.pedir(cocina, 'POST', `/compras/${compra.id}/anular`, { motivo: 'x' })).status).toBe(403)
@@ -186,12 +186,38 @@ describe('compras del supervisor, pagos parciales y saldos', () => {
     expect((await p.pedir(cocina, 'GET', `/proveedores/${proveedor.id}/cuenta`)).status).toBe(403)
   })
 
-  it('el pago al cargar la compra no puede superar el total', async () => {
+  it('la compra se carga siempre pendiente: no se puede marcar pagada al crearla', async () => {
     const { p, admin, proveedor } = await escenario()
     const base = { proveedorId: proveedor.id, items: [{ productoId: COCIDO, cantidad: 1, precioUnitario: 5000 }] }
-    expect((await p.pedir(admin, 'POST', '/compras', { ...base, pago: { importe: 6000, medio: 'efectivo' } })).status).toBe(400)
-    const r = await p.pedir<Compra>(admin, 'POST', '/compras', { ...base, pago: { importe: 5000, medio: 'efectivo' } })
-    expect(r.body).toMatchObject({ estado: 'pagada', saldo: 0 })
+    const r = await p.pedir(admin, 'POST', '/compras', { ...base, pago: { importe: 5000, medio: 'efectivo' } })
+    expect(r.status).toBe(400)
+    expect(r.body.error.mensaje).toContain('Pendientes de pago')
+    expect((await p.pedir<Compra>(admin, 'POST', '/compras', base)).body).toMatchObject({ estado: 'pendiente', saldo: 5000 })
+  })
+
+  it('proveedor y comprobante son opcionales: sin proveedor queda «Sin nombre», que no se lista ni se edita', async () => {
+    const { p, sup, cocina, gaseosa } = await escenario()
+    const c = await p.pedir<Compra>(cocina, 'POST', '/compras', { items: [{ productoId: gaseosa.id, cantidad: 30, precioUnitario: 1000 }] })
+    expect(c.status).toBe(200)
+    expect(c.body).toMatchObject({ proveedorId: 'prov-sin-nombre', proveedorNombre: 'Sin nombre', comprobante: '', estado: 'pendiente' })
+    const pendientes = (await p.pedir<Compra[]>(sup, 'GET', '/compras?estado=pendiente,parcial')).body
+    expect(pendientes.map((x) => x.id)).toContain(c.body.id)
+    const pagada = await p.pedir<Compra>(sup, 'POST', `/compras/${c.body.id}/pagos`, { total: true, medio: 'efectivo' })
+    expect(pagada.body.estado).toBe('pagada')
+    const lista = (await p.pedir<Proveedor[]>(sup, 'GET', '/proveedores?todos=1')).body
+    expect(lista.map((x) => x.nombre)).not.toContain('Sin nombre')
+    expect((await p.pedir(sup, 'PATCH', '/proveedores/prov-sin-nombre', { nombre: 'Otro' })).status).toBe(400)
+  })
+
+  it('el código del producto se guarda, se edita y sale en los productos para comprar', async () => {
+    const { p, admin, cocina, gaseosa } = await escenario()
+    expect(gaseosa.codigo).toBe('')
+    const editado = await p.pedir<Producto>(admin, 'PATCH', `/productos/${gaseosa.id}`, { codigo: 'BEB-500' })
+    expect(editado.body.codigo).toBe('BEB-500')
+    const nuevo = await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Agua 500 ml', codigo: 'BEB-501' })
+    expect(nuevo.body.codigo).toBe('BEB-501')
+    const lista = (await p.pedir<ProductoCompra[]>(cocina, 'GET', '/compras/productos')).body
+    expect(lista.find((x) => x.id === gaseosa.id)?.codigo).toBe('BEB-500')
   })
 
   it('el trigger frena un pago que supera el saldo aunque se salte la API', async () => {

@@ -217,6 +217,7 @@ function FormAlta({ titulo, children, enviando, error, ok, alEnviar, boton = 'Ag
 /** Lo que se cuenta aparte de «unidades» y el aviso de stock mínimo (C08). */
 const detalleProducto = (p: Producto) =>
   [
+    p.codigo ? `Código ${p.codigo}` : null,
     p.precioVenta !== null ? `Precio ${gs(p.precioVenta)} · ${NOMBRE_IVA[p.iva]}` : 'Sin precio de venta',
     p.unidad !== 'unidades' ? `Se cuenta en ${p.unidad}` : null,
     p.stockMinimo !== null ? `Avisa con menos de ${p.stockMinimo} en frío` : null,
@@ -296,9 +297,10 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
   const [unidad, setUnidad] = useState('')
   const [obligatorio, setObligatorio] = useState(true)
   const [precio, setPrecio] = useState('')
+  const [codigo, setCodigo] = useState('')
   const [ok, setOk] = useState<string | null>(null)
   const crear = useAccion(() => post<Producto>('/productos', {
-    sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio, precioVenta: precio.trim() || null,
+    sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio, precioVenta: precio.trim() || null, codigo,
   }))
   const agregar = async () => {
     setOk(null)
@@ -309,6 +311,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
       setUnidad('')
       setObligatorio(true)
       setPrecio('')
+      setCodigo('')
     }
   }
 
@@ -329,6 +332,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
                 textoEditar="Editar"
                 campos={[
                   { clave: 'nombre', etiqueta: 'Nombre', valor: p.nombre },
+                  { clave: 'codigo', etiqueta: 'Código (opcional)', valor: p.codigo, max: 30 },
                   { clave: 'unidad', etiqueta: 'Unidad', valor: p.unidad, max: 30 },
                   { clave: 'stockMinimo', etiqueta: 'Stock mínimo en frío (vacío = sin aviso)', valor: p.stockMinimo === null ? '' : String(p.stockMinimo), max: 7 },
                   { clave: 'precioVenta', etiqueta: 'Precio de venta en Gs. (vacío = no se vende en caja)', valor: p.precioVenta === null ? '' : miles(p.precioVenta), max: 15 },
@@ -345,6 +349,10 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
         <label className="campo">
           <span>Nombre</span>
           <input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={100} />
+        </label>
+        <label className="campo">
+          <span>Código (opcional, para buscarlo)</span>
+          <input value={codigo} onChange={(e) => setCodigo(e.target.value)} maxLength={30} />
         </label>
         <label className="campo">
           <span>Unidad (vacío = unidades)</span>

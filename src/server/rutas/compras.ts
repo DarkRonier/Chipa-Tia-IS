@@ -102,6 +102,9 @@ async function proveedorSinRepetir(db: BaseD1, nombre: string, propio: string | 
   )
 }
 
+/** Proveedor fijo para las compras sin proveedor identificado (migración 0012). No se lista ni se edita. */
+export const SIN_PROVEEDOR = 'prov-sin-nombre'
+
 const puedeVerProveedores = (u: UsuarioSesion) => puede(u.rol, 'compras.registrar') || puede(u.rol, 'proveedores.gestionar')
 
 rutasCompras.get('/proveedores', async (c) => {
@@ -109,7 +112,7 @@ rutasCompras.get('/proveedores', async (c) => {
   if (!puedeVerProveedores(u)) throw prohibido()
   const gestiona = puede(u.rol, 'proveedores.gestionar')
   const todos = gestiona && ['1', 'true'].includes(c.req.query('todos') ?? '')
-  const filas = await todas<FilaProveedor>(db(c), `${SQL_PROVEEDOR} ${todos ? '' : 'WHERE p.activo = 1'}`)
+  const filas = await todas<FilaProveedor>(db(c), `${SQL_PROVEEDOR} WHERE p.id <> ? ${todos ? '' : 'AND p.activo = 1'}`, SIN_PROVEEDOR)
   filas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
   return c.json<Proveedor[]>(filas.map((f) => aProveedor(f, puede(u.rol, 'compras.pagar'))))
 })
@@ -141,6 +144,7 @@ rutasCompras.patch('/proveedores/:id', requiere('proveedores.gestionar', 'Los pr
   const b = await cuerpo(c)
   const base = db(c)
   algoParaCambiar(b, ['nombre', 'ruc', 'telefono', 'notas', 'activo'])
+  if (c.req.param('id') === SIN_PROVEEDOR) throw invalido('«Sin nombre» es fijo: no se puede editar.')
   const antes = aProveedor(await leerProveedor(base, c.req.param('id')), true)
   const despues: Proveedor = { ...antes, ...datosProveedor(b, antes) }
   if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
@@ -204,6 +208,7 @@ interface FilaProductoCompra {
   id: string
   nombre: string
   unidad: string
+  codigo: string
   sector: SectorId
   sector_nombre: string
   con_lotes: number
@@ -219,7 +224,7 @@ interface FilaProductoCompra {
  * administrador para ese sector. Administrador y supervisor: todos los productos activos.
  */
 async function productosComprables(base: BaseD1, u: UsuarioSesion, ids?: string[]): Promise<FilaProductoCompra[]> {
-  const sql = `SELECT p.id, p.nombre, p.unidad, p.sector, s.nombre AS sector_nombre, s.con_lotes, p.activo, p.categoria_id,
+  const sql = `SELECT p.id, p.nombre, p.unidad, p.codigo, p.sector, s.nombre AS sector_nombre, s.con_lotes, p.activo, p.categoria_id,
         k.nombre AS categoria_nombre,
         ${u.sector
           ? `CASE WHEN p.sector = ? AND k.activo = 1 AND EXISTS (
@@ -240,7 +245,7 @@ async function productosComprables(base: BaseD1, u: UsuarioSesion, ids?: string[
 rutasCompras.get('/compras/productos', requiere('compras.registrar'), async (c) => {
   const filas = await productosComprables(db(c), c.get('usuario'))
   return c.json<ProductoCompra[]>(filas.map((f) => ({
-    id: f.id, nombre: f.nombre, unidad: f.unidad, sector: f.sector, sectorNombre: f.sector_nombre, conLotes: !!f.con_lotes,
+    id: f.id, nombre: f.nombre, unidad: f.unidad, codigo: f.codigo, sector: f.sector, sectorNombre: f.sector_nombre, conLotes: !!f.con_lotes,
     categoriaId: f.categoria_id, categoriaNombre: f.categoria_nombre,
   })))
 })
@@ -509,9 +514,9 @@ const sentenciaMovimientoCompra = (base: BaseD1, r: Renglon, compraId: string, c
     nuevoId(), r.sector, r.productoId, r.lote, cantidad, motivo, usuarioId, fecha, dia, compraId,
   )
 
+/** El proveedor de la compra; sin proveedor, queda como «Sin nombre». */
 async function proveedorActivo(base: BaseD1, v: unknown) {
-  if (vacio(v)) throw invalido('Elegí el proveedor.')
-  const id = texto(v, 'el proveedor', { max: 100 })
+  const id = vacio(v) ? SIN_PROVEEDOR : texto(v, 'el proveedor', { max: 100 })
   const p = await una<{ id: string; nombre: string; activo: number }>(base, 'SELECT id, nombre, activo FROM proveedores WHERE id = ?', id)
   if (!p) throw invalido('Ese proveedor no existe. Recargá la página y probá de nuevo.')
   if (!p.activo) throw invalido(`El proveedor ${p.nombre} está desactivado.`)
@@ -566,13 +571,8 @@ rutasCompras.post('/compras', requiere('compras.registrar'), async (c) => {
   const total = renglones.reduce((s, r) => s + r.subtotal, 0)
   if (total <= 0) throw invalido('El total de la compra tiene que ser mayor que cero.')
 
-  let pago: { importe: number; medio: MedioPago; desdeCaja: boolean } | null = null
-  if (!vacio(b.pago)) {
-    if (!puede(u.rol, 'compras.pagar')) throw prohibido(SOLO_PAGOS)
-    const crudo = (typeof b.pago === 'object' ? b.pago : {}) as Record<string, unknown>
-    pago = { importe: importe(crudo.importe, 'el importe pagado', 1), medio: medio(crudo.medio), desdeCaja: crudo.desdeCaja === true }
-    if (pago.importe > total) throw invalido(`Lo pagado (${guaranies(pago.importe)}) no puede superar el total de la compra (${guaranies(total)}).`)
-  }
+  // La compra se carga siempre pendiente; el pago lo marcan después el supervisor o el administrador (Pendientes de pago).
+  if (!vacio(b.pago)) throw invalido('La compra se carga sin pago. El pago se marca después, en Pendientes de pago.')
 
   const id = nuevoId()
   const motivo = `Compra a ${proveedor.nombre}${comprobante ? ` (${comprobante})` : ''}`
@@ -591,12 +591,6 @@ rutasCompras.post('/compras', requiere('compras.registrar'), async (c) => {
     )),
     ...renglones.filter((r) => r.productoId).map((r) => sentenciaMovimientoCompra(base, r, id, r.cantidad, motivo, u.id, fecha, hoy)),
   ]
-  if (pago) {
-    sentencias.push(...await sentenciasPago(base, {
-      id: nuevoId(), compraId: id, proveedorId: proveedor.id, proveedorNombre: proveedor.nombre, diaPago: diaCompra, importe: pago.importe,
-      medio: pago.medio, nota: 'Pagado al cargar la compra', usuarioId: u.id, fecha, dia: hoy, desdeCaja: pago.desdeCaja,
-    }))
-  }
   try {
     await base.batch(sentencias)
   } catch (e) {
