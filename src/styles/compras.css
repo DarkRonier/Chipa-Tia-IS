@@ -146,3 +146,45 @@ div.compra-cabeza { cursor: default; }
   .pos-carrito h2 { margin-top: 0; }
 }
 .abrir-caja { max-width: 460px; }
+
+/* ---------- Tablas con acciones (proveedores, compras, gastos fijos, movimientos, ventas) ----------
+   En la compu son tablas comunes. Una fila puede abrir debajo otra fila (fila-detalle) con un formulario o el detalle.
+   En el celular cada fila pasa a ser una tarjeta: el primer dato y los botones arriba, el resto con su etiqueta. */
+.tabla-tarjetas > tbody > tr > td { vertical-align: middle; }
+.tabla-tarjetas > tbody > tr.apagado td:not(.acciones) { color: var(--suave); }
+.tabla-tarjetas > tbody > tr.apagado td:not(.acciones) strong { text-decoration: line-through; }
+.tabla-tarjetas .etiqueta, .tabla-tarjetas .etq-compra { margin-left: 0.4rem; }
+.tabla-tarjetas > tbody > tr.con-detalle > td { border-bottom-color: transparent; background: var(--marca-claro); }
+.tabla-tarjetas > tbody > tr.fila-detalle > td { background: var(--fondo); padding: 0.75rem; }
+.tabla-tarjetas > tbody > tr.fila-detalle .filtros { align-items: flex-end; margin-bottom: 0; }
+.tabla-tarjetas > tbody > tr.se-abre { cursor: pointer; }
+.tabla-tarjetas > tbody > tr.se-abre:hover > td { background: var(--marca-claro); }
+.tabla-tarjetas .sin-cortar { white-space: nowrap; }
+.tabla-tarjetas .texto-largo { max-width: 18rem; overflow-wrap: anywhere; }
+.tabla-tarjetas .positivo { color: var(--ok); }
+.tabla-tarjetas .negativo { color: var(--error); }
+.prov-buscar { max-width: 420px; margin-bottom: 0.75rem; }
+@media (max-width: 720px) {
+  .tabla.tabla-tarjetas, .tabla-tarjetas > tbody { display: block; background: none; box-shadow: none; border-radius: 0; overflow: visible; }
+  .tabla-tarjetas > thead { display: none; }
+  .tabla-tarjetas > tbody > tr:not(.fila-detalle) {
+    display: grid; grid-template-columns: 1fr auto; gap: 0.15rem 0.5rem; padding: 0.75rem;
+    background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; margin-top: 0.6rem; box-shadow: var(--sombra);
+  }
+  .tabla-tarjetas > tbody > tr.con-detalle { border-radius: 12px 12px 0 0; }
+  .tabla-tarjetas > tbody > tr > td { border: none; padding: 0; background: none !important; text-align: left !important; }
+  .tabla-tarjetas > tbody > tr > td:first-child { grid-column: 1; grid-row: 1; font-size: 1.05rem; }
+  /* Los botones van arriba a la derecha de la tarjeta, en fila, al lado del primer dato. */
+  .tabla-tarjetas > tbody > tr > td.acciones { grid-column: 2; grid-row: 1; width: auto; align-self: start; }
+  .tabla-tarjetas > tbody > tr > td.acciones:empty { display: none; }
+  .tabla-tarjetas > tbody > tr > td:first-child { align-self: center; }
+  .tabla-tarjetas > tbody > tr > td[data-etiqueta]:not(:first-child) { grid-column: 1 / -1; font-size: 0.9rem; }
+  .tabla-tarjetas > tbody > tr > td[data-etiqueta]:not(:first-child)::before { content: attr(data-etiqueta) ': '; color: var(--suave); font-size: 0.8rem; }
+  .tabla-tarjetas > tbody > tr > td.vacia { display: none; }
+  .tabla-tarjetas > tbody > tr.fila-detalle { display: block; border: 1px solid var(--borde); border-top: none; border-radius: 0 0 12px 12px; background: var(--fondo); }
+  .tabla-tarjetas > tbody > tr.fila-detalle > td { display: block; }
+  .tabla-tarjetas .texto-largo { max-width: none; }
+}
+
+/* Marcar todo en limpieza: el símbolo de la marca como botón chico. */
+.btn-icono-accion.btn-marca { width: auto; min-width: 40px; padding: 0 0.5rem; font-weight: 800; font-size: 1rem; }

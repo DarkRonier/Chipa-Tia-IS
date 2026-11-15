@@ -15,6 +15,7 @@ import { diaPY, fechaHoraPY, turnoActual } from '../../shared/hora'
 import { cantidadConUnidad, NOMBRE_FINALIDAD, textoUsoMP, type Finalidad, type LoteMP, type PedidoProduccion, type Produccion as Registro, type Producto, type Turno } from '../../shared/tipos'
 import { leerCantidad } from './Lotes'
 import '../../styles/produccion.css'
+import BotonIcono from '../../components/BotonIcono'
 
 type Cantidades = Record<string, { cocinado: number; guardado: number; finalidad: Finalidad }>
 
@@ -226,9 +227,10 @@ function Formulario() {
         {!!deHoy.datos?.length && (
           <>
             {' '}
-            <button type="button" className="btn-texto" onClick={() => document.getElementById('registros-hoy')?.scrollIntoView({ behavior: 'smooth' })}>
-              Ver {deHoy.datos.length === 1 ? 'la carga' : `las ${deHoy.datos.length} cargas`} de hoy
-            </button>
+            <BotonIcono
+              icono="abajo" className="en-texto" texto={`Ver ${deHoy.datos.length === 1 ? 'la carga' : `las ${deHoy.datos.length} cargas`} de hoy`}
+              onClick={() => document.getElementById('registros-hoy')?.scrollIntoView({ behavior: 'smooth' })}
+            />
           </>
         )}
       </p>

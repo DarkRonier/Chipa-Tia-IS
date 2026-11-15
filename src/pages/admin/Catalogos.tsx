@@ -13,6 +13,7 @@ import {
 } from '../../shared/tipos'
 import { gs, miles } from '../../shared/dinero'
 import '../../styles/catalogos.css'
+import BotonIcono from '../../components/BotonIcono'
 
 type Pestana = 'productos' | 'categorias' | 'maquinas' | 'limpieza' | 'sucursales' | 'sectores'
 const PESTANAS: [Pestana, string][] = [
@@ -134,11 +135,12 @@ function FilaEditable({ titulo, prefijo, detalle, activo = true, campos, guardar
       </div>
       {!editando && (
         <div className="acciones-cat con-botones">
-          <button type="button" className="btn-secundario" onClick={abrir}>{textoEditar}</button>
+          <BotonIcono icono="editar" texto={`${textoEditar} ${titulo}`} onClick={abrir} />
           {cambiarActivo && (
-            <button type="button" className="btn-secundario" disabled={accion.enviando} onClick={() => void accion.ejecutar(() => cambiarActivo(!activo))}>
-              {activo ? 'Desactivar' : 'Activar'}
-            </button>
+            <BotonIcono
+              icono={activo ? 'desactivar' : 'activar'} texto={`${activo ? 'Desactivar' : 'Activar'} ${titulo}`} tono={activo ? 'peligro' : 'positivo'}
+              disabled={accion.enviando} onClick={() => void accion.ejecutar(() => cambiarActivo(!activo))}
+            />
           )}
         </div>
       )}
@@ -539,10 +541,11 @@ function FilaMaquina({ m }: { m: Maquina }) {
       </div>
       {!editando && (
         <div className="acciones-cat con-botones">
-          <button type="button" className="btn-secundario" onClick={abrir}>Editar</button>
-          <button type="button" className="btn-secundario" disabled={accion.enviando} onClick={() => void accion.ejecutar({ activo: !m.activo })}>
-            {m.activo ? 'Desactivar' : 'Activar'}
-          </button>
+          <BotonIcono icono="editar" texto={`Editar ${m.nombre}`} onClick={abrir} />
+          <BotonIcono
+            icono={m.activo ? 'desactivar' : 'activar'} texto={`${m.activo ? 'Desactivar' : 'Activar'} ${m.nombre}`} tono={m.activo ? 'peligro' : 'positivo'}
+            disabled={accion.enviando} onClick={() => void accion.ejecutar({ activo: !m.activo })}
+          />
         </div>
       )}
       {editando && d && (

@@ -180,6 +180,137 @@ const DIBUJOS = {
       <path d="M6 9.5v5M18 9.5v5" />
     </>
   ),
+  // ——— Acciones de botones (reemplazan a los botones con forma de link) ———
+  editar: (
+    <>
+      <path d="M4 20h4L19 9l-4-4L4 16z" />
+      <path d="M13 7l4 4" />
+    </>
+  ),
+  desactivar: (
+    <>
+      <path d="M12 3v8" />
+      <path d="M6.6 6.6a8 8 0 1 0 10.8 0" />
+    </>
+  ),
+  activar: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12.5l2.8 2.8L16.5 9.5" />
+    </>
+  ),
+  ver: (
+    <>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  cuenta: (
+    <>
+      <path d="M6 3h9l4 4v14H6z" />
+      <path d="M14 3v5h5" />
+      <path d="M9 12h7M9 16h5" />
+    </>
+  ),
+  anular: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M5.7 5.7l12.6 12.6" />
+    </>
+  ),
+  cancelar: <path d="M6 6l12 12M18 6L6 18" />,
+  imprimir: (
+    <>
+      <path d="M7 9V3h10v6" />
+      <rect x="3" y="9" width="18" height="8" rx="1.5" />
+      <path d="M7 14h10v7H7z" />
+    </>
+  ),
+  basurero: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M9 7V4h6v3" />
+      <path d="M6 7l1 13h10l1-13" />
+      <path d="M10 11v6M14 11v6" />
+    </>
+  ),
+  descargar: (
+    <>
+      <path d="M12 4v11" />
+      <path d="M7 10l5 5 5-5" />
+      <path d="M4 20h16" />
+    </>
+  ),
+  foto: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="9" cy="10" r="1.8" />
+      <path d="M21 16l-5-5-8 8" />
+    </>
+  ),
+  salir: (
+    <>
+      <path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4" />
+      <path d="M10 8l-4 4 4 4" />
+      <path d="M6 12h10" />
+    </>
+  ),
+  volver: (
+    <>
+      <path d="M19 12H5" />
+      <path d="M11 6l-6 6 6 6" />
+    </>
+  ),
+  arriba: (
+    <>
+      <path d="M12 19V5" />
+      <path d="M6 11l6-6 6 6" />
+    </>
+  ),
+  abajo: (
+    <>
+      <path d="M12 5v14" />
+      <path d="M6 13l6 6 6-6" />
+    </>
+  ),
+  quitarFiltros: (
+    <>
+      <path d="M3 5h14l-5.5 7v6l-3 1.5V12z" />
+      <path d="M16 14l5 5M21 14l-5 5" />
+    </>
+  ),
+  check: <path d="M5 12.5l4.5 4.5L19 7" />,
+  checkTodo: (
+    <>
+      <path d="M2 12.5l4.5 4.5L16 7" />
+      <path d="M11.5 16.5l.5.5L22 7" />
+    </>
+  ),
+  candado: (
+    <>
+      <rect x="5" y="11" width="14" height="10" rx="1.5" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </>
+  ),
+  candadoAbierto: (
+    <>
+      <rect x="5" y="11" width="14" height="10" rx="1.5" />
+      <path d="M8 11V7a4 4 0 0 1 7.6-1.7" />
+    </>
+  ),
+  clave: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="M10.8 12.2L20 3M16.5 6.5l3 3M14 9l2 2" />
+    </>
+  ),
+  enlace: (
+    <>
+      <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+      <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+    </>
+  ),
+  mas: <path d="M12 5v14M5 12h14" />,
 } satisfies Record<string, ReactNode>
 
 export type NombreIcono = keyof typeof DIBUJOS

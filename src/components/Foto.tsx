@@ -4,6 +4,7 @@ import { useEffect, useState, type ChangeEvent } from 'react'
 import { achicarFoto, useFoto } from '../cliente/foto'
 import { Cargando } from './Estado'
 import '../styles/controles.css'
+import BotonIcono from './BotonIcono'
 
 /** «Sacar foto» / «Elegir de la galería» y, ya elegida, la vista previa con «Quitar foto». */
 export function CampoFoto({ foto, alCambiar, alError, alOcupado }: {
@@ -36,7 +37,7 @@ export function CampoFoto({ foto, alCambiar, alError, alOcupado }: {
       {foto ? (
         <div className="ctl-foto-vista">
           <img src={foto} alt="Foto adjunta" className="foto" />
-          <button type="button" className="btn-texto" onClick={() => alCambiar(null)}>Quitar foto</button>
+          <BotonIcono icono="basurero" texto="Quitar foto" tono="peligro" onClick={() => alCambiar(null)} />
         </div>
       ) : (
         <div className="ctl-foto-botones">
@@ -64,7 +65,7 @@ export function FotoBajoDemanda({ ruta, alt }: { ruta: string; alt: string }) {
   const { dataUrl, error } = useFoto(pedida ? ruta : null)
   const [abierta, setAbierta] = useState(false)
   if (!pedida) {
-    return <button type="button" className="btn-texto" onClick={() => setPedida(true)}>Ver foto</button>
+    return <BotonIcono icono="foto" texto="Ver foto" onClick={() => setPedida(true)} />
   }
   if (error) return <span className="error chico">{error}</span>
   if (!dataUrl) return <span className="ctl-foto-cargando suave chico">Cargando foto…</span>

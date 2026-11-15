@@ -13,6 +13,7 @@ import type { Alerta } from '../../shared/alertas'
 import { diaLegible, diaPY, sumarDias } from '../../shared/hora'
 import { cantidadConUnidad, DIAS_AVISO_VENCIMIENTO, textoUsoMP, type LoteChipa, type LoteMP } from '../../shared/tipos'
 import '../../styles/lotes.css'
+import BotonIcono from '../../components/BotonIcono'
 
 /** Insumos de la planilla de chipas; el campo es libre. */
 const INSUMOS = ['Queso', 'Almidón', 'Harina', 'Leche', 'Huevo', 'Grasa']
@@ -291,9 +292,11 @@ function ListaLotesMP({ lotes, esAdmin }: { lotes: LoteMP[]; esAdmin: boolean })
                     <EstadoLoteMP lote={l} />
                     {esAdmin && !vencido(l, hoy) && !abierto && (
                       <div>
-                        <button type="button" className="btn-texto" onClick={() => { setConfirmando(l.id); setAviso(null); cambiar.limpiarError() }}>
-                          {l.bloqueado ? 'Desbloquear' : 'Bloquear'}
-                        </button>
+                        <BotonIcono
+                          icono={l.bloqueado ? 'candadoAbierto' : 'candado'} texto={l.bloqueado ? `Desbloquear ${l.insumo} ${l.numeroLote}` : `Bloquear ${l.insumo} ${l.numeroLote}`}
+                          tono={l.bloqueado ? 'positivo' : 'peligro'}
+                          onClick={() => { setConfirmando(l.id); setAviso(null); cambiar.limpiarError() }}
+                        />
                       </div>
                     )}
                   </td>
@@ -311,7 +314,7 @@ function ListaLotesMP({ lotes, esAdmin }: { lotes: LoteMP[]; esAdmin: boolean })
                         <button type="button" className="btn-primario" disabled={cambiar.enviando} onClick={() => void confirmar(l)}>
                           {cambiar.enviando ? 'Guardando…' : l.bloqueado ? 'Sí, desbloquear' : 'Sí, bloquear'}
                         </button>
-                        <button type="button" className="btn-texto" disabled={cambiar.enviando} onClick={() => setConfirmando(null)}>Cancelar</button>
+                        <BotonIcono icono="cancelar" texto="Cancelar" disabled={cambiar.enviando} onClick={() => setConfirmando(null)} />
                       </div>
                     </td>
                   </tr>

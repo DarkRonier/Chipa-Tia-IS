@@ -18,6 +18,7 @@ import {
   type EstadoMaquina, type Incidencia, type PedidoIncidencia, type TipoIncidencia, type Lectura, type Maquina, type Momento, type PedidoLectura, type SectorId,
 } from '../../shared/tipos'
 import '../../styles/controles.css'
+import BotonIcono from '../../components/BotonIcono'
 
 // ---------- Ayudas que comparte la pantalla de controles del administrador ----------
 
@@ -413,12 +414,10 @@ function Incidencias({ maquina, reportar }: { maquina: Maquina; reportar: boolea
                     <button className="btn-primario" onClick={() => void marcarResuelta(i.id)} disabled={resolver.enviando}>
                       {resolver.enviando ? 'Guardando…' : 'Marcar como resuelta'}
                     </button>
-                    <button className="btn-texto" onClick={() => setResolviendo(null)}>Cancelar</button>
+                    <BotonIcono icono="cancelar" texto="Cancelar" onClick={() => setResolviendo(null)} />
                   </>
                 ) : (
-                  <button className="btn-texto" onClick={() => { resolver.limpiarError(); setResolucion(''); setResolviendo(i.id) }}>
-                    Marcar como resuelta
-                  </button>
+                  <BotonIcono icono="check" texto="Marcar como resuelta" tono="positivo" onClick={() => { resolver.limpiarError(); setResolucion(''); setResolviendo(i.id) }} />
                 ))}
               </div>
             ))}
@@ -446,7 +445,7 @@ function Historial({ maquina }: { maquina: Maquina }) {
             ) : (
               <TablaLecturas lecturas={lista} />
             )}
-            <button className="btn-texto" onClick={() => setDias((d) => d + 60)}>Ver lecturas más viejas</button>
+            <BotonIcono icono="historial" texto="Ver lecturas más viejas" onClick={() => setDias((d) => d + 60)} />
           </>
         )}
       </ConDatos>

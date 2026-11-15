@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import Volver from '../components/Volver'
 import { mensajeDe } from '../cliente/consultas'
 import { useSesion, useUsuario } from '../cliente/sesion'
+import BotonIcono from '../components/BotonIcono'
 
 export default function CambiarClave() {
   const usuario = useUsuario()
@@ -49,7 +50,7 @@ export default function CambiarClave() {
       </label>
       {error && <p className="error" role="alert">{error}</p>}
       <button className="btn-primario" type="submit" disabled={enviando}>{enviando ? 'Guardando…' : 'Guardar contraseña'}</button>
-      {obligatorio && <button type="button" className="btn-texto" onClick={() => void salir()}>Salir</button>}
+      {obligatorio && <BotonIcono icono="salir" texto="Salir" onClick={() => void salir()} />}
     </form>
   )
 

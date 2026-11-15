@@ -2,14 +2,15 @@
 // Pestañas: «Pendientes de pago» (el supervisor y el administrador marcan pagos parciales o totales; los sectores solo
 // miran), «Todas las compras» y, para supervisor y administrador, «Resumen» (reporte simple con Excel).
 // Los proveedores tienen su propio menú (/proveedores).
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { get, patch, post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { celdaDia, descargarExcel, negrita } from '../../cliente/excel'
 import { usePuede, useUsuario } from '../../cliente/sesion'
-import Buscador from '../../components/Buscador'
+import Buscador, { normalizar } from '../../components/Buscador'
+import BotonIcono, { Acciones, LinkIcono } from '../../components/BotonIcono'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { Icono } from '../../components/Iconos'
 import Volver from '../../components/Volver'
@@ -348,7 +349,7 @@ export function NuevaCompra() {
         <button type="button" className="btn-primario" disabled={guardar.enviando || !cargados} onClick={() => void enviar()}>
           {guardar.enviando ? 'Guardando…' : `Guardar compra${total ? ` · ${gs(total)}` : ''}`}
         </button>
-        <Link to="/compras" className="btn-texto">Cancelar</Link>
+        <LinkIcono to="/compras" icono="cancelar" texto="Cancelar la compra" />
       </div>
     </>
   )
@@ -369,6 +370,7 @@ function ListaCompras({ soloPendientes = false, abrir = null }: { soloPendientes
     desde, hasta, proveedor, estado: soloPendientes ? 'pendiente,parcial' : estado,
   })
   const [abierta, setAbierta] = useState<string | null>(abrir)
+  const conQuien = !sectorDeRol(u.rol)
 
   return (
     <>
@@ -402,26 +404,48 @@ function ListaCompras({ soloPendientes = false, abrir = null }: { soloPendientes
                 {lista.length} {lista.length === 1 ? 'compra' : 'compras'} · Total {gs(lista.filter((c) => c.estado !== 'anulada').reduce((s, c) => s + c.total, 0))}
                 {deuda > 0 && ` · Falta pagar ${gs(deuda)}`}
               </p>
-              <div className="lista">
-                {lista.map((c) => (
-                  <div key={c.id} className={`item compra-item${c.estado === 'anulada' ? ' apagado' : ''}`}>
-                    <button type="button" className="compra-cabeza" aria-expanded={abierta === c.id} onClick={() => setAbierta(abierta === c.id ? null : c.id)}>
-                      <span><strong>{c.proveedorNombre}</strong>{c.comprobante && <span className="suave"> · {c.comprobante}</span>}</span>
-                      <span className="compra-cifras">
-                        <strong>{gs(c.total)}</strong>
-                        <EtiquetaEstado c={c} />
-                      </span>
-                      <span className="suave chico">
-                        {diaLegible(c.diaCompra)}
-                        {c.vencimiento && ` · vence ${diaLegible(c.vencimiento)}`}
-                        {c.saldo > 0 && c.estado !== 'pendiente' && ` · falta ${gs(c.saldo)}`}
-                        {!sectorDeRol(u.rol) && ` · ${c.sector ? sectores.nombre(c.sector) : c.usuarioNombre}`}
-                      </span>
-                    </button>
-                    {abierta === c.id && <DetalleCompra id={c.id} />}
-                  </div>
-                ))}
-              </div>
+              <table className="tabla tabla-tarjetas">
+                <thead>
+                  <tr>
+                    <th>Proveedor</th><th>Fecha</th><th>Comprobante</th>
+                    {conQuien && <th>Cargó</th>}
+                    <th className="num">Total</th><th>Estado</th><th className="num">Falta pagar</th>
+                    <th className="acciones"><span className="solo-lector">Acciones</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lista.map((c) => {
+                    const abre = () => setAbierta(abierta === c.id ? null : c.id)
+                    return (
+                      <Fragment key={c.id}>
+                        <tr className={`se-abre${c.estado === 'anulada' ? ' apagado' : ''}${abierta === c.id ? ' con-detalle' : ''}`} onClick={abre}>
+                          <td data-etiqueta="Proveedor"><strong>{c.proveedorNombre}</strong></td>
+                          <td data-etiqueta="Fecha">
+                            {diaLegible(c.diaCompra)}
+                            {c.vencimiento && <span className="suave chico"> · vence {diaLegible(c.vencimiento)}</span>}
+                          </td>
+                          <td data-etiqueta="Comprobante" className={c.comprobante ? undefined : 'vacia'}>{c.comprobante || <span className="suave">—</span>}</td>
+                          {conQuien && <td data-etiqueta="Cargó">{c.sector ? sectores.nombre(c.sector) : c.usuarioNombre}</td>}
+                          <td data-etiqueta="Total" className="num"><strong>{gs(c.total)}</strong></td>
+                          <td data-etiqueta="Estado"><EtiquetaEstado c={c} /></td>
+                          <td data-etiqueta="Falta pagar" className={`num${c.saldo > 0 && c.estado !== 'anulada' ? '' : ' vacia'}`}>
+                            {c.saldo > 0 && c.estado !== 'anulada' ? gs(c.saldo) : <span className="suave">—</span>}
+                          </td>
+                          <td className="acciones">
+                            <BotonIcono
+                              icono="ver" texto={abierta === c.id ? 'Ocultar el detalle' : 'Ver detalle y pagos'} presionado={abierta === c.id}
+                              onClick={(e) => { e.stopPropagation(); abre() }}
+                            />
+                          </td>
+                        </tr>
+                        {abierta === c.id && (
+                          <tr className="fila-detalle"><td colSpan={conQuien ? 8 : 7}><DetalleCompra id={c.id} /></td></tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
             </>
           )
         }}
@@ -492,7 +516,7 @@ function Pagos({ compra }: { compra: Compra }) {
       <div className="filtros anular">
         <label className="campo"><span>Motivo</span><input value={motivo} maxLength={300} autoFocus onChange={(e) => setMotivo(e.target.value)} /></label>
         <button type="button" className="btn-primario" disabled={anular.enviando || !motivo.trim()} onClick={() => void confirmarAnulacion(ruta)}>{texto}</button>
-        <button type="button" className="btn-texto" onClick={() => setAnulando(null)}>Cancelar</button>
+        <BotonIcono icono="cancelar" texto="Cancelar" onClick={() => setAnulando(null)} />
       </div>
     )
 
@@ -506,7 +530,7 @@ function Pagos({ compra }: { compra: Compra }) {
               <span>{diaLegible(g.diaPago)} · {NOMBRE_MEDIO_PAGO[g.medio]} · <strong>{gs(g.importe)}</strong> · {g.usuarioNombre}{g.nota && ` · ${g.nota}`}</span>
               {g.anulado
                 ? <span className="chico"> (anulado: {g.motivoAnulacion})</span>
-                : anulando !== g.id && <button type="button" className="btn-texto" onClick={() => { setAnulando(g.id); setMotivo('') }}>Anular pago</button>}
+                : anulando !== g.id && <BotonIcono icono="anular" texto="Anular este pago" tono="peligro" onClick={() => { setAnulando(g.id); setMotivo('') }} />}
               {pedirMotivo(g.id, `/pagos-proveedor/${g.id}/anular`, 'Anular este pago')}
             </li>
           ))}
@@ -533,7 +557,7 @@ function Pagos({ compra }: { compra: Compra }) {
       <Aviso>{pagar.error ?? anular.error}</Aviso>
       {compra.estado !== 'anulada' && compra.pagado === 0 && (
         <>
-          {anulando !== 'compra' && <button type="button" className="btn-texto" onClick={() => { setAnulando('compra'); setMotivo('') }}>Anular la compra</button>}
+          {anulando !== 'compra' && <div className="fila-acciones"><BotonIcono icono="anular" texto="Anular la compra" tono="peligro" onClick={() => { setAnulando('compra'); setMotivo('') }} /></div>}
           {pedirMotivo('compra', `/compras/${compra.id}/anular`, 'Anular la compra y descontar el stock')}
         </>
       )}
@@ -563,7 +587,9 @@ function Proveedores() {
   const [nuevo, setNuevo] = useState<DatosProveedor>(VACIO)
   const [ok, setOk] = useState<string | null>(null)
   const [cuenta, setCuenta] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
   const crear = useAccion(() => post<Proveedor>('/proveedores', nuevo))
+  const conCuenta = puede('compras.pagar')
   const agregar = async () => {
     setOk(null)
     const p = await crear.ejecutar()
@@ -575,13 +601,41 @@ function Proveedores() {
   return (
     <>
       <ConDatos consulta={c}>
-        {(lista) => lista.length ? (
-          <div className="lista">
-            {lista.map((p) => (
-              <FilaProveedor key={p.id} p={p} abierta={cuenta === p.id} alAbrir={() => setCuenta(cuenta === p.id ? null : p.id)} conCuenta={puede('compras.pagar')} />
-            ))}
-          </div>
-        ) : <p className="suave">Todavía no hay proveedores.</p>}
+        {(lista) => {
+          if (!lista.length) return <p className="suave">Todavía no hay proveedores.</p>
+          const q = normalizar(busca)
+          const vistos = q ? lista.filter((p) => normalizar([p.nombre, p.ruc, p.telefono, p.notas].join(' ')).includes(q)) : lista
+          const conSaldo = lista.some((p) => p.saldo !== null)
+          return (
+            <>
+              {lista.length > 5 && (
+                <label className="campo prov-buscar">
+                  <span className="solo-lector">Buscar proveedor</span>
+                  <input type="search" value={busca} placeholder="Buscar por nombre, RUC o teléfono…" onChange={(e) => setBusca(e.target.value)} />
+                </label>
+              )}
+              {vistos.length ? (
+                <table className="tabla tabla-tarjetas">
+                  <thead>
+                    <tr>
+                      <th>Proveedor</th><th>RUC</th><th>Teléfono</th><th>Notas</th>
+                      {conSaldo && <th className="num">Se le debe</th>}
+                      <th className="acciones"><span className="solo-lector">Acciones</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vistos.map((p) => (
+                      <FilaProveedor
+                        key={p.id} p={p} columnas={conSaldo ? 6 : 5} conSaldo={conSaldo}
+                        abierta={cuenta === p.id} alAbrir={() => setCuenta(cuenta === p.id ? null : p.id)} conCuenta={conCuenta}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              ) : <p className="suave">No hay proveedores con «{busca}».</p>}
+            </>
+          )
+        }}
       </ConDatos>
       <h2>Nuevo proveedor</h2>
       <form className="tarjeta filtros" onSubmit={(e) => { e.preventDefault(); void agregar() }}>
@@ -594,37 +648,52 @@ function Proveedores() {
   )
 }
 
-function FilaProveedor({ p, abierta, alAbrir, conCuenta }: { p: Proveedor; abierta: boolean; alAbrir: () => void; conCuenta: boolean }) {
+interface PropsFilaProveedor { p: Proveedor; abierta: boolean; alAbrir: () => void; conCuenta: boolean; conSaldo: boolean; columnas: number }
+
+function FilaProveedor({ p, abierta, alAbrir, conCuenta, conSaldo, columnas }: PropsFilaProveedor) {
   const [editando, setEditando] = useState(false)
   const [d, setD] = useState<DatosProveedor>(p)
   useEffect(() => setD(p), [p])
   const guardar = useAccion((cambios: Partial<Proveedor>) => patch<Proveedor>(`/proveedores/${p.id}`, cambios))
-  const datos = [p.ruc && `RUC ${p.ruc}`, p.telefono, p.notas].filter(Boolean).join(' · ')
+  const nada = <span className="suave">—</span>
   return (
-    <div className={`item${p.activo ? '' : ' apagado'}`}>
-      <div className="compra-cabeza">
-        <span><strong>{p.nombre}</strong>{!p.activo && <span className="suave"> (desactivado)</span>}</span>
-        {p.saldo !== null && <span className="compra-cifras">{p.saldo > 0 ? <>Se le debe <strong>{gs(p.saldo)}</strong></> : <span className="suave">Sin deuda</span>}</span>}
-        {datos && <span className="suave chico">{datos}</span>}
-      </div>
-      {editando ? (
-        <form className="filtros" onSubmit={(e) => { e.preventDefault(); void guardar.ejecutar(d).then((r) => r && setEditando(false)) }}>
-          <CamposProveedor d={d} set={setD} />
-          <button className="btn-primario" disabled={guardar.enviando}>Guardar</button>
-          <button type="button" className="btn-texto" onClick={() => setEditando(false)}>Cancelar</button>
-        </form>
-      ) : (
-        <div className="fila-acciones">
-          <button type="button" className="btn-texto" onClick={() => setEditando(true)}>Editar</button>
-          <button type="button" className="btn-texto" disabled={guardar.enviando} onClick={() => void guardar.ejecutar({ activo: !p.activo })}>
-            {p.activo ? 'Desactivar' : 'Activar'}
-          </button>
-          {conCuenta && <button type="button" className="btn-texto" onClick={alAbrir}>{abierta ? 'Ocultar cuenta' : 'Ver cuenta y saldos'}</button>}
-        </div>
+    <>
+      <tr className={`${p.activo ? '' : 'apagado'}${abierta || editando ? ' con-detalle' : ''}`}>
+        <td data-etiqueta="Proveedor"><strong>{p.nombre}</strong>{!p.activo && <span className="etiqueta apagada">Desactivado</span>}</td>
+        <td data-etiqueta="RUC" className={p.ruc ? 'sin-cortar' : 'vacia'}>{p.ruc || nada}</td>
+        <td data-etiqueta="Teléfono" className={p.telefono ? 'sin-cortar' : 'vacia'}>{p.telefono || nada}</td>
+        <td data-etiqueta="Notas" className={`texto-largo${p.notas ? '' : ' vacia'}`}>{p.notas || nada}</td>
+        {conSaldo && (
+          <td data-etiqueta="Se le debe" className="num">
+            {p.saldo === null ? nada : p.saldo > 0 ? <strong>{gs(p.saldo)}</strong> : <span className="suave">Sin deuda</span>}
+          </td>
+        )}
+        <td className="acciones">
+          <Acciones>
+            <BotonIcono icono="editar" texto={`Editar ${p.nombre}`} presionado={editando} onClick={() => setEditando(!editando)} />
+            {p.activo
+              ? <BotonIcono icono="desactivar" texto={`Desactivar ${p.nombre}`} tono="peligro" disabled={guardar.enviando} onClick={() => void guardar.ejecutar({ activo: false })} />
+              : <BotonIcono icono="activar" texto={`Activar ${p.nombre}`} tono="positivo" disabled={guardar.enviando} onClick={() => void guardar.ejecutar({ activo: true })} />}
+            {conCuenta && <BotonIcono icono="cuenta" texto={abierta ? 'Ocultar la cuenta' : 'Ver cuenta y saldos'} presionado={abierta} onClick={alAbrir} />}
+          </Acciones>
+        </td>
+      </tr>
+      {(editando || abierta || guardar.error) && (
+        <tr className="fila-detalle">
+          <td colSpan={columnas}>
+            {editando && (
+              <form className="filtros" onSubmit={(e) => { e.preventDefault(); void guardar.ejecutar(d).then((r) => r && setEditando(false)) }}>
+                <CamposProveedor d={d} set={setD} />
+                <button className="btn-primario" disabled={guardar.enviando}>Guardar</button>
+                <BotonIcono icono="cancelar" texto="Cancelar" onClick={() => { setD(p); setEditando(false) }} />
+              </form>
+            )}
+            <Aviso>{guardar.error}</Aviso>
+            {abierta && <Cuenta id={p.id} />}
+          </td>
+        </tr>
       )}
-      <Aviso>{guardar.error}</Aviso>
-      {abierta && <Cuenta id={p.id} />}
-    </div>
+    </>
   )
 }
 

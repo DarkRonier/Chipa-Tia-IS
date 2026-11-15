@@ -13,6 +13,7 @@ import type { Lectura, Limpieza, SectorId } from '../../shared/tipos'
 import { TarjetaLimpieza } from '../sector/Limpieza'
 import { TablaLecturas } from '../sector/Maquinas'
 import '../../styles/controles.css'
+import BotonIcono from '../../components/BotonIcono'
 
 type Vista = 'limpieza' | 'temperaturas'
 type Rango = 'hoy' | 'semana' | 'mes'
@@ -218,7 +219,7 @@ function ControlarTodas({ lista, alTerminar }: { lista: Limpieza[]; alTerminar: 
   if (!confirmar) {
     return (
       <div className="fila-acciones">
-        <button type="button" className="btn-texto" onClick={() => setConfirmar(true)}>Controlar las {n} de la lista</button>
+        <BotonIcono icono="checkTodo" texto={`Controlar las ${n} de la lista`} tono="positivo" onClick={() => setConfirmar(true)} />
       </div>
     )
   }
@@ -241,7 +242,7 @@ function ControlarTodas({ lista, alTerminar }: { lista: Limpieza[]; alTerminar: 
         >
           {controlar.enviando ? 'Guardando…' : `Sí, controlar las ${n}`}
         </button>
-        <button type="button" className="btn-texto" disabled={controlar.enviando} onClick={() => setConfirmar(false)}>Cancelar</button>
+        <BotonIcono icono="cancelar" texto="Cancelar" disabled={controlar.enviando} onClick={() => setConfirmar(false)} />
       </div>
     </div>
   )

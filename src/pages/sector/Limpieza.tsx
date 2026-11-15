@@ -227,7 +227,7 @@ function Planilla({ area, sector, borrador, cambiar }: {
         <span className="ctl-todo chico">
           <span className="suave">Marcar todo:</span>
           {MARCAS.map((m) => (
-            <button key={m} type="button" className="btn-texto" onClick={() => marcarTodo(m)}>{m} {NOMBRE_MARCA[m]}</button>
+            <button key={m} type="button" className="btn-icono-accion btn-marca" title={`Marcar todo como ${NOMBRE_MARCA[m]}`} aria-label={`Marcar todo como ${NOMBRE_MARCA[m]}`} onClick={() => marcarTodo(m)}>{m}</button>
           ))}
         </span>
       </div>
