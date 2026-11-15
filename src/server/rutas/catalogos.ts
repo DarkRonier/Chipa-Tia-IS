@@ -3,9 +3,9 @@
 // Escritura solo del administrador, con una fila de auditoría por cambio. Nada se borra: se desactiva.
 import { Hono, type Context } from 'hono'
 import type {
-  AreaLimpieza, Maquina, Producto, Sector, SectorId, Sucursal, TareaLimpieza, TipoMaquina,
+  AreaLimpieza, Categoria, Maquina, Producto, Sector, SectorId, Sucursal, TareaLimpieza, TipoMaquina,
 } from '../../shared/tipos'
-import { NOMBRE_TIPO_MAQUINA, SECTOR_IDS } from '../../shared/tipos'
+import { IVAS, NOMBRE_TIPO_MAQUINA, SECTOR_IDS, type Iva } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, ValorSQL } from '../entorno'
@@ -97,12 +97,39 @@ interface FilaProducto {
   activo: number
   stock_minimo: number | null
   stock_obligatorio: number
+  categoria_id: string | null
+  precio_venta: number | null
+  iva: Iva
+  venta_descuenta_stock: number
 }
 const aProducto = (f: FilaProducto): Producto => ({
   id: f.id, sector: f.sector, nombre: f.nombre, unidad: f.unidad, activo: !!f.activo, stockMinimo: f.stock_minimo,
-  stockObligatorio: !!f.stock_obligatorio,
+  stockObligatorio: !!f.stock_obligatorio, categoriaId: f.categoria_id,
+  precioVenta: f.precio_venta, iva: f.iva, ventaDescuentaStock: !!f.venta_descuenta_stock,
 })
-const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo, p.stock_minimo, p.stock_obligatorio'
+const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo, p.stock_minimo, p.stock_obligatorio, p.categoria_id, p.precio_venta, p.iva, p.venta_descuenta_stock'
+
+/** Precio de venta (M11): entero ≥ 0 en guaraníes, o vacío / null = no se vende. Acepta "12.000". */
+function precioOpcional(v: unknown): number | null {
+  if (v === null || v === undefined || (typeof v === 'string' && !v.trim())) return null
+  const n = typeof v === 'string' && /^[\d.\s]+$/.test(v.trim()) ? Number(v.replace(/[.\s]/g, '')) : v
+  return entero(n, 'El precio de venta', { max: 1_000_000_000 })
+}
+
+function ivaDe(v: unknown): Iva {
+  const n = typeof v === 'string' ? Number(v) : v
+  if (!(IVAS as unknown[]).includes(n)) throw invalido('El IVA tiene que ser 10, 5 o 0 (exenta).')
+  return n as Iva
+}
+
+/** Categoría (M10) opcional: id de una categoría existente, o vacío / null para dejarlo sin categoría. */
+async function categoriaOpcional(db: BaseD1, v: unknown): Promise<string | null> {
+  if (v === null || v === undefined || v === '') return null
+  const id = texto(v, 'la categoría', { max: 100 })
+  const f = await una<{ id: string; nombre: string; activo: number }>(db, 'SELECT id, nombre, activo FROM categorias WHERE id = ?', id)
+  if (!f) throw invalido('Esa categoría no existe. Recargá la página y probá de nuevo.')
+  return f.id
+}
 
 /**
  * Para volver a marcar un producto con stock obligatorio, su stock no puede estar en negativo (ni en total, ni en una
@@ -162,13 +189,20 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
   const stockMinimo = stockMinimoOpcional(b.stockMinimo)
   // Si no se indica, el producto nuevo tiene stock obligatorio, como todos los que ya había.
   const stockObligatorio = b.stockObligatorio === undefined ? true : booleano(b.stockObligatorio, 'Stock obligatorio')
-  const nuevo: Producto = { id: nuevoId(), sector, nombre, unidad, activo: true, stockMinimo, stockObligatorio }
+  const categoriaId = await categoriaOpcional(db, b.categoriaId)
+  const precioVenta = precioOpcional(b.precioVenta)
+  const iva = b.iva === undefined ? 10 : ivaDe(b.iva)
+  const ventaDescuentaStock = b.ventaDescuentaStock === undefined ? false : booleano(b.ventaDescuentaStock, 'La venta descuenta stock')
+  const nuevo: Producto = {
+    id: nuevoId(), sector, nombre, unidad, activo: true, stockMinimo, stockObligatorio, categoriaId, precioVenta, iva, ventaDescuentaStock,
+  }
   await db.batch([
     sentencia(
       db,
-      `INSERT INTO productos (id, sector, nombre, unidad, activo, stock_minimo, stock_obligatorio, orden)
-       VALUES (?, ?, ?, ?, 1, ?, ?, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
-      nuevo.id, sector, nombre, unidad, stockMinimo, stockObligatorio, sector,
+      `INSERT INTO productos (id, sector, nombre, unidad, activo, stock_minimo, stock_obligatorio, categoria_id, precio_venta, iva,
+                             venta_descuenta_stock, orden)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
+      nuevo.id, sector, nombre, unidad, stockMinimo, stockObligatorio, categoriaId, precioVenta, iva, ventaDescuentaStock, sector,
     ),
     sentenciaAuditoria(db, { tabla: 'productos', registroId: nuevo.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nuevo }),
   ])
@@ -178,7 +212,7 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
 rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  algoParaCambiar(b, ['nombre', 'unidad', 'activo', 'stockMinimo', 'stockObligatorio'])
+  algoParaCambiar(b, ['nombre', 'unidad', 'activo', 'stockMinimo', 'stockObligatorio', 'categoriaId', 'precioVenta', 'iva', 'ventaDescuentaStock'])
   const antes = aProducto(await leerProducto(db, c.req.param('id')))
   const despues: Producto = { ...antes }
   if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre del producto', { max: 100 })
@@ -186,6 +220,10 @@ rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
   if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
   if (b.stockMinimo !== undefined) despues.stockMinimo = stockMinimoOpcional(b.stockMinimo)
   if (b.stockObligatorio !== undefined) despues.stockObligatorio = booleano(b.stockObligatorio, 'Stock obligatorio')
+  if (b.categoriaId !== undefined) despues.categoriaId = await categoriaOpcional(db, b.categoriaId)
+  if (b.precioVenta !== undefined) despues.precioVenta = precioOpcional(b.precioVenta)
+  if (b.iva !== undefined) despues.iva = ivaDe(b.iva)
+  if (b.ventaDescuentaStock !== undefined) despues.ventaDescuentaStock = booleano(b.ventaDescuentaStock, 'La venta descuenta stock')
   if (despues.nombre !== antes.nombre) await productoSinRepetir(db, antes.sector, despues.nombre, antes.id)
   if (despues.stockObligatorio && !antes.stockObligatorio) {
     const problema = await stockNegativo(db, antes.id)
@@ -194,8 +232,9 @@ rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
     }
   }
   await db.batch([
-    sentencia(db, 'UPDATE productos SET nombre = ?, unidad = ?, activo = ?, stock_minimo = ?, stock_obligatorio = ? WHERE id = ?',
-      despues.nombre, despues.unidad, despues.activo, despues.stockMinimo, despues.stockObligatorio, antes.id),
+    sentencia(db, 'UPDATE productos SET nombre = ?, unidad = ?, activo = ?, stock_minimo = ?, stock_obligatorio = ?, categoria_id = ?, precio_venta = ?, iva = ?, venta_descuenta_stock = ? WHERE id = ?',
+      despues.nombre, despues.unidad, despues.activo, despues.stockMinimo, despues.stockObligatorio, despues.categoriaId,
+      despues.precioVenta, despues.iva, despues.ventaDescuentaStock, antes.id),
     sentenciaAuditoria(db, {
       tabla: 'productos', registroId: antes.id, accion: accionDe(antes.activo, despues.activo), usuarioId: c.get('usuario').id, antes, despues,
     }),
@@ -545,4 +584,79 @@ rutasCatalogos.patch('/sucursales/:id', soloAdmin, async (c) => {
     }),
   ])
   return c.json<Sucursal>(despues)
+})
+
+// ---------- Categorías de productos (M10) ----------
+// Agrupan productos para las compras: el administrador elige qué sectores pueden comprar cada categoría.
+
+interface FilaCategoria { id: string; nombre: string; activo: number }
+
+async function leerCategorias(db: BaseD1, todos: boolean): Promise<Categoria[]> {
+  const filas = await todas<FilaCategoria>(
+    db, `SELECT id, nombre, activo FROM categorias ${todos ? '' : 'WHERE activo = 1'} ORDER BY orden, nombre`,
+  )
+  const sectores = await todas<{ categoria_id: string; sector: SectorId }>(
+    db, 'SELECT x.categoria_id, x.sector FROM categorias_sectores x JOIN sectores s ON s.id = x.sector ORDER BY s.orden',
+  )
+  return filas.map((f) => ({
+    id: f.id, nombre: f.nombre, activo: !!f.activo,
+    sectores: sectores.filter((x) => x.categoria_id === f.id).map((x) => x.sector),
+  }))
+}
+
+/** Lista de sectores habilitados para comprar (puede quedar vacía: solo compran administrador y supervisor). */
+function sectoresCategoria(v: unknown): SectorId[] {
+  if (v === undefined || v === null) return []
+  if (!Array.isArray(v)) throw invalido('Los sectores deben ser una lista.')
+  if (!v.every(esSector)) throw invalido('Sector desconocido.')
+  return SECTOR_IDS.filter((s) => v.includes(s))
+}
+
+const sentenciasCategoriaSectores = (db: BaseD1, id: string, sectores: SectorId[]): SentenciaD1[] => [
+  sentencia(db, 'DELETE FROM categorias_sectores WHERE categoria_id = ?', id),
+  ...sectores.map((s) => sentencia(db, 'INSERT INTO categorias_sectores (categoria_id, sector) VALUES (?, ?)', id, s)),
+]
+
+async function categoriaSinRepetir(db: BaseD1, nombre: string, propio: string | null) {
+  sinRepetir(await todas<FilaCategoria>(db, 'SELECT id, nombre, activo FROM categorias'), nombre, propio, 'una categoría')
+}
+
+rutasCatalogos.get('/categorias', async (c) => {
+  return c.json<Categoria[]>(await leerCategorias(c.env.DB, verTodos(c)))
+})
+
+rutasCatalogos.post('/categorias', soloAdmin, async (c) => {
+  const b = await cuerpo(c)
+  const db = c.env.DB
+  const nombre = texto(b.nombre, 'el nombre de la categoría', { max: 60 })
+  await categoriaSinRepetir(db, nombre, null)
+  const sectores = sectoresCategoria(b.sectores)
+  const nueva: Categoria = { id: nuevoId(), nombre, activo: true, sectores }
+  await db.batch([
+    sentencia(db, 'INSERT INTO categorias (id, nombre, activo, orden) VALUES (?, ?, 1, (SELECT COALESCE(MAX(orden), -1) + 1 FROM categorias))', nueva.id, nombre),
+    ...sentenciasCategoriaSectores(db, nueva.id, sectores),
+    sentenciaAuditoria(db, { tabla: 'categorias', registroId: nueva.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nueva }),
+  ])
+  return c.json<Categoria>(nueva)
+})
+
+rutasCatalogos.patch('/categorias/:id', soloAdmin, async (c) => {
+  const b = await cuerpo(c)
+  const db = c.env.DB
+  algoParaCambiar(b, ['nombre', 'activo', 'sectores'])
+  const antes = (await leerCategorias(db, true)).find((x) => x.id === c.req.param('id'))
+  if (!antes) throw noEncontrado('No se encontró esa categoría.')
+  const despues: Categoria = { ...antes }
+  if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre de la categoría', { max: 60 })
+  if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
+  if (b.sectores !== undefined) despues.sectores = sectoresCategoria(b.sectores)
+  if (despues.nombre !== antes.nombre) await categoriaSinRepetir(db, despues.nombre, antes.id)
+  await db.batch([
+    sentencia(db, 'UPDATE categorias SET nombre = ?, activo = ? WHERE id = ?', despues.nombre, despues.activo, antes.id),
+    ...(b.sectores !== undefined ? sentenciasCategoriaSectores(db, antes.id, despues.sectores) : []),
+    sentenciaAuditoria(db, {
+      tabla: 'categorias', registroId: antes.id, accion: accionDe(antes.activo, despues.activo), usuarioId: c.get('usuario').id, antes, despues,
+    }),
+  ])
+  return c.json<Categoria>(despues)
 })

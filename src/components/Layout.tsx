@@ -84,6 +84,9 @@ export default function Layout() {
           {puede('limpieza.ver') && <NavLink to="/admin/controles">Limpieza y temp.</NavLink>}
           {puede('lotes.ver') && <NavLink to="/sector/lotes">Lotes</NavLink>}
           {puede('trazabilidad.ver') && <NavLink to="/trazabilidad">Trazabilidad</NavLink>}
+          {puede('compras.pagar') && <NavLink to="/compras">Compras</NavLink>}
+          {puede('caja.operar') && <NavLink to="/caja">Caja</NavLink>}
+          {(puede('ie.completo') || puede('ie.egresos_proveedores')) && <NavLink to="/finanzas">{puede('ie.completo') ? 'Finanzas' : 'Egresos'}</NavLink>}
           {puede('reportes.ver') && <NavLink to="/admin/reportes">Reportes</NavLink>}
           {puede('catalogos.editar') && <NavLink to="/admin/catalogos">Catálogos</NavLink>}
           {puede('usuarios.gestionar') && <NavLink to="/admin/usuarios">Usuarios</NavLink>}

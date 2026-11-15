@@ -275,6 +275,86 @@ Los `PATCH` sin ningún campo editable dan `400`.
   `comentario` opcional, hasta 500 caracteres.
 - `/control` firma el «Controlado por» con auditoría (`controlar`).
 
+## Compras, proveedores y pagos (M10)
+
+Roles: los **sectores** cargan compras solo de productos de su sector cuya categoría el administrador habilitó para
+ese sector, y ven solo las compras que cargaron (sin pagos ni saldos). **Supervisor y administrador** compran
+cualquier producto (y renglones de texto libre, como un flete, que no tocan el stock), gestionan proveedores, marcan
+pagos (parciales o totales), anulan compras y pagos, y ven el reporte. El cajero no entra.
+
+Cada renglón con producto suma a su stock (movimiento `compra`, finalidad «Reponer venta», en el sector del producto).
+Anular una compra (sin pagos) descuenta ese stock; si el stock obligatorio ya se usó, `409 stock_insuficiente`.
+Lo pagado nunca supera el total (trigger `pagos_proveedor_sin_exceso`). Importes en guaraníes enteros.
+
+| Método | Ruta | Cuerpo / consulta | Respuesta |
+|---|---|---|---|
+| GET | `/categorias` | `?todos` (admin/supervisor) | `Categoria[]` |
+| POST | `/categorias` | `{ nombre, sectores?: SectorId[] }` · admin | `Categoria` |
+| PATCH | `/categorias/:id` | `{ nombre?, activo?, sectores? }` · admin | `Categoria` |
+| PATCH | `/productos/:id` | `{ categoriaId: string \| null }` (además de lo de B01) · admin | `Producto` |
+| GET | `/proveedores` | `?todos` (quien gestiona) | `Proveedor[]` (`saldo` solo para quien marca pagos) |
+| POST | `/proveedores` | `{ nombre, ruc?, telefono?, notas? }` · supervisor y admin | `Proveedor` |
+| PATCH | `/proveedores/:id` | `{ nombre?, ruc?, telefono?, notas?, activo? }` · supervisor y admin | `Proveedor` |
+| GET | `/proveedores/:id/cuenta` | — · supervisor y admin | `CuentaProveedor` (compras y pagos con el saldo después de cada uno) |
+| GET | `/compras/productos` | — | `ProductoCompra[]` (lo que ese usuario puede comprar) |
+| GET | `/compras` | `?desde&hasta&proveedor&estado=pendiente,parcial,pagada,anulada&sector` | `Compra[]` |
+| GET | `/compras/:id` | — | `Compra` con `pagos` (si puede verlos) |
+| POST | `/compras` | `PedidoCompra`: `{ proveedorId, comprobante?, diaCompra?, vencimiento?, nota?, items: [{ productoId? \| detalle?, cantidad, precioUnitario, lote? }], pago?: { importe, medio } }` | `Compra` |
+| POST | `/compras/:id/pagos` | `{ importe \| total: true, medio, diaPago?, nota?, desdeCaja? }` (`desdeCaja`: el pago sale de la caja abierta) · supervisor y admin | `Compra` |
+| POST | `/compras/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` (`409 compra_con_pagos`) |
+| POST | `/pagos-proveedor/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` |
+| GET | `/reportes/compras` | `?desde&hasta` (por defecto, el mes actual) · supervisor y admin | `ReporteCompras` |
+
+Medios de pago: `efectivo`, `transferencia`, `tarjeta`, `qr`, `cheque`. Avisos nuevos en `/alertas` (supervisor y
+admin): `compra_por_vencer` (vence en 3 días o menos) y `compra_vencida`.
+
+## Caja, ventas y facturas (M11–M13) · cajero y admin
+
+Hay una sola caja abierta a la vez. Sin caja abierta no se vende. Al cerrar se cuenta el efectivo: esperado = fondo
+inicial + ventas en efectivo + ingresos − retiros; la diferencia queda guardada. Una caja cerrada no se toca (trigger
+`CAJA_CERRADA`). Cada producto tiene `precioVenta` (sin precio no se vende), `iva` (0, 5 o 10) y
+`ventaDescuentaStock`: solo esos productos (ej. una gaseosa comprada) descuentan stock al vender (movimiento `venta`);
+la chipa se descuenta al «Sacar para la venta» del frío, así no se descuenta dos veces.
+
+| Método | Ruta | Cuerpo / consulta | Respuesta |
+|---|---|---|---|
+| GET | `/caja` | — | `Caja \| null` (la abierta, con totales por medio y movimientos) |
+| POST | `/caja/abrir` | `{ fondoInicial }` | `Caja` (`409` si ya hay una abierta) |
+| POST | `/caja/movimientos` | `{ tipo: ingreso \| retiro, concepto, importe, medio? }` | `Caja` |
+| POST | `/caja/movimientos/:id/anular` | `{ motivo }` (solo los cargados a mano) | `Caja` |
+| POST | `/caja/arqueos` | `{ contado, nota? }` (arqueo parcial, sin cerrar) | `Caja` |
+| POST | `/caja/cerrar` | `{ contado, nota? }` | `Caja` cerrada con `diferencia` |
+| GET | `/cajas` | `?desde&hasta` · admin | `Caja[]` |
+| GET | `/cajas/:id` | — · admin | `Caja` |
+| GET | `/ventas/productos` | — | `ProductoVenta[]` (con precio; stock si descuenta) |
+| GET | `/ventas` | `?caja&desde&hasta` (el cajero, por defecto la caja abierta) | `Venta[]` |
+| GET | `/ventas/:id` | — | `Venta` |
+| POST | `/ventas` | `PedidoVenta`: `{ items: [{ productoId, cantidad }], descuento?, medio, recibido?, clienteNombre?, clienteRuc? }` | `Venta` (`409 stock_insuficiente`) |
+| POST | `/ventas/:id/anular` | `{ motivo }` (solo con la caja abierta; devuelve el stock y anula la factura) | `Venta` |
+| GET | `/factura/config` | — | `ConfigFactura` (timbrado, prefijo, número inicial y posiciones en mm) |
+| PUT | `/factura/config` | `ConfigFactura` · admin | `ConfigFactura` |
+| POST | `/ventas/:id/factura` | — | `{ venta, config }`: la primera vez asigna el número correlativo; después cuenta reimpresiones |
+
+## Ingresos y egresos, gastos fijos y sueldos (M14) · admin (el supervisor ve solo pagos a proveedores)
+
+Las ventas entran solas como ingreso y los pagos a proveedores como egreso. El resto se carga a mano. Los sueldos son
+gastos fijos mensuales (`esSueldo`), con importe que solo el administrador define; al pagarlos quedan como egreso del
+mes. Con `desdeCaja`, el movimiento también entra o sale de la caja abierta.
+
+| Método | Ruta | Cuerpo / consulta | Respuesta |
+|---|---|---|---|
+| GET | `/ie` | `?desde&hasta` | `ResumenIE` (supervisor: `soloProveedores`) |
+| GET | `/ie/categorias` | — | `{ ingreso: string[], egreso: string[] }` |
+| POST | `/ie` | `{ tipo, dia?, concepto, categoria, importe, medio?, desdeCaja? }` · admin | movimiento |
+| POST | `/ie/:id/anular` | `{ motivo }` · admin | movimiento |
+| GET | `/gastos-fijos` | `?periodo=AAAA-MM` · admin | `GastoFijoMes[]` (con pagado o no ese mes) |
+| POST | `/gastos-fijos` | `{ nombre, categoria?, importe, diaDelMes, esSueldo? }` · admin | `GastoFijo` |
+| PATCH | `/gastos-fijos/:id` | `{ nombre?, categoria?, importe?, diaDelMes?, activo? }` · admin | `GastoFijo` |
+| POST | `/gastos-fijos/:id/pagar` | `{ periodo, importe?, medio, dia?, desdeCaja? }` · admin | movimiento (`409 ya_pagado`) |
+| GET | `/reportes/detallado` | `?desde&hasta` · admin | `ReporteDetallado` (ventas, cajas, I/E, sueldos, gastos fijos, compras) |
+
+Avisos nuevos en `/alertas`: `caja_sin_cerrar` (caja abierta de un día anterior) y `gasto_fijo_pendiente` (vencido sin pagar, admin).
+
 ## Reportes (H01–H04) · admin y supervisor (el correo, solo admin)
 
 | Método | Ruta | Cuerpo / consulta | Respuesta |

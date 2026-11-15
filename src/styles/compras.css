@@ -1,0 +1,50 @@
+/* Compras, ventas y caja (M10–M14). Reusa variables y clases de src/styles.css. */
+.lista-renglones { display: grid; gap: 0.5rem; margin-bottom: 0.5rem; }
+.renglon-compra { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); align-items: end; }
+.renglon-compra .ancho { grid-column: 1 / -1; }
+.subtotal-renglon { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.total-compra { display: flex; justify-content: space-between; align-items: baseline; font-size: 1.25rem; }
+.compra-item { cursor: default; }
+.compra-cabeza {
+  display: grid; gap: 0.15rem; width: 100%; text-align: left; background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer;
+}
+div.compra-cabeza { cursor: default; }
+.compra-cifras { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.detalle-compra { display: grid; gap: 0.4rem; margin-top: 0.6rem; overflow-x: auto; }
+.lista-pagos { margin: 0.25rem 0; padding-left: 1.1rem; display: grid; gap: 0.3rem; }
+.anular { margin-top: 0.4rem; }
+.etq-compra {
+  display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--neutro); white-space: nowrap;
+}
+.etq-compra.pagada, .etq-compra.cerrada { background: var(--ok-fondo); color: var(--ok); }
+.etq-compra.parcial, .etq-compra.pendiente, .etq-compra.abierta { background: var(--aviso); }
+.etq-compra.vencida, .etq-compra.anulada { background: var(--error-fondo); color: var(--error); }
+.diferencia-positiva { color: var(--ok); font-weight: 700; }
+.diferencia-negativa { color: var(--error); font-weight: 700; }
+
+/* Caja (M13) y punto de venta (M11). */
+.grilla-venta { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.5rem; margin-bottom: 0.75rem; }
+.producto-venta {
+  display: grid; gap: 0.15rem; text-align: left; padding: 0.7rem; min-height: 72px; border-radius: 12px; cursor: pointer;
+  background: var(--superficie); border: 1px solid var(--borde); color: var(--texto); font: inherit; box-shadow: var(--sombra);
+}
+.producto-venta:disabled { opacity: 0.5; cursor: not-allowed; }
+.producto-venta strong { font-size: 0.95rem; }
+.carrito { display: grid; gap: 0.4rem; }
+.linea-carrito { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.5rem; }
+.cantidad-carrito { display: flex; align-items: center; gap: 0.25rem; }
+.cantidad-carrito button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--borde); background: var(--superficie); color: var(--texto); font-size: 1.2rem; }
+.cantidad-carrito span { min-width: 2rem; text-align: center; font-weight: 700; }
+.vuelto { font-size: 1.1rem; }
+.tabla-caja td:not(:first-child), .tabla-caja th:not(:first-child) { text-align: right; }
+.par-mm { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+
+/* Factura preimpresa (M12): la hoja en pantalla (vista previa) y sola al imprimir. */
+.hoja-factura { position: relative; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; line-height: 1; }
+.vista-factura { overflow: auto; border: 1px dashed var(--borde); border-radius: 8px; background: #fff; max-width: 100%; }
+.factura-portal { display: none; }
+@media print {
+  body.con-factura > *:not(.factura-portal) { display: none !important; }
+  body.con-factura .factura-portal { display: block; }
+  body.con-factura { margin: 0; }
+}

@@ -1,0 +1,682 @@
+// M11–M13: caja, ventas y factura preimpresa. Lo usan el cajero y el administrador.
+// - Caja: una sola caja operativa, como mucho una abierta (índice único). Se abre con un fondo inicial en efectivo;
+//   cada venta, ingreso y retiro suma o resta en su medio de pago; el arqueo compara el efectivo contado con el
+//   esperado; el cierre guarda esperado, contado y diferencia.
+// - Ventas: al contado, con productos, cantidades, precios del catálogo, descuento, medio de pago y cliente opcional.
+//   Solo con la caja abierta. Descuentan stock solo los productos marcados «la venta descuenta stock» (decisión de
+//   Mati, 2026-11-15): lo que sale del frío ya bajó con «Sacar para la venta» y no se descuenta otra vez.
+// - Factura preimpresa: numeración propia (prefijo y número), una por venta; se puede reimprimir con el mismo número.
+import { Hono } from 'hono'
+import type { Alerta } from '../../shared/alertas'
+import { diaLegible } from '../../shared/hora'
+import { puede } from '../../shared/permisos'
+import {
+  MEDIOS_PAGO,
+  type Arqueo, type Caja, type ConfigFactura, type Factura, type Iva, type MedioPago, type MovimientoCaja, type ProductoVenta,
+  type SectorId, type TotalesMedio, type Venta, type VentaItem,
+} from '../../shared/tipos'
+import { sentenciaAuditoria } from '../auditoria'
+import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
+import type { BaseD1, Entorno, SentenciaD1, ValorSQL } from '../entorno'
+import { conflicto, esStockInsuficiente, invalido, noEncontrado } from '../errores'
+import { requiere } from '../sesion'
+import { cuerpo, diaOpcional, texto, textoOpcional } from '../validar'
+
+export const rutasCaja = new Hono<Entorno>()
+
+const MAX_RENGLONES = 100
+const MAX_IMPORTE = 1_000_000_000_000
+const vacio = (v: unknown) => v === undefined || v === null || v === ''
+const gs = (n: number) => `Gs. ${Math.round(n).toLocaleString('es-PY')}`
+
+// ---------- Ayudas comunes (también las usan compras e ingresos y egresos) ----------
+
+export function importeGs(v: unknown, campo: string, min = 1): number {
+  const Campo = campo[0].toUpperCase() + campo.slice(1)
+  if (vacio(v)) throw invalido(`Falta ${campo}.`)
+  if (typeof v !== 'number' || !Number.isInteger(v)) throw invalido(`${Campo} tiene que ser un número entero de guaraníes.`)
+  if (v < min) throw invalido(min > 0 ? `${Campo} tiene que ser mayor que cero.` : `${Campo} no puede ser negativo.`)
+  if (v > MAX_IMPORTE) throw invalido(`${Campo} es demasiado grande.`)
+  return v
+}
+
+export function medioPago(v: unknown): MedioPago {
+  if (vacio(v)) throw invalido('Elegí el medio de pago.')
+  if (!(MEDIOS_PAGO as unknown[]).includes(v)) throw invalido('El medio de pago no es válido.')
+  return v as MedioPago
+}
+
+export const esCajaCerrada = (e: unknown) => e instanceof Error && e.message.includes('CAJA_CERRADA')
+export const cajaCerradaError = () => conflicto('caja_cerrada', 'La caja está cerrada. Abrila para seguir.')
+
+/** La caja abierta, o null. */
+export async function cajaAbierta(db: BaseD1): Promise<{ id: string; dia: string } | null> {
+  return una<{ id: string; dia: string }>(db, 'SELECT id, dia FROM cajas WHERE cerrada_en IS NULL LIMIT 1')
+}
+
+/** Movimiento de caja automático o manual (va en el mismo batch que lo que lo origina). */
+export function sentenciaMovimientoCaja(db: BaseD1, m: {
+  id: string; cajaId: string; tipo: 'ingreso' | 'retiro'; medio: MedioPago; importe: number; concepto: string
+  origen: 'manual' | 'ie' | 'proveedor'; origenId: string | null; usuarioId: string; fecha: string; dia: string
+}): SentenciaD1 {
+  return sentencia(
+    db,
+    `INSERT INTO caja_movimientos (id, caja_id, tipo, medio, importe, concepto, origen, origen_id, usuario_id, fecha, dia)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    m.id, m.cajaId, m.tipo, m.medio, m.importe, m.concepto, m.origen, m.origenId, m.usuarioId, m.fecha, m.dia,
+  )
+}
+
+/**
+ * Anula el movimiento de caja que generó otro módulo (pago a proveedor, gasto). Solo si esa caja sigue abierta: una
+ * caja cerrada ya se contó.
+ */
+export async function sentenciasAnularMovimientoCaja(db: BaseD1, id: string | null, usuarioId: string, fecha: string): Promise<SentenciaD1[]> {
+  if (!id) return []
+  const f = await una<{ cerrada_en: string | null }>(db, 'SELECT c.cerrada_en FROM caja_movimientos m JOIN cajas c ON c.id = m.caja_id WHERE m.id = ?', id)
+  if (f?.cerrada_en) {
+    throw conflicto('caja_cerrada', 'Ese movimiento salió de una caja que ya se cerró: no se puede anular. Cargá un ajuste en Ingresos y egresos.')
+  }
+  return [sentencia(db, 'UPDATE caja_movimientos SET anulado_por = ?, anulado_en = ? WHERE id = ? AND anulado_en IS NULL', usuarioId, fecha, id)]
+}
+
+// ---------- Caja ----------
+
+interface FilaCaja {
+  id: string
+  abierta_por_nombre: string
+  abierta_en: string
+  dia: string
+  fondo_inicial: number
+  cerrada_por_nombre: string | null
+  cerrada_en: string | null
+  contado_efectivo: number | null
+  esperado_efectivo: number | null
+  diferencia: number | null
+  nota_cierre: string
+}
+
+const SQL_CAJA = `SELECT c.id, a.nombre AS abierta_por_nombre, c.abierta_en, c.dia, c.fondo_inicial, z.nombre AS cerrada_por_nombre,
+    c.cerrada_en, c.contado_efectivo, c.esperado_efectivo, c.diferencia, c.nota_cierre
+  FROM cajas c JOIN usuarios a ON a.id = c.abierta_por LEFT JOIN usuarios z ON z.id = c.cerrada_por`
+
+/** Totales por medio de varias cajas: fondo (efectivo) + ventas + ingresos − retiros. */
+async function totalesDe(db: BaseD1, cajas: FilaCaja[]): Promise<Map<string, { totales: TotalesMedio[]; cantidad: number; ventas: number }>> {
+  const ids = cajas.map((c) => c.id)
+  const [ventas, movs] = await Promise.all([
+    todasPorTrozos<{ caja_id: string; medio: MedioPago; total: number; cantidad: number }>(
+      db, ids,
+      (m) => `SELECT caja_id, medio, SUM(total) AS total, COUNT(*) AS cantidad FROM ventas
+               WHERE anulada_en IS NULL AND caja_id IN (${m}) GROUP BY caja_id, medio`,
+    ),
+    todasPorTrozos<{ caja_id: string; medio: MedioPago; tipo: 'ingreso' | 'retiro'; total: number }>(
+      db, ids,
+      (m) => `SELECT caja_id, medio, tipo, SUM(importe) AS total FROM caja_movimientos
+               WHERE anulado_en IS NULL AND caja_id IN (${m}) GROUP BY caja_id, medio, tipo`,
+    ),
+  ])
+  const r = new Map<string, { totales: TotalesMedio[]; cantidad: number; ventas: number }>()
+  for (const c of cajas) {
+    const totales = MEDIOS_PAGO.map((medio) => {
+      const v = ventas.find((x) => x.caja_id === c.id && x.medio === medio)?.total ?? 0
+      const ing = movs.find((x) => x.caja_id === c.id && x.medio === medio && x.tipo === 'ingreso')?.total ?? 0
+      const ret = movs.find((x) => x.caja_id === c.id && x.medio === medio && x.tipo === 'retiro')?.total ?? 0
+      return { medio, ventas: v, ingresos: ing, retiros: ret, esperado: (medio === 'efectivo' ? c.fondo_inicial : 0) + v + ing - ret }
+    })
+    const propias = ventas.filter((x) => x.caja_id === c.id)
+    r.set(c.id, {
+      totales,
+      cantidad: propias.reduce((s, x) => s + x.cantidad, 0),
+      ventas: propias.reduce((s, x) => s + x.total, 0),
+    })
+  }
+  return r
+}
+
+export async function leerCajas(db: BaseD1, where = '', ...params: ValorSQL[]): Promise<Caja[]> {
+  const filas = await todas<FilaCaja>(db, `${SQL_CAJA} ${where} ORDER BY c.abierta_en DESC LIMIT 500`, ...params)
+  const tot = await totalesDe(db, filas)
+  return filas.map((f) => {
+    const t = tot.get(f.id)!
+    const esperado = t.totales.find((x) => x.medio === 'efectivo')!.esperado
+    return {
+      id: f.id,
+      abierta: f.cerrada_en === null,
+      abiertaPorNombre: f.abierta_por_nombre,
+      abiertaEn: f.abierta_en,
+      dia: f.dia,
+      fondoInicial: f.fondo_inicial,
+      cerradaPorNombre: f.cerrada_por_nombre,
+      cerradaEn: f.cerrada_en,
+      cantidadVentas: t.cantidad,
+      totalVentas: t.ventas,
+      totales: t.totales.filter((x) => x.medio === 'efectivo' || x.ventas || x.ingresos || x.retiros),
+      esperadoEfectivo: f.esperado_efectivo ?? esperado,
+      contadoEfectivo: f.contado_efectivo,
+      diferencia: f.diferencia,
+      notaCierre: f.nota_cierre,
+    }
+  })
+}
+
+async function detalleCaja(db: BaseD1, id: string): Promise<Caja> {
+  const [caja] = await leerCajas(db, 'WHERE c.id = ?', id)
+  if (!caja) throw noEncontrado('No se encontró esa caja.')
+  const [movs, arqueos] = await Promise.all([
+    todas<{ id: string; tipo: 'ingreso' | 'retiro'; medio: MedioPago; importe: number; concepto: string; origen: MovimientoCaja['origen']; usuario_nombre: string; fecha: string; anulado_en: string | null }>(
+      db,
+      `SELECT m.id, m.tipo, m.medio, m.importe, m.concepto, m.origen, u.nombre AS usuario_nombre, m.fecha, m.anulado_en
+         FROM caja_movimientos m JOIN usuarios u ON u.id = m.usuario_id WHERE m.caja_id = ? ORDER BY m.fecha DESC`,
+      id,
+    ),
+    todas<{ id: string; usuario_nombre: string; fecha: string; esperado: number; contado: number; diferencia: number; nota: string; es_cierre: number }>(
+      db,
+      `SELECT a.id, u.nombre AS usuario_nombre, a.fecha, a.esperado, a.contado, a.diferencia, a.nota, a.es_cierre
+         FROM arqueos a JOIN usuarios u ON u.id = a.usuario_id WHERE a.caja_id = ? ORDER BY a.fecha DESC`,
+      id,
+    ),
+  ])
+  caja.movimientos = movs.map((m) => ({
+    id: m.id, tipo: m.tipo, medio: m.medio, importe: m.importe, concepto: m.concepto, origen: m.origen, usuarioNombre: m.usuario_nombre,
+    fecha: m.fecha, anulado: m.anulado_en !== null,
+  }))
+  caja.arqueos = arqueos.map((a): Arqueo => ({
+    id: a.id, usuarioNombre: a.usuario_nombre, fecha: a.fecha, esperado: a.esperado, contado: a.contado, diferencia: a.diferencia,
+    nota: a.nota, esCierre: !!a.es_cierre,
+  }))
+  return caja
+}
+
+async function cajaAbiertaObligatoria(db: BaseD1) {
+  const c = await cajaAbierta(db)
+  if (!c) throw cajaCerradaError()
+  return c
+}
+
+const SOLO_CAJA = 'La caja la manejan el cajero y el administrador.'
+
+/** La caja abierta con sus movimientos y arqueos, o null si está cerrada. */
+rutasCaja.get('/caja', requiere('caja.operar', SOLO_CAJA), async (c) => {
+  const abierta = await cajaAbierta(c.env.DB)
+  return c.json<Caja | null>(abierta ? await detalleCaja(c.env.DB, abierta.id) : null)
+})
+
+rutasCaja.post('/caja/abrir', requiere('caja.operar', SOLO_CAJA), async (c) => {
+  const db = c.env.DB
+  const u = c.get('usuario')
+  const b = await cuerpo(c)
+  const fondo = importeGs(b.fondoInicial ?? 0, 'el fondo inicial', 0)
+  if (await cajaAbierta(db)) throw conflicto('caja_abierta', 'La caja ya está abierta.')
+  const id = nuevoId()
+  const { fecha, dia } = ahora()
+  try {
+    await db.batch([
+      sentencia(db, 'INSERT INTO cajas (id, abierta_por, abierta_en, dia, fondo_inicial) VALUES (?, ?, ?, ?, ?)', id, u.id, fecha, dia, fondo),
+    ])
+  } catch (e) {
+    if (e instanceof Error && /UNIQUE/i.test(e.message)) throw conflicto('caja_abierta', 'La caja ya está abierta.')
+    throw e
+  }
+  return c.json<Caja>(await detalleCaja(db, id))
+})
+
+rutasCaja.post('/caja/movimientos', requiere('caja.operar', SOLO_CAJA), async (c) => {
+  const db = c.env.DB
+  const u = c.get('usuario')
+  const b = await cuerpo(c)
+  const caja = await cajaAbiertaObligatoria(db)
+  if (b.tipo !== 'ingreso' && b.tipo !== 'retiro') throw invalido('Elegí si es un ingreso o un retiro.')
+  const importe = importeGs(b.importe, 'el importe')
+  const medio = vacio(b.medio) ? 'efectivo' : medioPago(b.medio)
+  const concepto = texto(b.concepto, 'el concepto', { max: 200 })
+  const { fecha, dia } = ahora()
+  try {
+    await db.batch([sentenciaMovimientoCaja(db, {
+      id: nuevoId(), cajaId: caja.id, tipo: b.tipo, medio, importe, concepto, origen: 'manual', origenId: null, usuarioId: u.id, fecha, dia,
+    })])
+  } catch (e) {
+    if (esCajaCerrada(e)) throw cajaCerradaError()
+    throw e
+  }
+  return c.json<Caja>(await detalleCaja(db, caja.id))
+})
+
+rutasCaja.post('/caja/movimientos/:id/anular', requiere('caja.operar', SOLO_CAJA), async (c) => {
+  const db = c.env.DB
+  const u = c.get('usuario')
+  const m = await una<{ caja_id: string; origen: string; anulado_en: string | null; cerrada_en: string | null }>(
+    db, 'SELECT m.caja_id, m.origen, m.anulado_en, c.cerrada_en FROM caja_movimientos m JOIN cajas c ON c.id = m.caja_id WHERE m.id = ?', c.req.param('id'),
+  )
+  if (!m) throw noEncontrado('No se encontró ese movimiento.')
+  if (m.origen !== 'manual') throw conflicto('movimiento_automatico', 'Ese movimiento viene de otro módulo: anulalo desde ahí (pago a proveedor o Ingresos y egresos).')
+  if (m.cerrada_en) throw cajaCerradaError()
+  if (m.anulado_en) throw conflicto('ya_anulado', 'Ese movimiento ya está anulado.')
+  await db.batch([sentencia(db, 'UPDATE caja_movimientos SET anulado_por = ?, anulado_en = ? WHERE id = ?', u.id, ahora().fecha, c.req.param('id'))])
+  return c.json<Caja>(await detalleCaja(db, m.caja_id))
+})
+
+/** Arqueo (o cierre): compara el efectivo contado con el esperado. */
+async function arquear(db: BaseD1, usuarioId: string, b: Record<string, unknown>, esCierre: boolean) {
+  const caja = await cajaAbiertaObligatoria(db)
+  const contado = importeGs(b.contado, 'el efectivo contado', 0)
+  const nota = textoOpcional(b.nota, 'La nota', 300) ?? ''
+  const [actual] = await leerCajas(db, 'WHERE c.id = ?', caja.id)
+  const esperado = actual.esperadoEfectivo
+  const diferencia = contado - esperado
+  const { fecha } = ahora()
+  const sentencias: SentenciaD1[] = [
+    sentencia(db, 'INSERT INTO arqueos (id, caja_id, usuario_id, fecha, esperado, contado, diferencia, nota, es_cierre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      nuevoId(), caja.id, usuarioId, fecha, esperado, contado, diferencia, nota, esCierre),
+  ]
+  if (esCierre) {
+    sentencias.push(
+      sentencia(db,
+        `UPDATE cajas SET cerrada_por = ?, cerrada_en = ?, esperado_efectivo = ?, contado_efectivo = ?, diferencia = ?, resumen_cierre = ?, nota_cierre = ?
+          WHERE id = ? AND cerrada_en IS NULL`,
+        usuarioId, fecha, esperado, contado, diferencia, JSON.stringify(actual.totales), nota, caja.id),
+      sentenciaAuditoria(db, { tabla: 'cajas', registroId: caja.id, accion: 'cerrar', usuarioId, antes: actual, despues: { esperado, contado, diferencia, nota } }),
+    )
+  }
+  try {
+    await db.batch(sentencias)
+  } catch (e) {
+    if (esCajaCerrada(e)) throw cajaCerradaError()
+    throw e
+  }
+  return detalleCaja(db, caja.id)
+}
+
+rutasCaja.post('/caja/arqueos', requiere('caja.operar', SOLO_CAJA), async (c) => {
+  return c.json<Caja>(await arquear(c.env.DB, c.get('usuario').id, await cuerpo(c), false))
+})
+
+rutasCaja.post('/caja/cerrar', requiere('caja.operar', SOLO_CAJA), async (c) => {
+  return c.json<Caja>(await arquear(c.env.DB, c.get('usuario').id, await cuerpo(c), true))
+})
+
+/** Historial de cajas (administrador). */
+rutasCaja.get('/cajas', requiere('reportes.detallados', 'El historial de cajas lo ve el administrador.'), async (c) => {
+  const q = c.req.query()
+  const desde = diaOpcional(q.desde, 'La fecha desde')
+  const hasta = diaOpcional(q.hasta, 'La fecha hasta')
+  const partes: string[] = []
+  const params: ValorSQL[] = []
+  if (desde) { partes.push('c.dia >= ?'); params.push(desde) }
+  if (hasta) { partes.push('c.dia <= ?'); params.push(hasta) }
+  return c.json<Caja[]>(await leerCajas(c.env.DB, partes.length ? `WHERE ${partes.join(' AND ')}` : '', ...params))
+})
+
+rutasCaja.get('/cajas/:id', requiere('caja.operar', SOLO_CAJA), async (c) => {
+  return c.json<Caja>(await detalleCaja(c.env.DB, c.req.param('id')))
+})
+
+/** Caja abierta desde un día anterior: aviso para quien maneja la caja. */
+export async function alertasCaja(db: BaseD1): Promise<Alerta[]> {
+  const c = await cajaAbierta(db)
+  if (!c || c.dia >= ahora().dia) return []
+  return [{ tipo: 'caja_sin_cerrar', sector: null, texto: `La caja está abierta desde el ${diaLegible(c.dia)}: arqueala y cerrala.`, enlace: '/caja' }]
+}
+
+// ---------- Ventas (M11) ----------
+
+interface FilaProductoVenta {
+  id: string
+  nombre: string
+  sector: SectorId
+  sector_nombre: string
+  precio_venta: number | null
+  iva: Iva
+  venta_descuenta_stock: number
+  stock_obligatorio: number
+  activo: number
+  stock: number
+}
+
+const SQL_PRODUCTO_VENTA = `SELECT p.id, p.nombre, p.sector, s.nombre AS sector_nombre, p.precio_venta, p.iva, p.venta_descuenta_stock,
+    p.stock_obligatorio, p.activo,
+    COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.finalidad = 'reposicion'), 0) AS stock
+  FROM productos p JOIN sectores s ON s.id = p.sector`
+
+rutasCaja.get('/ventas/productos', requiere('ventas.registrar'), async (c) => {
+  const filas = await todas<FilaProductoVenta>(
+    c.env.DB, `${SQL_PRODUCTO_VENTA} WHERE p.activo = 1 AND p.precio_venta IS NOT NULL ORDER BY s.orden, p.orden, p.nombre`,
+  )
+  return c.json<ProductoVenta[]>(filas.map((f) => ({
+    id: f.id, nombre: f.nombre, sector: f.sector, sectorNombre: f.sector_nombre, precio: f.precio_venta!, iva: f.iva,
+    descuentaStock: !!f.venta_descuenta_stock, stock: f.venta_descuenta_stock ? f.stock : null, stockObligatorio: !!f.stock_obligatorio,
+  })))
+})
+
+interface FilaVenta {
+  id: string
+  numero: number
+  caja_id: string
+  cliente_nombre: string
+  cliente_ruc: string
+  subtotal: number
+  descuento: number
+  total: number
+  medio: MedioPago
+  recibido: number | null
+  usuario_nombre: string
+  fecha: string
+  dia: string
+  anulada_en: string | null
+  motivo_anulacion: string | null
+}
+
+const SQL_VENTA = `SELECT v.id, v.numero, v.caja_id, v.cliente_nombre, v.cliente_ruc, v.subtotal, v.descuento, v.total, v.medio, v.recibido,
+    u.nombre AS usuario_nombre, v.fecha, v.dia, v.anulada_en, v.motivo_anulacion
+  FROM ventas v JOIN usuarios u ON u.id = v.usuario_id`
+
+export const numeroFactura = (prefijo: string, numero: number) => `${prefijo}-${String(numero).padStart(7, '0')}`
+
+export async function leerVentas(db: BaseD1, where = '', ...params: ValorSQL[]): Promise<Venta[]> {
+  const filas = await todas<FilaVenta>(db, `${SQL_VENTA} ${where} ORDER BY v.numero DESC LIMIT 2000`, ...params)
+  const ids = filas.map((f) => f.id)
+  const [items, facturas] = await Promise.all([
+    todasPorTrozos<{ venta_id: string; producto_id: string; nombre: string; cantidad: number; precio_unitario: number; subtotal: number; iva: Iva }>(
+      db, ids, (m) => `SELECT venta_id, producto_id, nombre, cantidad, precio_unitario, subtotal, iva FROM venta_items WHERE venta_id IN (${m}) ORDER BY orden`,
+    ),
+    todasPorTrozos<{ id: string; venta_id: string; prefijo: string; numero: number; timbrado: string; fecha: string; impresiones: number; anulada_en: string | null }>(
+      db, ids, (m) => `SELECT id, venta_id, prefijo, numero, timbrado, fecha, impresiones, anulada_en FROM facturas WHERE venta_id IN (${m})`,
+    ),
+  ])
+  return filas.map((f) => {
+    const fac = facturas.find((x) => x.venta_id === f.id)
+    return {
+      id: f.id,
+      numero: f.numero,
+      cajaId: f.caja_id,
+      clienteNombre: f.cliente_nombre,
+      clienteRuc: f.cliente_ruc,
+      subtotal: f.subtotal,
+      descuento: f.descuento,
+      total: f.total,
+      medio: f.medio,
+      recibido: f.recibido,
+      vuelto: f.recibido !== null ? f.recibido - f.total : null,
+      usuarioNombre: f.usuario_nombre,
+      fecha: f.fecha,
+      dia: f.dia,
+      anulada: f.anulada_en !== null,
+      anuladaEn: f.anulada_en,
+      motivoAnulacion: f.motivo_anulacion,
+      items: items.filter((i) => i.venta_id === f.id).map((i): VentaItem => ({
+        productoId: i.producto_id, nombre: i.nombre, cantidad: i.cantidad, precioUnitario: i.precio_unitario, subtotal: i.subtotal, iva: i.iva,
+      })),
+      factura: fac
+        ? {
+            id: fac.id, prefijo: fac.prefijo, numero: fac.numero, numeroCompleto: numeroFactura(fac.prefijo, fac.numero), timbrado: fac.timbrado,
+            fecha: fac.fecha, impresiones: fac.impresiones, anulada: fac.anulada_en !== null,
+          } satisfies Factura
+        : null,
+    }
+  })
+}
+
+async function unaVenta(db: BaseD1, id: string): Promise<Venta> {
+  const [v] = await leerVentas(db, 'WHERE v.id = ?', id)
+  if (!v) throw noEncontrado('No se encontró esa venta.')
+  return v
+}
+
+rutasCaja.get('/ventas', requiere('ventas.registrar'), async (c) => {
+  const q = c.req.query()
+  const db = c.env.DB
+  const partes: string[] = []
+  const params: ValorSQL[] = []
+  if (!vacio(q.caja)) {
+    partes.push('v.caja_id = ?')
+    params.push(texto(q.caja, 'la caja', { max: 100 }))
+  } else if (!puede(c.get('usuario').rol, 'reportes.detallados')) {
+    // El cajero ve las ventas de la caja abierta.
+    const abierta = await cajaAbierta(db)
+    if (!abierta) return c.json<Venta[]>([])
+    partes.push('v.caja_id = ?')
+    params.push(abierta.id)
+  }
+  const desde = diaOpcional(q.desde, 'La fecha desde')
+  const hasta = diaOpcional(q.hasta, 'La fecha hasta')
+  if (desde) { partes.push('v.dia >= ?'); params.push(desde) }
+  if (hasta) { partes.push('v.dia <= ?'); params.push(hasta) }
+  return c.json<Venta[]>(await leerVentas(db, partes.length ? `WHERE ${partes.join(' AND ')}` : '', ...params))
+})
+
+rutasCaja.get('/ventas/:id', requiere('ventas.registrar'), async (c) => c.json<Venta>(await unaVenta(c.env.DB, c.req.param('id'))))
+
+/** Si el trigger de stock frena la venta, dice qué producto no alcanza. */
+async function mensajeSinStock(db: BaseD1, lineas: { id: string; nombre: string; sector: SectorId; cantidad: number }[]) {
+  for (const l of lineas) {
+    const f = await una<{ total: number }>(
+      db, `SELECT COALESCE(SUM(cantidad), 0) AS total FROM movimientos WHERE sector = ? AND producto_id = ? AND finalidad = 'reposicion'`, l.sector, l.id,
+    )
+    const hay = Math.max(0, f?.total ?? 0)
+    if (l.cantidad > hay) return hay === 0 ? `No hay stock de ${l.nombre}.` : `No hay stock suficiente de ${l.nombre}: hay ${hay} y querés vender ${l.cantidad}.`
+  }
+  return 'No hay stock suficiente para esa venta.'
+}
+
+rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
+  const db = c.env.DB
+  const u = c.get('usuario')
+  const b = await cuerpo(c)
+  const caja = await cajaAbiertaObligatoria(db)
+  if (!Array.isArray(b.items) || b.items.length === 0) throw invalido('Agregá al menos un producto a la venta.')
+  if (b.items.length > MAX_RENGLONES) throw invalido('Son demasiados productos en una sola venta.')
+  const crudos = (b.items as unknown[]).map((x) => (x && typeof x === 'object' ? x : {}) as Record<string, unknown>)
+  const ids = crudos.map((x) => texto(x.productoId, 'el producto', { max: 100 }))
+  const productos = new Map((await todasPorTrozos<FilaProductoVenta>(db, ids, (m) => `${SQL_PRODUCTO_VENTA} WHERE p.id IN (${m})`)).map((p) => [p.id, p]))
+  // Un mismo producto en varias líneas se junta.
+  const juntas = new Map<string, number>()
+  crudos.forEach((x, i) => {
+    const p = productos.get(ids[i])
+    if (!p) throw invalido('Ese producto no existe. Recargá la página y probá de nuevo.')
+    if (!p.activo) throw invalido(`${p.nombre} está desactivado.`)
+    if (p.precio_venta === null) throw invalido(`${p.nombre} no tiene precio de venta. Pedile al administrador que lo cargue.`)
+    const n = x.cantidad
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 100_000) throw invalido(`La cantidad de ${p.nombre} tiene que ser un número entero mayor que cero.`)
+    juntas.set(p.id, (juntas.get(p.id) ?? 0) + n)
+  })
+  const lineas = [...juntas.entries()].map(([id, cantidad]) => {
+    const p = productos.get(id)!
+    return { p, cantidad, subtotal: cantidad * p.precio_venta! }
+  })
+  const subtotal = lineas.reduce((s, l) => s + l.subtotal, 0)
+  const descuento = vacio(b.descuento) ? 0 : importeGs(b.descuento, 'el descuento', 0)
+  if (descuento > subtotal) throw invalido('El descuento no puede ser mayor que el total.')
+  const total = subtotal - descuento
+  const medio = medioPago(b.medio)
+  let recibido: number | null = null
+  if (medio === 'efectivo' && !vacio(b.recibido)) {
+    recibido = importeGs(b.recibido, 'lo que entregó el cliente', 0)
+    if (recibido < total) throw invalido(`Lo que entregó el cliente (${gs(recibido)}) no alcanza para el total (${gs(total)}).`)
+  }
+  const clienteNombre = textoOpcional(b.clienteNombre, 'El nombre del cliente', 120) ?? ''
+  const clienteRuc = textoOpcional(b.clienteRuc, 'El RUC o CI del cliente', 30) ?? ''
+
+  const id = nuevoId()
+  const { fecha, dia } = ahora()
+  const conStock = lineas.filter((l) => l.p.venta_descuenta_stock)
+  const sentencias: SentenciaD1[] = [
+    sentencia(
+      db,
+      `INSERT INTO ventas (id, numero, caja_id, cliente_nombre, cliente_ruc, subtotal, descuento, total, medio, recibido, usuario_id, fecha, dia)
+       VALUES (?, (SELECT COALESCE(MAX(numero), 0) + 1 FROM ventas), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, caja.id, clienteNombre, clienteRuc, subtotal, descuento, total, medio, recibido, u.id, fecha, dia,
+    ),
+    ...lineas.map((l, i) => sentencia(
+      db,
+      'INSERT INTO venta_items (id, venta_id, orden, producto_id, nombre, cantidad, precio_unitario, subtotal, iva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      nuevoId(), id, i, l.p.id, l.p.nombre, l.cantidad, l.p.precio_venta, l.subtotal, l.p.iva,
+    )),
+    ...conStock.map((l) => sentencia(
+      db,
+      `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, finalidad, motivo, usuario_id, fecha, dia, venta_id)
+       VALUES (?, ?, ?, NULL, 'venta', ?, 'reposicion', ?, ?, ?, ?, ?)`,
+      nuevoId(), l.p.sector, l.p.id, -l.cantidad, 'Venta en caja', u.id, fecha, dia, id,
+    )),
+  ]
+  try {
+    await db.batch(sentencias)
+  } catch (e) {
+    if (esCajaCerrada(e)) throw cajaCerradaError()
+    if (esStockInsuficiente(e)) {
+      throw conflicto('stock_insuficiente', await mensajeSinStock(db, conStock.map((l) => ({ id: l.p.id, nombre: l.p.nombre, sector: l.p.sector, cantidad: l.cantidad }))))
+    }
+    throw e
+  }
+  return c.json<Venta>(await unaVenta(db, id))
+})
+
+rutasCaja.post('/ventas/:id/anular', requiere('ventas.registrar'), async (c) => {
+  const db = c.env.DB
+  const u = c.get('usuario')
+  const b = await cuerpo(c)
+  const motivo = texto(b.motivo, 'el motivo', { max: 300 })
+  const venta = await unaVenta(db, c.req.param('id'))
+  if (venta.anulada) throw conflicto('venta_anulada', 'Esa venta ya está anulada.')
+  const caja = await una<{ cerrada_en: string | null }>(db, 'SELECT cerrada_en FROM cajas WHERE id = ?', venta.cajaId)
+  if (caja?.cerrada_en) throw conflicto('caja_cerrada', 'Esa venta es de una caja que ya se cerró: no se puede anular.')
+  const movs = await todas<{ sector: SectorId; producto_id: string; cantidad: number }>(
+    db, `SELECT sector, producto_id, cantidad FROM movimientos WHERE venta_id = ? AND tipo = 'venta'`, venta.id,
+  )
+  const { fecha, dia } = ahora()
+  await db.batch([
+    sentencia(db, 'UPDATE ventas SET anulada_por = ?, anulada_en = ?, motivo_anulacion = ? WHERE id = ? AND anulada_en IS NULL', u.id, fecha, motivo, venta.id),
+    sentencia(db, 'UPDATE facturas SET anulada_en = ? WHERE venta_id = ? AND anulada_en IS NULL', fecha, venta.id),
+    // Vuelve al stock lo que la venta había descontado (con el mismo tipo, en positivo).
+    ...movs.filter((m) => m.cantidad < 0).map((m) => sentencia(
+      db,
+      `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, finalidad, motivo, usuario_id, fecha, dia, venta_id)
+       VALUES (?, ?, ?, NULL, 'venta', ?, 'reposicion', ?, ?, ?, ?, ?)`,
+      nuevoId(), m.sector, m.producto_id, -m.cantidad, `Anulación de la venta N° ${venta.numero}`, u.id, fecha, dia, venta.id,
+    )),
+    sentenciaAuditoria(db, { tabla: 'ventas', registroId: venta.id, accion: 'anular', usuarioId: u.id, antes: venta, despues: { anulada: true, motivo } }),
+  ])
+  return c.json<Venta>(await unaVenta(db, venta.id))
+})
+
+// ---------- Factura preimpresa (M12) ----------
+
+/** Formato inicial pensado para una hoja A5 apaisada típica; se calibra en Caja → Factura. */
+export const FACTURA_POR_DEFECTO: ConfigFactura = {
+  timbrado: '',
+  prefijo: '001-001',
+  numeroInicial: 1,
+  anchoHoja: 210,
+  altoHoja: 148,
+  margenIzquierdo: 0,
+  margenSuperior: 0,
+  tamanoLetra: 10,
+  fecha: { x: 30, y: 32 },
+  cliente: { x: 40, y: 38 },
+  ruc: { x: 150, y: 38 },
+  detalle: { x: 0, y: 55 },
+  altoRenglon: 5,
+  maxRenglones: 12,
+  columnaCantidad: 12,
+  columnaDescripcion: 28,
+  columnaPrecio: 110,
+  columnaExentas: 135,
+  columna5: 160,
+  columna10: 185,
+  subtotales: { x: 0, y: 118 },
+  total: { x: 185, y: 124 },
+  totalLetras: { x: 40, y: 124 },
+  liquidacionIva: { x: 40, y: 130 },
+}
+
+const CLAVE_FACTURA = 'factura'
+
+export async function leerConfigFactura(db: BaseD1): Promise<ConfigFactura> {
+  const f = await una<{ valor: string }>(db, 'SELECT valor FROM configuracion WHERE clave = ?', CLAVE_FACTURA)
+  if (!f) return { ...FACTURA_POR_DEFECTO }
+  try {
+    return { ...FACTURA_POR_DEFECTO, ...(JSON.parse(f.valor) as Partial<ConfigFactura>) }
+  } catch {
+    return { ...FACTURA_POR_DEFECTO }
+  }
+}
+
+function mm(v: unknown, campo: string, max = 400): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < -50 || v > max) throw invalido(`${campo} tiene que ser un número de milímetros entre -50 y ${max}.`)
+  return Math.round(v * 10) / 10
+}
+
+function leerConfig(b: Record<string, unknown>, actual: ConfigFactura): ConfigFactura {
+  const r: ConfigFactura = { ...actual }
+  if (b.timbrado !== undefined) r.timbrado = textoOpcional(b.timbrado, 'El timbrado', 20) ?? ''
+  if (b.prefijo !== undefined) {
+    const p = texto(b.prefijo, 'el establecimiento y punto de expedición', { max: 7 })
+    if (!/^\d{3}-\d{3}$/.test(p)) throw invalido('El establecimiento y punto de expedición va como 001-001.')
+    r.prefijo = p
+  }
+  if (b.numeroInicial !== undefined) {
+    if (typeof b.numeroInicial !== 'number' || !Number.isInteger(b.numeroInicial) || b.numeroInicial < 1 || b.numeroInicial > 9_999_999) {
+      throw invalido('El número inicial tiene que estar entre 1 y 9.999.999.')
+    }
+    r.numeroInicial = b.numeroInicial
+  }
+  for (const k of ['anchoHoja', 'altoHoja', 'margenIzquierdo', 'margenSuperior', 'altoRenglon', 'columnaCantidad', 'columnaDescripcion',
+    'columnaPrecio', 'columnaExentas', 'columna5', 'columna10'] as const) {
+    if (b[k] !== undefined) r[k] = mm(b[k], k)
+  }
+  if (b.tamanoLetra !== undefined) r.tamanoLetra = mm(b.tamanoLetra, 'El tamaño de letra', 30)
+  if (b.maxRenglones !== undefined) {
+    if (typeof b.maxRenglones !== 'number' || !Number.isInteger(b.maxRenglones) || b.maxRenglones < 1 || b.maxRenglones > 60) throw invalido('Los renglones tienen que estar entre 1 y 60.')
+    r.maxRenglones = b.maxRenglones
+  }
+  for (const k of ['fecha', 'cliente', 'ruc', 'detalle', 'subtotales', 'total', 'totalLetras', 'liquidacionIva'] as const) {
+    if (b[k] === undefined) continue
+    const p = (b[k] && typeof b[k] === 'object' ? b[k] : {}) as Record<string, unknown>
+    r[k] = { x: mm(p.x, `${k} x`), y: mm(p.y, `${k} y`) }
+  }
+  return r
+}
+
+rutasCaja.get('/factura/config', requiere('facturas.generar'), async (c) => c.json<ConfigFactura>(await leerConfigFactura(c.env.DB)))
+
+rutasCaja.put('/factura/config', requiere('facturas.configurar', 'El formato de la factura lo configura el administrador.'), async (c) => {
+  const db = c.env.DB
+  const antes = await leerConfigFactura(db)
+  const despues = leerConfig(await cuerpo(c), antes)
+  await db.batch([
+    sentencia(db, 'INSERT INTO configuracion (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor', CLAVE_FACTURA, JSON.stringify(despues)),
+    sentenciaAuditoria(db, { tabla: 'configuracion', registroId: CLAVE_FACTURA, accion: 'editar', usuarioId: c.get('usuario').id, antes, despues }),
+  ])
+  return c.json<ConfigFactura>(despues)
+})
+
+/**
+ * Factura de una venta: la primera vez le asigna el número siguiente (o el inicial configurado); las siguientes la
+ * reimprimen con el mismo número.
+ */
+rutasCaja.post('/ventas/:id/factura', requiere('facturas.generar'), async (c) => {
+  const db = c.env.DB
+  const u = c.get('usuario')
+  const venta = await unaVenta(db, c.req.param('id'))
+  if (venta.anulada) throw conflicto('venta_anulada', 'Esa venta está anulada: no se le puede imprimir factura.')
+  const config = await leerConfigFactura(db)
+  if (venta.factura) {
+    await db.batch([sentencia(db, 'UPDATE facturas SET impresiones = impresiones + 1 WHERE id = ?', venta.factura.id)])
+  } else {
+    const { fecha } = ahora()
+    for (let intento = 0; ; intento++) {
+      try {
+        await db.batch([sentencia(
+          db,
+          `INSERT INTO facturas (id, venta_id, prefijo, numero, timbrado, usuario_id, fecha)
+           VALUES (?, ?, ?, MAX(COALESCE((SELECT MAX(numero) FROM facturas WHERE prefijo = ?), 0), ? - 1) + 1, ?, ?, ?)`,
+          nuevoId(), venta.id, config.prefijo, config.prefijo, config.numeroInicial, config.timbrado, u.id, fecha,
+        )])
+        break
+      } catch (e) {
+        // Dos facturas a la vez: la segunda toma el número siguiente.
+        if (intento < 2 && e instanceof Error && /UNIQUE/i.test(e.message) && !/venta_id/.test(e.message)) continue
+        throw e
+      }
+    }
+  }
+  return c.json<{ venta: Venta; config: ConfigFactura }>({ venta: await unaVenta(db, venta.id), config })
+})

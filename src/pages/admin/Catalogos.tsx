@@ -8,14 +8,16 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector } from '../../components/Layout'
 import {
-  FRECUENCIAS_LIMPIEZA, NOMBRE_TIPO_MAQUINA, SECTOR_IDS,
-  type AreaLimpieza, type Maquina, type Producto, type Sector, type SectorId, type Sucursal, type TareaLimpieza, type TipoMaquina,
+  FRECUENCIAS_LIMPIEZA, IVAS, NOMBRE_IVA, NOMBRE_TIPO_MAQUINA, SECTOR_IDS, type Iva,
+  type AreaLimpieza, type Categoria, type Maquina, type Producto, type Sector, type SectorId, type Sucursal, type TareaLimpieza, type TipoMaquina,
 } from '../../shared/tipos'
+import { gs, miles } from '../../shared/dinero'
 import '../../styles/catalogos.css'
 
-type Pestana = 'productos' | 'maquinas' | 'limpieza' | 'sucursales' | 'sectores'
+type Pestana = 'productos' | 'categorias' | 'maquinas' | 'limpieza' | 'sucursales' | 'sectores'
 const PESTANAS: [Pestana, string][] = [
   ['productos', 'Productos'],
+  ['categorias', 'Categorías'],
   ['maquinas', 'Máquinas'],
   ['limpieza', 'Limpieza'],
   ['sucursales', 'Sucursales'],
@@ -71,6 +73,7 @@ export default function Catalogos() {
       {pestana === 'productos' && <Productos sector={sector} nombreSector={sectores.nombre(sector)} />}
       {pestana === 'maquinas' && <Maquinas sector={sector} nombreSector={sectores.nombre(sector)} />}
       {pestana === 'limpieza' && <Limpieza sector={sector} sectores={sectores.lista} />}
+      {pestana === 'categorias' && <Categorias sectores={sectores.lista} />}
       {pestana === 'sucursales' && <Sucursales />}
       {pestana === 'sectores' && <Sectores />}
     </>
@@ -214,6 +217,7 @@ function FormAlta({ titulo, children, enviando, error, ok, alEnviar, boton = 'Ag
 /** Lo que se cuenta aparte de «unidades» y el aviso de stock mínimo (C08). */
 const detalleProducto = (p: Producto) =>
   [
+    p.precioVenta !== null ? `Precio ${gs(p.precioVenta)} · ${NOMBRE_IVA[p.iva]}` : 'Sin precio de venta',
     p.unidad !== 'unidades' ? `Se cuenta en ${p.unidad}` : null,
     p.stockMinimo !== null ? `Avisa con menos de ${p.stockMinimo} en frío` : null,
     !p.activo && !p.stockObligatorio ? 'Stock libre' : null,
@@ -243,13 +247,59 @@ function StockObligatorio({ p }: { p: Producto }) {
   )
 }
 
+/**
+ * Venta en caja (M11): IVA de la factura y si la venta descuenta su stock. Se marca en lo que se compra para revender
+ * (gaseosas); la chipa no, porque su stock ya baja al sacarla del frío.
+ */
+function VentaProducto({ p }: { p: Producto }) {
+  const cambiar = useAccion((cambios: Partial<Producto>) => patch<Producto>(`/productos/${p.id}`, cambios))
+  if (p.precioVenta === null) return null
+  return (
+    <>
+      <label className="check pide-numero" title="Con la marca, cada venta en caja descuenta su stock. Sin la marca, el stock baja solo al sacarlo del frío.">
+        <input type="checkbox" checked={p.ventaDescuentaStock} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar({ ventaDescuentaStock: e.target.checked })} />
+        <span className="chico">La venta descuenta stock</span>
+      </label>
+      <label className="check pide-numero">
+        <span className="chico">IVA</span>
+        <select value={p.iva} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar({ iva: Number(e.target.value) as Iva })}>
+          {IVAS.map((i) => <option key={i} value={i}>{NOMBRE_IVA[i]}</option>)}
+        </select>
+      </label>
+      <Aviso>{cambiar.error}</Aviso>
+    </>
+  )
+}
+
+/** Categoría de compras (M10): define qué sectores pueden comprar el producto. */
+function CategoriaProducto({ p, categorias }: { p: Producto; categorias: Categoria[] }) {
+  const cambiar = useAccion((v: string | null) => patch<Producto>(`/productos/${p.id}`, { categoriaId: v }))
+  const visibles = categorias.filter((k) => k.activo || k.id === p.categoriaId)
+  return (
+    <>
+      <label className="check pide-numero" title="Los sectores habilitados en esa categoría pueden cargar compras de este producto">
+        <span className="chico">Categoría de compras</span>
+        <select value={p.categoriaId ?? ''} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar(e.target.value || null)}>
+          <option value="">Sin categoría (solo supervisor y admin)</option>
+          {visibles.map((k) => <option key={k.id} value={k.id}>{k.nombre}</option>)}
+        </select>
+      </label>
+      <Aviso>{cambiar.error}</Aviso>
+    </>
+  )
+}
+
 function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: string }) {
   const c = useConsulta<Producto[]>('/productos', { sector, todos: true })
+  const categorias = useConsulta<Categoria[]>('/categorias', { todos: true })
   const [nombre, setNombre] = useState('')
   const [unidad, setUnidad] = useState('')
   const [obligatorio, setObligatorio] = useState(true)
+  const [precio, setPrecio] = useState('')
   const [ok, setOk] = useState<string | null>(null)
-  const crear = useAccion(() => post<Producto>('/productos', { sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio }))
+  const crear = useAccion(() => post<Producto>('/productos', {
+    sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio, precioVenta: precio.trim() || null,
+  }))
   const agregar = async () => {
     setOk(null)
     const p = await crear.ejecutar()
@@ -258,6 +308,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
       setNombre('')
       setUnidad('')
       setObligatorio(true)
+      setPrecio('')
     }
   }
 
@@ -280,10 +331,11 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
                   { clave: 'nombre', etiqueta: 'Nombre', valor: p.nombre },
                   { clave: 'unidad', etiqueta: 'Unidad', valor: p.unidad, max: 30 },
                   { clave: 'stockMinimo', etiqueta: 'Stock mínimo en frío (vacío = sin aviso)', valor: p.stockMinimo === null ? '' : String(p.stockMinimo), max: 7 },
+                  { clave: 'precioVenta', etiqueta: 'Precio de venta en Gs. (vacío = no se vende en caja)', valor: p.precioVenta === null ? '' : miles(p.precioVenta), max: 15 },
                 ]}
                 guardar={(cambios) => patch(`/productos/${p.id}`, cambios)}
                 cambiarActivo={(activo) => patch(`/productos/${p.id}`, { activo })}
-                debajo={p.activo && <StockObligatorio p={p} />}
+                debajo={p.activo && <><StockObligatorio p={p} /><VentaProducto p={p} /><CategoriaProducto p={p} categorias={categorias.datos ?? []} /></>}
               />
             )}
           />
@@ -297,6 +349,10 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
         <label className="campo">
           <span>Unidad (vacío = unidades)</span>
           <input value={unidad} onChange={(e) => setUnidad(e.target.value)} maxLength={30} placeholder="unidades" />
+        </label>
+        <label className="campo">
+          <span>Precio de venta en Gs. (vacío = no se vende)</span>
+          <input value={precio} inputMode="numeric" onChange={(e) => setPrecio(e.target.value)} maxLength={15} placeholder="5.000" />
         </label>
         <label className="check">
           <input type="checkbox" checked={obligatorio} onChange={(e) => setObligatorio(e.target.checked)} />
@@ -524,11 +580,13 @@ function Limpieza({ sector, sectores }: { sector: SectorId; sectores: Sector[] }
   )
 }
 
-function SectoresCheck({ elegidos, sectores, alCambiar, deshabilitado }: {
+function SectoresCheck({ elegidos, sectores, alCambiar, deshabilitado, permitirVacio = false }: {
   elegidos: SectorId[]
   sectores: Sector[]
   alCambiar: (s: SectorId[]) => void
   deshabilitado?: boolean
+  /** Las categorías pueden quedar sin sectores; las áreas de limpieza no. */
+  permitirVacio?: boolean
 }) {
   const alternar = (id: SectorId) =>
     alCambiar(SECTOR_IDS.filter((s) => (s === id ? !elegidos.includes(s) : elegidos.includes(s))))
@@ -542,7 +600,7 @@ function SectoresCheck({ elegidos, sectores, alCambiar, deshabilitado }: {
               type="checkbox"
               checked={marcado}
               // No se puede dejar un área sin sectores.
-              disabled={deshabilitado || (marcado && elegidos.length === 1)}
+              disabled={deshabilitado || (!permitirVacio && marcado && elegidos.length === 1)}
               onChange={() => alternar(s.id)}
             />
             {s.nombre}
@@ -718,7 +776,7 @@ function NuevaArea({ sectorInicial, sectores, alCrear, alCancelar }: {
         </div>
         <div className="campo">
           <span>La cargan</span>
-          <SectoresCheck elegidos={elegidos} sectores={sectores} alCambiar={setElegidos} />
+          <SectoresCheck elegidos={elegidos} sectores={sectores} alCambiar={setElegidos} permitirVacio />
         </div>
         <div className="botones-cat">
           <button className="btn-primario" disabled={crear.enviando}>{crear.enviando ? 'Creando…' : 'Crear área'}</button>
@@ -772,6 +830,76 @@ function Sucursales() {
           <input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={80} />
         </label>
       </FormAlta>
+    </>
+  )
+}
+
+// ---------- Categorías de compras (M10) ----------
+
+function Categorias({ sectores }: { sectores: Sector[] }) {
+  const c = useConsulta<Categoria[]>('/categorias', { todos: true })
+  const [nombre, setNombre] = useState('')
+  const [elegidos, setElegidos] = useState<SectorId[]>([])
+  const [ok, setOk] = useState<string | null>(null)
+  const crear = useAccion(() => post<Categoria>('/categorias', { nombre, sectores: elegidos }))
+  const agregar = async () => {
+    setOk(null)
+    const k = await crear.ejecutar()
+    if (k) {
+      setOk(`«${k.nombre}» agregada. Asignala a los productos en la pestaña Productos.`)
+      setNombre('')
+      setElegidos([])
+    }
+  }
+  const nombres = (ids: SectorId[]) => ids.map((id) => sectores.find((s) => s.id === id)?.nombre ?? id).join(', ')
+  return (
+    <>
+      <p className="suave">
+        Cada producto puede tener una categoría (por ejemplo, «Bebidas» o «Insumos de limpieza»). Los sectores marcados en
+        una categoría pueden cargar compras de los productos de su sector con esa categoría. El supervisor y el
+        administrador compran cualquier producto.
+      </p>
+      <ConDatos consulta={c}>
+        {(lista) => (
+          <ListaConInactivos
+            items={lista}
+            vacio="Todavía no hay categorías."
+            textoInactivos="Categorías desactivadas"
+            render={(k) => (
+              <FilaEditable
+                key={k.id}
+                titulo={k.nombre}
+                detalle={k.sectores.length ? `Compran: ${nombres(k.sectores)}` : 'Ningún sector la compra (solo supervisor y admin)'}
+                activo={k.activo}
+                campos={[{ clave: 'nombre', etiqueta: 'Nombre', valor: k.nombre, max: 60 }]}
+                guardar={(cambios) => patch(`/categorias/${k.id}`, cambios)}
+                cambiarActivo={(activo) => patch(`/categorias/${k.id}`, { activo })}
+                debajo={k.activo && <SectoresCategoria k={k} sectores={sectores} />}
+              />
+            )}
+          />
+        )}
+      </ConDatos>
+      <FormAlta titulo="Nueva categoría" enviando={crear.enviando} error={crear.error} ok={ok} alEnviar={() => void agregar()}>
+        <label className="campo">
+          <span>Nombre</span>
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={60} placeholder="Bebidas" />
+        </label>
+        <div className="ancho">
+          <span className="chico">Sectores que pueden comprarla</span>
+          <SectoresCheck elegidos={elegidos} sectores={sectores} alCambiar={setElegidos} permitirVacio />
+        </div>
+      </FormAlta>
+    </>
+  )
+}
+
+function SectoresCategoria({ k, sectores }: { k: Categoria; sectores: Sector[] }) {
+  const cambiar = useAccion((v: SectorId[]) => patch<Categoria>(`/categorias/${k.id}`, { sectores: v }))
+  return (
+    <>
+      <SectoresCheck elegidos={k.sectores} sectores={sectores} alCambiar={(v) => void cambiar.ejecutar(v)} deshabilitado={cambiar.enviando} permitirVacio />
+      <Aviso>{cambiar.error}</Aviso>
     </>
   )
 }

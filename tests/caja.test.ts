@@ -1,0 +1,318 @@
+// Etapa 3 (M11–M15): precios, caja, ventas con el circuito de stock acordado, factura preimpresa, ingresos y egresos,
+// gastos fijos y sueldos, y el reporte detallado. Prueba los circuitos compra–pago y venta–cobro–factura–cierre.
+import { describe, expect, it } from 'vitest'
+import type { Alerta } from '../src/shared/alertas'
+import { diaPY, sumarDias } from '../src/shared/hora'
+import { puede } from '../src/shared/permisos'
+import type {
+  Caja, Compra, ConfigFactura, GastoFijo, GastoFijoMes, Producto, ProductoVenta, Proveedor, ReporteDetallado, ResumenIE, StockFila, Venta,
+} from '../src/shared/tipos'
+import { nuevaPrueba, type Prueba } from './ayuda'
+
+const CHIPA = 'prod-chiperia-01'
+const COCIDO = 'prod-cocina-02'
+const EMPANADA = 'prod-cocina-10'
+
+interface Escenario {
+  p: Prueba
+  admin: string
+  cajero: string
+  gaseosa: Producto
+}
+
+/**
+ * Precios: chipa 3.000 (la venta no descuenta: sale del frío), cocido 5.000 (sin stock obligatorio, la venta descuenta),
+ * gaseosa 7.000 (stock obligatorio, la venta descuenta, IVA 10). La empanada queda sin precio.
+ */
+async function escenario(): Promise<Escenario> {
+  const p = await nuevaPrueba()
+  const admin = await p.entrar('admin')
+  await p.pedir(admin, 'PATCH', `/productos/${CHIPA}`, { precioVenta: 3000 })
+  await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { precioVenta: '5.000', ventaDescuentaStock: true, stockObligatorio: false, iva: 5 })
+  const gaseosa = (await p.pedir<Producto>(admin, 'POST', '/productos', {
+    sector: 'cocina', nombre: 'Gaseosa 500 ml', precioVenta: 7000, ventaDescuentaStock: true,
+  })).body
+  return { p, admin, cajero: await p.entrar('cajero'), gaseosa }
+}
+
+const stockDe = async (p: Prueba, token: string, sector: string, producto: string) =>
+  (await p.pedir<StockFila[]>(token, 'GET', `/stock?sector=${sector}`)).body.find((f) => f.productoId === producto)?.total
+
+/** Stock de gaseosas cargado con un ajuste del administrador. */
+async function cargarGaseosas(e: Escenario, n: number) {
+  const r = await e.p.pedir(e.admin, 'POST', '/ajustes', { sector: 'cocina', tipo: 'stock_inicial', productoId: e.gaseosa.id, cantidad: n, motivo: 'Inicial' })
+  expect(r.status).toBe(200)
+}
+
+describe('permisos de caja, ventas y finanzas', () => {
+  it('cajero: caja, ventas y facturas; admin todo; supervisor solo egresos a proveedores; sectores nada', () => {
+    for (const x of ['caja.operar', 'ventas.registrar', 'facturas.generar'] as const) {
+      expect(puede('cajero', x)).toBe(true)
+      expect(puede('admin', x)).toBe(true)
+      expect(puede('supervisor', x)).toBe(false)
+      expect(puede('cocina', x)).toBe(false)
+    }
+    for (const x of ['ie.completo', 'reportes.detallados', 'facturas.configurar'] as const) {
+      for (const r of ['cajero', 'supervisor', 'chiperia'] as const) expect(puede(r, x)).toBe(false)
+      expect(puede('admin', x)).toBe(true)
+    }
+    expect(puede('supervisor', 'ie.egresos_proveedores')).toBe(true)
+  })
+})
+
+describe('precios de venta', () => {
+  it('el admin carga precio, IVA y la marca de stock; se listan solo los productos con precio', async () => {
+    const { p, cajero, gaseosa } = await escenario()
+    expect(gaseosa).toMatchObject({ precioVenta: 7000, iva: 10, ventaDescuentaStock: true })
+    const lista = (await p.pedir<ProductoVenta[]>(cajero, 'GET', '/ventas/productos')).body
+    expect(lista.map((x) => x.nombre)).toEqual(['Chipa tradicional', 'Cocido con leche', 'Gaseosa 500 ml'])
+    expect(lista.find((x) => x.id === COCIDO)).toMatchObject({ precio: 5000, iva: 5, descuentaStock: true })
+    expect(lista.find((x) => x.id === CHIPA)).toMatchObject({ descuentaStock: false, stock: null })
+    const sup = await p.entrar('supervisor')
+    expect((await p.pedir(sup, 'PATCH', `/productos/${CHIPA}`, { precioVenta: 1 })).status).toBe(403)
+    expect((await p.pedir(sup, 'GET', '/ventas/productos')).status).toBe(403)
+  })
+})
+
+describe('caja', () => {
+  it('abre con fondo, una sola a la vez; sin caja no se vende', async () => {
+    const { p, cajero } = await escenario()
+    expect((await p.pedir<Caja | null>(cajero, 'GET', '/caja')).body).toBeNull()
+    expect((await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'efectivo' })).status).toBe(409)
+    const caja = await p.pedir<Caja>(cajero, 'POST', '/caja/abrir', { fondoInicial: 100_000 })
+    expect(caja.body).toMatchObject({ abierta: true, fondoInicial: 100_000, esperadoEfectivo: 100_000 })
+    expect((await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })).status).toBe(409)
+    const cocina = await p.entrar('cocina')
+    expect((await p.pedir(cocina, 'GET', '/caja')).status).toBe(403)
+  })
+
+  it('venta–cobro–arqueo–cierre: el esperado suma fondo, ventas e ingresos y resta retiros; la diferencia queda', async () => {
+    const { p, cajero } = await escenario()
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 50_000 })
+    const v1 = await p.pedir<Venta>(cajero, 'POST', '/ventas', {
+      items: [{ productoId: CHIPA, cantidad: 10 }, { productoId: COCIDO, cantidad: 2 }], descuento: 4000, medio: 'efectivo', recibido: 50_000,
+      clienteNombre: 'Juan Pérez', clienteRuc: '1234567-8',
+    })
+    expect(v1.status).toBe(200)
+    expect(v1.body).toMatchObject({ numero: 1, subtotal: 40_000, descuento: 4000, total: 36_000, vuelto: 14_000, clienteNombre: 'Juan Pérez' })
+    await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 5 }], medio: 'qr' })
+    await p.pedir(cajero, 'POST', '/caja/movimientos', { tipo: 'ingreso', importe: 20_000, concepto: 'Cambio' })
+    await p.pedir(cajero, 'POST', '/caja/movimientos', { tipo: 'retiro', importe: 30_000, concepto: 'Depósito' })
+    let caja = (await p.pedir<Caja>(cajero, 'GET', '/caja')).body
+    // 50.000 + 36.000 + 20.000 − 30.000
+    expect(caja.esperadoEfectivo).toBe(76_000)
+    expect(caja.totales.find((t) => t.medio === 'qr')?.ventas).toBe(15_000)
+    expect(caja).toMatchObject({ cantidadVentas: 2, totalVentas: 51_000 })
+    caja = (await p.pedir<Caja>(cajero, 'POST', '/caja/arqueos', { contado: 75_000, nota: 'Falta una moneda' })).body
+    expect(caja.arqueos![0]).toMatchObject({ esperado: 76_000, contado: 75_000, diferencia: -1000, esCierre: false })
+    caja = (await p.pedir<Caja>(cajero, 'POST', '/caja/cerrar', { contado: 76_500 })).body
+    expect(caja).toMatchObject({ abierta: false, esperadoEfectivo: 76_000, contadoEfectivo: 76_500, diferencia: 500 })
+    expect((await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'efectivo' })).status).toBe(409)
+    expect((await p.pedir(cajero, 'POST', `/ventas/${v1.body.id}/anular`, { motivo: 'x' })).status).toBe(409)
+    expect((await p.pedir(cajero, 'POST', '/caja/cerrar', { contado: 0 })).status).toBe(409)
+  })
+
+  it('valida la venta: precio, cantidad, descuento y lo recibido', async () => {
+    const { p, cajero } = await escenario()
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const vender = (extra: object) => p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 2 }], medio: 'efectivo', ...extra })
+    expect((await vender({ items: [{ productoId: EMPANADA, cantidad: 1 }] })).status).toBe(400)
+    expect((await vender({ items: [{ productoId: CHIPA, cantidad: 0.5 }] })).status).toBe(400)
+    expect((await vender({ items: [] })).status).toBe(400)
+    expect((await vender({ descuento: 7000 })).status).toBe(400)
+    expect((await vender({ recibido: 5000 })).status).toBe(400)
+    expect((await vender({ medio: 'fiado' })).status).toBe(400)
+    // Dos líneas del mismo producto se juntan.
+    const r = await vender({ items: [{ productoId: CHIPA, cantidad: 2 }, { productoId: CHIPA, cantidad: 3 }] })
+    expect(r.body.items).toEqual([expect.objectContaining({ productoId: CHIPA, cantidad: 5, subtotal: 15_000 })])
+  })
+})
+
+describe('circuito de stock de la venta (sin descontar dos veces)', () => {
+  it('la chipa baja al sacarla del frío y la venta no la toca; la gaseosa baja al venderla', async () => {
+    const e = await escenario()
+    const { p, admin, cajero, gaseosa } = e
+    const chiperia = await p.entrar('chiperia')
+    // 50 chipas al frío, se sacan 20 para la venta.
+    await p.pedir(admin, 'POST', '/ajustes', { sector: 'chiperia', tipo: 'stock_inicial', productoId: CHIPA, lote: 'CH-261101-1', cantidad: 50, motivo: 'Inicial' })
+    expect((await p.pedir(chiperia, 'POST', '/salidas', { productoId: CHIPA, lote: 'CH-261101-1', cantidad: 20 })).status).toBe(200)
+    await cargarGaseosas(e, 24)
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const v = await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 15 }, { productoId: gaseosa.id, cantidad: 3 }], medio: 'efectivo' })
+    expect(v.status).toBe(200)
+    expect(await stockDe(p, admin, 'chiperia', CHIPA)).toBe(30)
+    expect(await stockDe(p, admin, 'cocina', gaseosa.id)).toBe(21)
+    const movs = await p.sql(`SELECT producto_id, cantidad FROM movimientos WHERE tipo = 'venta'`)
+    expect(movs).toEqual([{ producto_id: gaseosa.id, cantidad: -3 }])
+  })
+
+  it('stock obligatorio frena la venta que no alcanza; sin stock obligatorio puede quedar negativo', async () => {
+    const e = await escenario()
+    const { p, admin, cajero, gaseosa } = e
+    await cargarGaseosas(e, 2)
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const r = await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: gaseosa.id, cantidad: 3 }], medio: 'efectivo' })
+    expect(r.status).toBe(409)
+    expect(r.body.error.mensaje).toContain('hay 2')
+    expect(await stockDe(p, admin, 'cocina', gaseosa.id)).toBe(2)
+    expect((await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: COCIDO, cantidad: 4 }], medio: 'efectivo' })).status).toBe(200)
+    expect(await stockDe(p, admin, 'cocina', COCIDO)).toBe(-4)
+  })
+
+  it('anular una venta (caja abierta) devuelve el stock y anula su factura', async () => {
+    const e = await escenario()
+    const { p, admin, cajero, gaseosa } = e
+    await cargarGaseosas(e, 10)
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const v = (await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: gaseosa.id, cantidad: 4 }], medio: 'tarjeta' })).body
+    await p.pedir(cajero, 'POST', `/ventas/${v.id}/factura`)
+    expect((await p.pedir(cajero, 'POST', `/ventas/${v.id}/anular`, {})).status).toBe(400)
+    const a = await p.pedir<Venta>(cajero, 'POST', `/ventas/${v.id}/anular`, { motivo: 'Se arrepintió' })
+    expect(a.body).toMatchObject({ anulada: true, motivoAnulacion: 'Se arrepintió' })
+    expect(a.body.factura?.anulada).toBe(true)
+    expect(await stockDe(p, admin, 'cocina', gaseosa.id)).toBe(10)
+    expect((await p.pedir<Caja>(cajero, 'GET', '/caja')).body.totalVentas).toBe(0)
+    expect((await p.pedir(cajero, 'POST', `/ventas/${v.id}/factura`)).status).toBe(409)
+  })
+})
+
+describe('factura preimpresa', () => {
+  it('numera desde el número inicial, reimprime con el mismo número; el formato lo configura el admin', async () => {
+    const { p, admin, cajero } = await escenario()
+    const cfg = await p.pedir<ConfigFactura>(admin, 'PUT', '/factura/config', { timbrado: '12345678', prefijo: '001-002', numeroInicial: 150, margenSuperior: 2.5 })
+    expect(cfg.body).toMatchObject({ timbrado: '12345678', prefijo: '001-002', numeroInicial: 150, margenSuperior: 2.5 })
+    expect((await p.pedir(cajero, 'PUT', '/factura/config', { numeroInicial: 1 })).status).toBe(403)
+    expect((await p.pedir(admin, 'PUT', '/factura/config', { prefijo: '1-1' })).status).toBe(400)
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const v1 = (await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'efectivo' })).body
+    const v2 = (await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 2 }], medio: 'efectivo' })).body
+    const f1 = await p.pedir<{ venta: Venta; config: ConfigFactura }>(cajero, 'POST', `/ventas/${v1.id}/factura`)
+    expect(f1.body.venta.factura).toMatchObject({ numeroCompleto: '001-002-0000150', timbrado: '12345678', impresiones: 1 })
+    expect(f1.body.config.margenSuperior).toBe(2.5)
+    const f2 = await p.pedir<{ venta: Venta }>(cajero, 'POST', `/ventas/${v2.id}/factura`)
+    expect(f2.body.venta.factura?.numeroCompleto).toBe('001-002-0000151')
+    const otra = await p.pedir<{ venta: Venta }>(cajero, 'POST', `/ventas/${v1.id}/factura`)
+    expect(otra.body.venta.factura).toMatchObject({ numeroCompleto: '001-002-0000150', impresiones: 2 })
+  })
+})
+
+describe('ingresos y egresos, gastos fijos y sueldos', () => {
+  it('suma solas las ventas y los pagos a proveedores; lo manual y los sueldos se cargan una vez', async () => {
+    const { p, admin, cajero } = await escenario()
+    const hoy = diaPY()
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 10_000 })
+    await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 10 }], medio: 'efectivo' })
+    await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 4 }], medio: 'transferencia' })
+    // Pago a proveedor que sale de la caja: aparece como retiro de la caja y como egreso, sin cargarlo dos veces.
+    const sup = await p.entrar('supervisor')
+    const prov = (await p.pedir<Proveedor>(sup, 'POST', '/proveedores', { nombre: 'Molinos' })).body
+    const compra = (await p.pedir<Compra>(sup, 'POST', '/compras', { proveedorId: prov.id, items: [{ productoId: COCIDO, cantidad: 5, precioUnitario: 2000 }] })).body
+    const pagada = await p.pedir<Compra>(sup, 'POST', `/compras/${compra.id}/pagos`, { importe: 6000, medio: 'efectivo', desdeCaja: true })
+    expect(pagada.status).toBe(200)
+    // Gasto de luz pagado con efectivo de la caja.
+    expect((await p.pedir(admin, 'POST', '/ie', { tipo: 'egreso', concepto: 'Luz', categoria: 'Servicios (luz, agua, internet)', importe: 3000, medio: 'efectivo', desdeCaja: true })).status).toBe(200)
+    expect((await p.pedir(admin, 'POST', '/ie', { tipo: 'ingreso', concepto: 'Aporte', categoria: 'Aporte de socios', importe: 100_000, medio: 'transferencia' })).status).toBe(200)
+    let caja = (await p.pedir<Caja>(cajero, 'GET', '/caja')).body
+    // 10.000 + 30.000 − 6.000 − 3.000
+    expect(caja.esperadoEfectivo).toBe(31_000)
+    expect(caja.movimientos!.map((m) => m.origen).sort()).toEqual(['ie', 'proveedor'])
+    // Un movimiento automático no se anula desde la caja.
+    const auto = caja.movimientos!.find((m) => m.origen === 'proveedor')!
+    expect((await p.pedir(cajero, 'POST', `/caja/movimientos/${auto.id}/anular`)).status).toBe(409)
+
+    // Sueldo: gasto fijo que define el admin; se paga una vez por mes.
+    const sueldo = (await p.pedir<GastoFijo>(admin, 'POST', '/gastos-fijos', { nombre: 'Sueldo de Ana', importe: 2_500_000, diaDelMes: 1, esSueldo: true })).body
+    expect(sueldo).toMatchObject({ categoria: 'Sueldos', esSueldo: true })
+    expect((await p.pedir(cajero, 'POST', '/gastos-fijos', { nombre: 'x', importe: 1 })).status).toBe(403)
+    expect((await p.pedir(sup, 'PATCH', `/gastos-fijos/${sueldo.id}`, { importe: 1 })).status).toBe(403)
+    const mes = hoy.slice(0, 7)
+    const pago = await p.pedir<GastoFijoMes[]>(admin, 'POST', `/gastos-fijos/${sueldo.id}/pagar`, { periodo: mes, medio: 'transferencia' })
+    expect(pago.body[0]).toMatchObject({ pagado: true, importePagado: 2_500_000 })
+    expect((await p.pedir(admin, 'POST', `/gastos-fijos/${sueldo.id}/pagar`, { periodo: mes, medio: 'transferencia' })).status).toBe(409)
+
+    const ie = (await p.pedir<ResumenIE>(admin, 'GET', `/ie?desde=${hoy}&hasta=${hoy}`)).body
+    // Ingresos: ventas 42.000 + aporte 100.000. Egresos: proveedor 6.000 + luz 3.000 + sueldo 2.500.000.
+    expect(ie).toMatchObject({ ingresos: 142_000, egresos: 2_509_000, resultado: 142_000 - 2_509_000, soloProveedores: false })
+    expect(ie.porCategoria).toEqual(expect.arrayContaining([
+      { tipo: 'ingreso', categoria: 'Ventas', importe: 42_000 },
+      { tipo: 'egreso', categoria: 'Sueldos', importe: 2_500_000 },
+      { tipo: 'egreso', categoria: 'Pagos a proveedores', importe: 6000 },
+    ]))
+    // El supervisor solo ve los egresos por pagos a proveedores; el cajero y los sectores, nada.
+    const delSup = (await p.pedir<ResumenIE>(sup, 'GET', '/ie')).body
+    expect(delSup).toMatchObject({ soloProveedores: true, ingresos: 0, egresos: 6000 })
+    expect(delSup.movimientos.every((m) => m.origen === 'proveedor')).toBe(true)
+    expect((await p.pedir(cajero, 'GET', '/ie')).status).toBe(403)
+    expect((await p.pedir(await p.entrar('cocina'), 'GET', '/ie')).status).toBe(403)
+
+    // Anular el gasto de luz devuelve el efectivo a lo esperado en la caja; anular el pago al proveedor, también.
+    const luz = ie.movimientos.find((m) => m.concepto === 'Luz')!
+    expect((await p.pedir(admin, 'POST', `/ie/${luz.id}/anular`, { motivo: 'Mal cargado' })).status).toBe(200)
+    await p.pedir(sup, 'POST', `/pagos-proveedor/${pagada.body.pagos![0].id}/anular`, { motivo: 'Error' })
+    caja = (await p.pedir<Caja>(cajero, 'GET', '/caja')).body
+    expect(caja.esperadoEfectivo).toBe(40_000)
+  })
+
+  it('un gasto desde la caja necesita la caja abierta', async () => {
+    const { p, admin } = await escenario()
+    const r = await p.pedir(admin, 'POST', '/ie', { tipo: 'egreso', concepto: 'Gas', categoria: 'Otros gastos', importe: 1000, medio: 'efectivo', desdeCaja: true })
+    expect(r.status).toBe(409)
+  })
+})
+
+describe('reporte detallado y avisos', () => {
+  it('suma ventas, cajas con diferencias, I/E, sueldos y compras; solo para el admin', async () => {
+    const { p, admin, cajero } = await escenario()
+    const hoy = diaPY()
+    await p.pedir(admin, 'POST', '/gastos-fijos', { nombre: 'Sueldo de Ana', importe: 2_000_000, esSueldo: true, diaDelMes: 28 })
+    const alquiler = (await p.pedir<GastoFijo>(admin, 'POST', '/gastos-fijos', { nombre: 'Alquiler', categoria: 'Alquiler', importe: 1_000_000, diaDelMes: 5 })).body
+    await p.pedir(admin, 'POST', `/gastos-fijos/${alquiler.id}/pagar`, { medio: 'transferencia' })
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const v = (await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 10 }], medio: 'efectivo', descuento: 1000 })).body
+    await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: COCIDO, cantidad: 1 }], medio: 'tarjeta' })
+    await p.pedir(cajero, 'POST', `/ventas/${v.id}/factura`)
+    const anulada = (await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'efectivo' })).body
+    await p.pedir(cajero, 'POST', `/ventas/${anulada.id}/anular`, { motivo: 'x' })
+    await p.pedir(cajero, 'POST', '/caja/cerrar', { contado: 28_000 })
+    const r = await p.pedir<ReporteDetallado>(admin, 'GET', `/reportes/detallado?desde=${hoy}&hasta=${hoy}`)
+    expect(r.status).toBe(200)
+    expect(r.body.ventas).toMatchObject({ cantidad: 2, bruto: 35_000, descuentos: 1000, total: 34_000, anuladas: 1, ticketPromedio: 17_000, facturas: 1 })
+    expect(r.body.ventas.porMedio).toEqual([{ medio: 'efectivo', cantidad: 1, importe: 29_000 }, { medio: 'tarjeta', cantidad: 1, importe: 5000 }])
+    expect(r.body.ventas.porProducto[0]).toMatchObject({ productoId: CHIPA, cantidad: 10, importe: 30_000 })
+    expect(r.body.cajas).toHaveLength(1)
+    expect(r.body.diferenciasCaja).toBe(-1000)
+    expect(r.body.sueldos).toMatchObject({ pagados: 0, pendientes: 2_000_000 })
+    expect(r.body.gastosFijos).toMatchObject({ pagados: 1_000_000, pendientes: 0 })
+    expect(r.body.ie).toMatchObject({ ingresos: 34_000, egresos: 1_000_000 })
+    expect((await p.pedir(await p.entrar('supervisor'), 'GET', '/reportes/detallado')).status).toBe(403)
+    expect((await p.pedir(cajero, 'GET', '/reportes/detallado')).status).toBe(403)
+    expect((await p.pedir(cajero, 'GET', '/cajas')).status).toBe(403)
+    expect((await p.pedir<Caja[]>(admin, 'GET', '/cajas')).body).toHaveLength(1)
+  })
+
+  it('avisa de la caja abierta de un día anterior y de gastos fijos vencidos sin pagar', async () => {
+    const { p, admin, cajero } = await escenario()
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    await p.sql('UPDATE cajas SET dia = ?', sumarDias(diaPY(), -1))
+    await p.pedir(admin, 'POST', '/gastos-fijos', { nombre: 'Internet', categoria: 'Servicios', importe: 200_000, diaDelMes: 1 })
+    const delAdmin = (await p.pedir<Alerta[]>(admin, 'GET', '/alertas')).body.map((a) => a.tipo)
+    // Vence el día 1: siempre ya venció en el mes actual.
+    expect(delAdmin).toEqual(expect.arrayContaining(['caja_sin_cerrar', 'gasto_fijo_pendiente']))
+    const delCajero = (await p.pedir<Alerta[]>(cajero, 'GET', '/alertas')).body.map((a) => a.tipo)
+    expect(delCajero).toEqual(['caja_sin_cerrar'])
+  })
+})
+
+describe('total en letras de la factura', async () => {
+  const { enLetras, gs } = await import('../src/shared/dinero')
+  it('escribe números en castellano', () => {
+    expect(enLetras(0)).toBe('cero')
+    expect(enLetras(100)).toBe('cien')
+    expect(enLetras(121)).toBe('ciento veintiuno')
+    expect(enLetras(21_000)).toBe('veintiún mil')
+    expect(enLetras(125_300)).toBe('ciento veinticinco mil trescientos')
+    expect(enLetras(1_001_001)).toBe('un millón mil uno')
+    expect(enLetras(31_500_045)).toBe('treinta y un millones quinientos mil cuarenta y cinco')
+    expect(gs(1234567)).toBe('Gs. 1.234.567')
+  })
+})
