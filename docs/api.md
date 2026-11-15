@@ -15,6 +15,17 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
   contraseña inicial o una restablecida (`debeCambiarClave: true`) solo tiene las rutas de `/auth`; el resto da
   `403 debe_cambiar_clave` hasta que la cambie con `POST /auth/clave` (`conClavePropia` en `src/server/sesion.ts`).
   A los operadores nunca se les pide.
+- **Roles y permisos.** Hay 7 roles: los 4 sectores (`chiperia`, `chipitas`, `panaderia`, `cocina`), `supervisor`,
+  `cajero` y `admin`. Qué puede hacer cada uno está en una sola tabla, `src/shared/permisos.ts`, que usan la API
+  (`requiere(permiso)` en `src/server/sesion.ts`) y las pantallas. Sin el permiso: `403 prohibido`.
+  - **Administrador**: todo, incluido lo del cajero.
+  - **Supervisor**: ve producción, stock, salidas, máquinas, limpieza, lotes, trazabilidad y reportes de todos los
+    sectores (indica `?sector` como el administrador). Reporta fallas o incidencias de máquinas
+    (`/incidencias`) y da el visto bueno de la limpieza. No carga producción ni lecturas, no mueve ni ajusta stock,
+    no corrige y no entra a catálogos, usuarios, datos ni a la configuración del correo.
+  - **Cajero**: por ahora ninguna ruta de datos (caja, ventas y facturas llegan en la etapa 3); `/alertas` le
+    devuelve `[]`. Puede leer los catálogos.
+  - **Sectores**: lo de su sector; lotes y trazabilidad solo Chipería.
 - **Errores.** `{ "error": { "codigo": "...", "mensaje": "..." } }`. El `mensaje` se muestra tal cual al usuario,
   en castellano rioplatense/paraguayo y sin jerga ("No hay stock suficiente para esa salida.").
 
@@ -23,11 +34,11 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
 | 400 | `datos_invalidos` | Falta un dato o no es válido (el mensaje dice cuál); cuerpo que no es JSON; `desde` posterior a `hasta` |
 | 401 | `no_autorizado` | Sin sesión, sesión vencida o cerrada |
 | 401 | `credenciales` | Usuario o contraseña incorrectos (el mismo mensaje en los dos casos) |
-| 403 | `prohibido` | Otro sector (A03), función de administrador, lotes fuera de Chipería |
+| 403 | `prohibido` | Otro sector (A03), algo que el rol no tiene permitido, lotes fuera de Chipería |
 | 403 | `usuario_inactivo` | Login de un usuario desactivado |
 | 403 | `debe_cambiar_clave` | Un administrador todavía no cambió su contraseña inicial o restablecida |
 | 404 | `no_encontrado` | El registro no existe; ruta desconocida |
-| 409 | `stock_insuficiente` | Salida, envío, merma o corrección que dejaría negativo el producto o el lote (D04) |
+| 409 | `stock_insuficiente` | Salida, envío, merma o corrección que dejaría negativo el producto o el lote (D04), si el producto tiene stock obligatorio |
 | 409 | `usuario_repetido` | Ya existe ese nombre de usuario |
 | 409 | `nombre_repetido` | Producto (en su sector), área, tarea (en su área), sucursal o sector con el mismo nombre, sin distinguir mayúsculas ni tildes; si el otro está desactivado, el mensaje propone activarlo |
 | 409 | `numero_repetido` | Otra máquina activa del sector tiene ese N° |
@@ -101,8 +112,8 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | GET | `/sectores` | | `Sector[]` (los cuatro, en orden) |
 | PATCH | `/sectores/:id` | `{ nombre }` | `Sector` |
 | GET | `/productos` | `?sector&todos` | `Producto[]` |
-| POST | `/productos` | `{ sector, nombre, unidad?, stockMinimo? }` | `Producto` (`unidad` por defecto `unidades`; queda al final de su sector) |
-| PATCH | `/productos/:id` | `{ nombre?, unidad?, activo?, stockMinimo? }` | `Producto` (`stockMinimo`: entero ≥ 0, o `null`/vacío para quitarlo; C08) |
+| POST | `/productos` | `{ sector, nombre, unidad?, stockMinimo?, stockObligatorio? }` | `Producto` (`unidad` por defecto `unidades`; `stockObligatorio` por defecto `true`; queda al final de su sector) |
+| PATCH | `/productos/:id` | `{ nombre?, unidad?, activo?, stockMinimo?, stockObligatorio? }` | `Producto` (`stockMinimo`: entero ≥ 0, o `null`/vacío para quitarlo; C08) |
 | GET | `/maquinas` | `?sector&todos` | `Maquina[]` (por sector y N°) |
 | POST | `/maquinas` | `{ sector, numero?, nombre, tipo, tempMin?, tempMax? }` | `Maquina` |
 | PATCH | `/maquinas/:id` | `{ numero?, nombre?, tipo?, tempMin?, tempMax?, activo? }` | `Maquina` |
@@ -121,6 +132,10 @@ Los `PATCH` sin ningún campo editable dan `400`.
   tipos necesitan al menos un límite: un lado puede faltar (freezer ≤ −18 °C, bufetera ≥ 63 °C).
   `tempMin ≤ tempMax`, entre −60 °C y 300 °C, con un decimal. El `PATCH` valida el rango con lo que llega y lo
   que ya tenía.
+- Stock obligatorio: con `true` el stock del producto nunca queda negativo y las salidas que no alcanzan dan
+  `409 stock_insuficiente` (la chipa). Con `false` puede quedar sin cargar o en negativo y nunca frena (el cocido,
+  la harina). Volver a `true` con el stock en negativo (en total, en una finalidad o en un lote) da
+  `409 stock_negativo`: primero se corrige con un ajuste. Los productos que ya existían quedaron en `true`.
 - Áreas: `sectores` = qué sectores la cargan (al menos uno; las comunes, como Sanitario, tienen varios).
 
 ## Producción (C01–C04, E02–E04)
@@ -164,7 +179,7 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | GET | `/movimientos` | `?sector&desde&hasta&sucursal&producto&tipo&lote` | `Movimiento[]` |
 
 - **Finalidad (C05).** Cada movimiento lleva `finalidad`: `reposicion` o `distribucion` (los anteriores a la migración 0007 quedan
-  como `reposicion`). `StockFila` trae `total`, `reposicion` y `distribucion` (y lo mismo por lote). `/salidas` saca de
+  como `reposicion`). `StockFila` trae `total`, `reposicion` y `distribucion` (y lo mismo por lote). También `obligatorio` (stock obligatorio del producto) y `conMovimientos` (sin stock obligatorio y sin movimientos, el stock está «sin cargar» y la pantalla muestra —). `/salidas` saca de
   `reposicion`, `/envios` de `distribucion`, `/ajustes` de la `finalidad` indicada (por defecto `reposicion`). El trigger
   de D04 controla por producto, lote y finalidad; el `409` dice cuánto hay en la otra finalidad. `/reasignaciones`
   (`{ sector?, productoId, lote?, cantidad, desde }`, operador del sector o admin) pasa unidades a la otra finalidad
@@ -184,7 +199,7 @@ Los `PATCH` sin ningún campo editable dan `400`.
 - `/movimientos`: `tipo` acepta varios separados por coma (`?tipo=salida_venta,envio`); `lote` es el código
   exacto.
 
-## Lotes y trazabilidad (E01, E05–E07) · Chipería y admin
+## Lotes y trazabilidad (E01, E05–E07) · Chipería, supervisor (solo ver) y admin
 
 | Método | Ruta | Cuerpo / consulta | Respuesta |
 |---|---|---|---|
@@ -233,13 +248,24 @@ Los `PATCH` sin ningún campo editable dan `400`.
   navegador, hasta 1,5 MB. Se guarda en R2 (o en la tabla `archivos` en la demo y las pruebas) como
   `fotos/<id>.<ext>`. `/foto`: el operador solo ve las de su sector (`403`); sin foto, `404`.
 
+### Fallas e incidencias de máquinas · supervisor y admin reportan
+
+| Método | Ruta | Cuerpo / consulta | Respuesta |
+|---|---|---|---|
+| GET | `/incidencias` | `?sector&maquina&desde&hasta&abiertas` | `Incidencia[]` (la más nueva primero) |
+| POST | `/incidencias` | `{ maquinaId, tipo: 'falla' \| 'incidencia', descripcion }` | `Incidencia` |
+| POST | `/incidencias/:id/resolver` | `{ resolucion? }` | `Incidencia` (`409 ya_resuelta`) |
+
+- No es una lectura: no lleva estado ni temperatura. Queda abierta (aviso `incidencia_maquina` en `/alertas`) hasta
+  que el supervisor o el administrador la marca como resuelta. Los sectores ven las de sus máquinas.
+
 ## Limpieza (G01–G03)
 
 | Método | Ruta | Cuerpo / consulta | Respuesta |
 |---|---|---|---|
 | GET | `/limpiezas` | `?sector&area&desde&hasta&sinControlar` | `Limpieza[]` (marcas en el orden de la planilla) |
 | POST | `/limpiezas` | `PedidoLimpieza` | `Limpieza` |
-| POST | `/limpiezas/:id/control` | · admin | `Limpieza` (`409 ya_controlada`) |
+| POST | `/limpiezas/:id/control` | · admin o supervisor | `Limpieza` (`409 ya_controlada`) |
 
 - `POST`: el área tiene que existir (`404`), estar activa (`400`) y ser del sector del operador (`403`). El
   administrador indica `sector` cuando el área la cargan varios sectores (`400` si falta).
@@ -249,7 +275,7 @@ Los `PATCH` sin ningún campo editable dan `400`.
   `comentario` opcional, hasta 500 caracteres.
 - `/control` firma el «Controlado por» con auditoría (`controlar`).
 
-## Reportes (H01–H04) · solo admin
+## Reportes (H01–H04) · admin y supervisor (el correo, solo admin)
 
 | Método | Ruta | Cuerpo / consulta | Respuesta |
 |---|---|---|---|

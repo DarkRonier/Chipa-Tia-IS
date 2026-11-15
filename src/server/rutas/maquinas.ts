@@ -7,7 +7,7 @@ import { aDataUrl, fotoDelPedido, guardarArchivo, leerArchivo } from '../almacen
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, ValorSQL } from '../entorno'
 import { invalido, noEncontrado, prohibido } from '../errores'
-import { sectorPara } from '../sesion'
+import { requiere, sectorPara } from '../sesion'
 import { cuerpo, diaOpcional, opcion, texto, textoOpcional } from '../validar'
 
 export const rutasMaquinas = new Hono<Entorno>()
@@ -112,7 +112,7 @@ const siONo = (v: string | undefined) => v === '1' || v === 'true'
 
 // ---------- Rutas ----------
 
-rutasMaquinas.get('/lecturas', async (c) => {
+rutasMaquinas.get('/lecturas', requiere('maquinas.ver'), async (c) => {
   const q = c.req.query()
   const sector = sectorPara(c.get('usuario'), q.sector)
   return c.json<Lectura[]>(await leerLecturas(c.env.DB, {
@@ -135,7 +135,7 @@ interface FilaMaquina {
   activo: number
 }
 
-rutasMaquinas.post('/lecturas', async (c) => {
+rutasMaquinas.post('/lecturas', requiere('maquinas.lectura', 'El estado y la temperatura los carga el sector. Podés reportar una falla o incidencia.'), async (c) => {
   const b = await cuerpo(c)
   const u = c.get('usuario')
   const db = c.env.DB
@@ -192,7 +192,7 @@ rutasMaquinas.post('/lecturas', async (c) => {
   return c.json<Lectura>(lectura)
 })
 
-rutasMaquinas.get('/lecturas/:id/foto', async (c) => {
+rutasMaquinas.get('/lecturas/:id/foto', requiere('maquinas.ver'), async (c) => {
   const fila = await una<{ foto_clave: string | null; sector: SectorId }>(
     c.env.DB,
     'SELECT l.foto_clave, m.sector FROM lecturas l JOIN maquinas m ON m.id = l.maquina_id WHERE l.id = ?',

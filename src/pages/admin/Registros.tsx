@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { patch } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
+import { usePuede } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSectorActivo } from '../../components/Layout'
 import { diaPY, fechaHoraPY, inicioDeMes, sumarDias } from '../../shared/hora'
@@ -113,6 +114,7 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
     patch<Produccion>(`/producciones/${p.id}`, { items }))
   const [colCocinado, colGuardado] = columnas(conLotes)
   const editando = filas !== null
+  const puedeCorregir = usePuede()('produccion.corregir')
 
   const empezar = () => {
     setHecho(false)
@@ -158,7 +160,7 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
         <strong>{fechaHoraPY(p.fecha)} · {NOMBRE_TURNO[p.turno]}</strong>
         <span className="suave chico">{p.usuarioNombre}</span>
         {p.lote && <span className="chip">{p.lote.codigo}</span>}
-        {!editando && <button className="btn-texto" onClick={empezar}>Corregir</button>}
+        {!editando && puedeCorregir && <button className="btn-texto" onClick={empezar}>Corregir</button>}
       </div>
       {p.lote && p.lote.lotesMP.length > 0 && (
         <span className="suave chico">Materia prima: {p.lote.lotesMP.map(textoUsoMP).join(' · ')}</span>

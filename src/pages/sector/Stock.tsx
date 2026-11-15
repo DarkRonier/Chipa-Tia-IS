@@ -34,6 +34,9 @@ export function AlertasStock({ sector }: { sector: SectorId }) {
 export const repartoStock = (f: { reposicion: number; distribucion: number }) =>
   `${NOMBRE_FINALIDAD.reposicion}: ${f.reposicion} · ${NOMBRE_FINALIDAD.distribucion}: ${f.distribucion}`
 
+/** Sin stock obligatorio y sin nada cargado, el stock está «sin cargar» (se muestra —, no 0). */
+export const sinCargar = (f: Pick<StockFila, 'obligatorio' | 'conMovimientos'>) => !f.obligatorio && !f.conMovimientos
+
 /** Tabla de stock por producto (y por lote en Chipería). `ocultarCeros`: arranca escondiendo los productos en 0. */
 export function TablaStock({ filas, conLotes, ocultarCeros = false }: { filas: StockFila[]; conLotes: boolean; ocultarCeros?: boolean }) {
   const [soloConStock, setSoloConStock] = useState(ocultarCeros)
@@ -61,6 +64,7 @@ export function TablaStock({ filas, conLotes, ocultarCeros = false }: { filas: S
                 <td>
                   {f.productoNombre}
                   {!f.activo && <span className="stk-desactivado">desactivado</span>}
+                  {!f.obligatorio && <span className="stk-libre" title="Puede quedar sin cargar o en negativo y no frena las salidas">stock libre</span>}
                   {f.minimo !== null && f.total < f.minimo && <span className="stk-bajo">bajo el mínimo ({f.minimo})</span>}
                   {f.total !== 0 && <div className="suave chico stk-reparto">{repartoStock(f)}</div>}
                   {conLotes && f.lotes.length > 0 && (
@@ -71,7 +75,7 @@ export function TablaStock({ filas, conLotes, ocultarCeros = false }: { filas: S
                     </ul>
                   )}
                 </td>
-                <td className="num stk-total">{f.total}</td>
+                <td className={`num stk-total${f.total < 0 ? ' stk-negativo' : ''}`}>{sinCargar(f) ? '—' : f.total}</td>
               </tr>
             ))}
           </tbody>

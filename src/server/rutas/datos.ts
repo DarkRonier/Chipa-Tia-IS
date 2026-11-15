@@ -10,7 +10,9 @@ import { sentenciaAuditoria } from '../auditoria'
 import { ahora, sentencia, todas, una } from '../db'
 import type { BaseD1, Entorno, Env, ValorSQL } from '../entorno'
 import { invalido, noEncontrado } from '../errores'
-import { soloAdmin } from '../sesion'
+import { requiere } from '../sesion'
+
+const soloAdmin = requiere('datos.gestionar', 'Solo el administrador puede hacer esto.')
 import { cuerpo, diaOpcional } from '../validar'
 
 export const rutasDatos = new Hono<Entorno>()
@@ -94,7 +96,7 @@ rutasDatos.patch('/config', soloAdmin, async (c) => {
 /** Tablas en orden de lectura: primero los catálogos, después los registros. */
 const TABLAS = [
   'sectores', 'usuarios', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales',
-  'lotes_mp', 'producciones', 'produccion_items', 'lotes_chipa', 'lote_chipa_mp', 'movimientos', 'lecturas',
+  'lotes_mp', 'producciones', 'produccion_items', 'lotes_chipa', 'lote_chipa_mp', 'movimientos', 'lecturas', 'incidencias',
   'limpiezas', 'limpieza_marcas', 'auditoria', 'copias', 'configuracion', 'archivos',
 ]
 /** Nunca salen: las sesiones abiertas. */

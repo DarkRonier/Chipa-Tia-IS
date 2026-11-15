@@ -29,7 +29,7 @@ export interface Prueba {
 
 /**
  * Base nueva con catálogo de las planillas, usuarios de la demo (chiperia, chipitas, panaderia,
- * cocina, admin; contraseña 1234) y sucursales suc-centro, suc-ruta1, suc-encarnacion. Sin historial.
+ * cocina, supervisor, cajero, admin; contraseña 1234) y sucursales suc-centro, suc-ruta1, suc-encarnacion. Sin historial.
  */
 export async function nuevaPrueba(env: Partial<Env> = {}): Promise<Prueba> {
   SQL ??= initSqlJs()

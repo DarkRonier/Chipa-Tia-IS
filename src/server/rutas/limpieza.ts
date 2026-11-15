@@ -11,7 +11,7 @@ import { sentenciaAuditoria } from '../auditoria'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, ValorSQL } from '../entorno'
 import { conflicto, invalido, noEncontrado, prohibido } from '../errores'
-import { esSector, sectorPara, soloAdmin } from '../sesion'
+import { esSector, requiere, sectorPara } from '../sesion'
 import { cuerpo, diaOpcional, lista, texto, textoOpcional } from '../validar'
 
 export const rutasLimpieza = new Hono<Entorno>()
@@ -155,12 +155,12 @@ export async function alertasLimpieza(db: BaseD1, sector: SectorId | null, hoy: 
 
 // ---------- Rutas ----------
 
-rutasLimpieza.get('/limpieza/alertas', async (c) => {
+rutasLimpieza.get('/limpieza/alertas', requiere('limpieza.ver'), async (c) => {
   const sector = sectorPara(c.get('usuario'), c.req.query('sector'))
   return c.json<Alerta[]>(await alertasLimpieza(c.env.DB, sector))
 })
 
-rutasLimpieza.get('/limpiezas', async (c) => {
+rutasLimpieza.get('/limpiezas', requiere('limpieza.ver'), async (c) => {
   const q = c.req.query()
   const sector = sectorPara(c.get('usuario'), q.sector)
   return c.json<Limpieza[]>(await leerLimpiezas(c.env.DB, {
@@ -172,7 +172,7 @@ rutasLimpieza.get('/limpiezas', async (c) => {
   }))
 })
 
-rutasLimpieza.post('/limpiezas', async (c) => {
+rutasLimpieza.post('/limpiezas', requiere('limpieza.cargar'), async (c) => {
   const b = await cuerpo(c)
   const u = c.get('usuario')
   const db = c.env.DB
@@ -260,7 +260,7 @@ rutasLimpieza.post('/limpiezas', async (c) => {
 })
 
 /** "Controlado por" de la planilla: el administrador da el visto bueno a un reporte. */
-rutasLimpieza.post('/limpiezas/:id/control', soloAdmin, async (c) => {
+rutasLimpieza.post('/limpiezas/:id/control', requiere('limpieza.controlar', 'Solo el administrador o el supervisor pueden controlar la limpieza.'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const [antes] = await leerLimpiezas(db, { ids: [c.req.param('id')] })
@@ -282,7 +282,7 @@ rutasLimpieza.post('/limpiezas/:id/control', soloAdmin, async (c) => {
   return c.json<Limpieza>(despues)
 })
 
-rutasLimpieza.get('/limpiezas/:id/foto', async (c) => {
+rutasLimpieza.get('/limpiezas/:id/foto', requiere('limpieza.ver'), async (c) => {
   const fila = await una<{ foto_clave: string | null; sector: SectorId }>(
     c.env.DB, 'SELECT foto_clave, sector FROM limpiezas WHERE id = ?', c.req.param('id'),
   )

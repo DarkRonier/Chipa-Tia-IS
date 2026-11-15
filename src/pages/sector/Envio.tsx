@@ -77,7 +77,7 @@ function Formulario() {
   const opciones = (l: Linea) =>
     filas.filter((f) => {
       if (f.productoId === l.productoId) return true
-      if (f.distribucion <= 0) return false
+      if (f.distribucion <= 0 && (f.obligatorio || !f.activo)) return false
       if (!conLotes) return !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId)
       return f.lotes.some((x) => x.distribucion > 0 && !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId && o.lote === x.lote))
     })
@@ -89,7 +89,7 @@ function Formulario() {
     for (const l of conCantidad) {
       const nombre = filaDe(l.productoId)?.productoNombre ?? 'un producto'
       if (conLotes && !l.lote) return setAviso(`Elegí el lote de ${nombre}.`)
-      if (l.cantidad > hay(l)) return setAviso(`No alcanza ${nombre}${conLotes ? ` del lote ${l.lote}` : ''}: hay ${hay(l)}.`)
+      if (filaDe(l.productoId)?.obligatorio !== false && l.cantidad > hay(l)) return setAviso(`No alcanza ${nombre}${conLotes ? ` del lote ${l.lote}` : ''}: hay ${hay(l)}.`)
     }
     setConfirmando(true)
   }
@@ -109,7 +109,7 @@ function Formulario() {
   }
 
   const error = aviso ?? registrar.error
-  const hayParaEnviar = filas.some((f) => f.distribucion > 0)
+  const hayParaEnviar = filas.some((f) => f.distribucion > 0 || (!f.obligatorio && f.activo))
   const soloParaVenta = filas.some((f) => f.reposicion > 0)
 
   return (
@@ -149,7 +149,7 @@ function Formulario() {
             </div>
             {lineas.map((l, i) => {
               const f = filaDe(l.productoId)
-              const pasa = listaParaHay(l) && l.cantidad > hay(l)
+              const pasa = listaParaHay(l) && f?.obligatorio !== false && l.cantidad > hay(l)
               return (
                 <div className={`tarjeta stk-linea${pasa ? ' stk-linea-mal' : ''}`} key={l.clave}>
                   <div className="stk-linea-cabeza">

@@ -4,7 +4,7 @@
 // reponer la venta del sector o 'distribucion' para enviar a sucursales; las salidas a venta salen de la
 // primera, los envíos de la segunda y `POST /reasignaciones` pasa unidades de una a la otra.
 // El trigger `movimientos_sin_stock_negativo` (D04) rechaza cualquier salida que deje negativo el producto
-// o el lote en esa finalidad, y un envío de varias líneas va en un solo `batch`: si una línea no alcanza,
+// o el lote en esa finalidad si el producto tiene stock obligatorio (sin esa marca, el stock puede quedar negativo), y un envío de varias líneas va en un solo `batch`: si una línea no alcanza,
 // no se registra ninguna. El aviso de stock mínimo (C08) sale de `alertasStock`.
 import { Hono } from 'hono'
 import type { Alerta } from '../../shared/alertas'
@@ -17,7 +17,7 @@ import { leerMovimientos } from '../consultas'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1 } from '../entorno'
 import { conflicto, esStockInsuficiente, invalido } from '../errores'
-import { sectorPara, soloAdmin } from '../sesion'
+import { requiere, sectorPara } from '../sesion'
 import { cuerpo, diaOpcional, texto } from '../validar'
 
 export const rutasStock = new Hono<Entorno>()
@@ -191,14 +191,18 @@ function claveLote(f: { lote: string; lote_dia: string | null; amasada: number |
 
 // ---------- Stock (D01, D07) ----------
 
-rutasStock.get('/stock', async (c) => {
+rutasStock.get('/stock', requiere('stock.ver'), async (c) => {
   const db = c.env.DB
   const sector = sectorPara(c.get('usuario'), c.req.query('sector'), true)
   const conLotes = await sectorConLotes(db, sector)
 
-  const productos = await todas<{ id: string; nombre: string; activo: number; stock_minimo: number | null; reposicion: number; distribucion: number }>(
+  const productos = await todas<{
+    id: string; nombre: string; activo: number; stock_minimo: number | null; stock_obligatorio: number
+    reposicion: number; distribucion: number; con_movimientos: number
+  }>(
     db,
-    `SELECT p.id, p.nombre, p.activo, p.stock_minimo,
+    `SELECT p.id, p.nombre, p.activo, p.stock_minimo, p.stock_obligatorio,
+            EXISTS (SELECT 1 FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id) AS con_movimientos,
             COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.finalidad = 'reposicion'), 0) AS reposicion,
             COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.finalidad = 'distribucion'), 0) AS distribucion
        FROM productos p
@@ -240,6 +244,8 @@ rutasStock.get('/stock', async (c) => {
       reposicion: p.reposicion,
       distribucion: p.distribucion,
       minimo: p.stock_minimo,
+      obligatorio: !!p.stock_obligatorio,
+      conMovimientos: !!p.con_movimientos,
       lotes: ordenados.filter((l) => l.producto_id === p.id).map((l) => ({
         lote: l.lote, cantidad: l.cantidad, reposicion: l.reposicion, distribucion: l.distribucion,
       })),
@@ -276,14 +282,14 @@ export async function alertasStock(db: BaseD1, sector: SectorId | null): Promise
   }))
 }
 
-rutasStock.get('/stock/alertas', async (c) => {
+rutasStock.get('/stock/alertas', requiere('stock.ver'), async (c) => {
   const sector = sectorPara(c.get('usuario'), c.req.query('sector'))
   return c.json<Alerta[]>(await alertasStock(c.env.DB, sector))
 })
 
 // ---------- Salida a venta (D02, D04) ----------
 
-rutasStock.post('/salidas', async (c) => {
+rutasStock.post('/salidas', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
@@ -310,7 +316,7 @@ rutasStock.post('/salidas', async (c) => {
 
 // ---------- Envío a sucursal (D03, D04, E05) ----------
 
-rutasStock.post('/envios', async (c) => {
+rutasStock.post('/envios', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
@@ -358,7 +364,7 @@ rutasStock.post('/envios', async (c) => {
 
 // ---------- Mermas, vencimientos, ajustes y stock inicial (D06, D07) · admin ----------
 
-rutasStock.post('/ajustes', soloAdmin, async (c) => {
+rutasStock.post('/ajustes', requiere('stock.ajustar', 'Solo el administrador puede hacer esto.'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
@@ -409,7 +415,7 @@ rutasStock.post('/ajustes', soloAdmin, async (c) => {
 
 // ---------- Cambio de finalidad (C05) · operador del sector y administrador ----------
 
-rutasStock.post('/reasignaciones', async (c) => {
+rutasStock.post('/reasignaciones', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
@@ -441,7 +447,7 @@ rutasStock.post('/reasignaciones', async (c) => {
 
 // ---------- Historial (D05) ----------
 
-rutasStock.get('/movimientos', async (c) => {
+rutasStock.get('/movimientos', requiere('stock.ver'), async (c) => {
   const q = c.req.query()
   const sector = sectorPara(c.get('usuario'), q.sector)
   const desde = diaOpcional(q.desde, 'La fecha desde')

@@ -7,6 +7,7 @@ import { rutasAlertas } from './rutas/alertas'
 import { rutasAuth } from './rutas/auth'
 import { rutasCatalogos } from './rutas/catalogos'
 import { rutasDatos } from './rutas/datos'
+import { rutasIncidencias } from './rutas/incidencias'
 import { rutasLimpieza } from './rutas/limpieza'
 import { rutasLotes } from './rutas/lotes'
 import { rutasMaquinas } from './rutas/maquinas'
@@ -45,6 +46,7 @@ export function crearApp() {
   app.route('/', rutasStock)
   app.route('/', rutasLotes)
   app.route('/', rutasMaquinas)
+  app.route('/', rutasIncidencias)
   app.route('/', rutasLimpieza)
   app.route('/', rutasReportes)
   app.route('/', rutasDatos)

@@ -2,6 +2,7 @@
 import type { Context, MiddlewareHandler } from 'hono'
 import type { Rol, SectorId } from '../shared/tipos'
 import { SECTOR_IDS } from '../shared/tipos'
+import { puede, sectorDeRol, type Permiso } from '../shared/permisos'
 import { sha256, tokenAleatorio } from './clave'
 import { ejecutar, una } from './db'
 import type { BaseD1, Entorno, UsuarioSesion } from './entorno'
@@ -64,7 +65,7 @@ export const conSesion: MiddlewareHandler<Entorno> = async (c, next) => {
     nombre: fila.nombre,
     usuario: fila.usuario,
     rol: fila.rol,
-    sector: fila.rol === 'admin' ? null : fila.rol,
+    sector: sectorDeRol(fila.rol),
     // Solo un administrador puede cambiar su contraseña, así que solo a él se le exige.
     debeCambiarClave: !!fila.debe_cambiar_clave && fila.rol === 'admin',
   })
@@ -82,12 +83,20 @@ export const conClavePropia: MiddlewareHandler<Entorno> = async (c, next) => {
   await next()
 }
 
-export const soloAdmin: MiddlewareHandler<Entorno> = async (c, next) => {
-  if (c.get('usuario').rol !== 'admin') throw prohibido('Solo el administrador puede hacer esto.')
-  await next()
+export const esAdmin = (u: UsuarioSesion) => u.rol === 'admin'
+
+/**
+ * Exige un permiso de la tabla de roles (src/shared/permisos.ts); si no lo tiene, 403 con `mensaje`.
+ * Va antes de `sectorPara`: el permiso dice qué puede hacer y `sectorPara`, en qué sector.
+ */
+export function requiere(permiso: Permiso, mensaje = 'No tenés permiso para esto.'): MiddlewareHandler<Entorno> {
+  return async (c, next) => {
+    if (!puede(c.get('usuario').rol, permiso)) throw prohibido(mensaje)
+    await next()
+  }
 }
 
-export const esAdmin = (u: UsuarioSesion) => u.rol === 'admin'
+export const tienePermiso = (u: UsuarioSesion, permiso: Permiso) => puede(u.rol, permiso)
 
 export function esSector(v: unknown): v is SectorId {
   return typeof v === 'string' && (SECTOR_IDS as string[]).includes(v)
@@ -95,7 +104,7 @@ export function esSector(v: unknown): v is SectorId {
 
 /**
  * Sector sobre el que actúa el pedido (A03). Un operador siempre usa el suyo: si pide otro, 403.
- * El administrador debe indicarlo cuando `obligatorio`; si no, devuelve null (= todos los sectores).
+ * El administrador (o el supervisor) debe indicarlo cuando `obligatorio`; si no, devuelve null (= todos los sectores).
  */
 export function sectorPara(u: UsuarioSesion, pedido: unknown, obligatorio: true): SectorId
 export function sectorPara(u: UsuarioSesion, pedido: unknown, obligatorio?: false): SectorId | null

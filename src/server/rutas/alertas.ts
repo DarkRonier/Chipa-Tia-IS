@@ -1,27 +1,37 @@
-// C08, E10, G08: todos los avisos juntos, para el inicio de cada sector, el Resumen del administrador y el correo.
+// C08, E10, G08 e incidencias de máquinas: todos los avisos juntos, para el inicio de cada sector, el Resumen del
+// administrador y del supervisor, y el correo. Cada uno ve solo los avisos de lo que tiene permiso de ver.
 import { Hono } from 'hono'
 import type { Alerta } from '../../shared/alertas'
-import type { SectorId } from '../../shared/tipos'
+import { puede, type Permiso } from '../../shared/permisos'
+import type { Rol, SectorId } from '../../shared/tipos'
 import { alertasLotes } from '../alertasLotes'
 import type { BaseD1, Entorno } from '../entorno'
 import { sectorPara } from '../sesion'
+import { alertasIncidencias } from './incidencias'
 import { alertasLimpieza } from './limpieza'
 import { alertasStock } from './stock'
 
 export const rutasAlertas = new Hono<Entorno>()
 
-/** Avisos de un sector (o de todos con null). Los lotes de materia prima son de Chipería. */
-export async function todasLasAlertas(db: BaseD1, sector: SectorId | null): Promise<Alerta[]> {
-  const conLotes = sector === null || sector === 'chiperia'
-  const [stock, lotes, limpieza] = await Promise.all([
-    alertasStock(db, sector),
-    conLotes ? alertasLotes(db) : Promise.resolve([]),
-    alertasLimpieza(db, sector),
+/**
+ * Avisos de un sector (o de todos con null). Los lotes de materia prima son de Chipería. Con `rol`, solo los de lo
+ * que ese rol puede ver (el correo diario no lo pasa: va al administrador, que ve todo).
+ */
+export async function todasLasAlertas(db: BaseD1, sector: SectorId | null, rol: Rol = 'admin'): Promise<Alerta[]> {
+  const ve = (p: Permiso) => puede(rol, p)
+  const nada = Promise.resolve<Alerta[]>([])
+  const conLotes = (sector === null || sector === 'chiperia') && ve('lotes.ver')
+  const [stock, lotes, limpieza, incidencias] = await Promise.all([
+    ve('stock.ver') ? alertasStock(db, sector) : nada,
+    conLotes ? alertasLotes(db) : nada,
+    ve('limpieza.ver') ? alertasLimpieza(db, sector) : nada,
+    ve('maquinas.ver') ? alertasIncidencias(db, sector) : nada,
   ])
-  return [...stock, ...lotes, ...limpieza]
+  return [...incidencias, ...stock, ...lotes, ...limpieza]
 }
 
 rutasAlertas.get('/alertas', async (c) => {
-  const sector = sectorPara(c.get('usuario'), c.req.query('sector'))
-  return c.json<Alerta[]>(await todasLasAlertas(c.env.DB, sector))
+  const u = c.get('usuario')
+  const sector = sectorPara(u, c.req.query('sector'))
+  return c.json<Alerta[]>(await todasLasAlertas(c.env.DB, sector, u.rol))
 })

@@ -1,4 +1,5 @@
 // Consultas de catálogo que usan muchas pantallas.
+import { NOMBRE_ROL_GENERAL, sectorDeRol } from '../shared/permisos'
 import type { Maquina, Rol, Sector, SectorId } from '../shared/tipos'
 import { useConsulta } from './consultas'
 
@@ -9,9 +10,10 @@ export function useSectores() {
   return { ...c, lista, nombre }
 }
 
-/** "Chipería", "Cocina y buffet"… o "Administrador". */
+/** "Chipería", "Cocina y buffet"…, "Supervisor", "Cajero" o "Administrador". */
 export function nombreRol(rol: Rol, nombreSector: (id: SectorId) => string): string {
-  return rol === 'admin' ? 'Administrador' : nombreSector(rol)
+  const sector = sectorDeRol(rol)
+  return sector ? nombreSector(sector) : NOMBRE_ROL_GENERAL[rol as keyof typeof NOMBRE_ROL_GENERAL]
 }
 
 const grados = (n: number) => `${String(n).replace('.', ',').replace('-', '−')} °C`

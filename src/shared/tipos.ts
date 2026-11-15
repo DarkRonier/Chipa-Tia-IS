@@ -2,9 +2,10 @@
 // Todo lo que viaja por /api tiene la forma que se declara acá.
 
 export type SectorId = 'chiperia' | 'chipitas' | 'panaderia' | 'cocina'
-export type Rol = SectorId | 'admin'
+export type Rol = SectorId | 'supervisor' | 'cajero' | 'admin'
 export const SECTOR_IDS: SectorId[] = ['chiperia', 'chipitas', 'panaderia', 'cocina']
-export const ROLES: Rol[] = [...SECTOR_IDS, 'admin']
+/** En este orden se listan en Usuarios: los sectores, supervisor, cajero y al final el administrador. */
+export const ROLES: Rol[] = [...SECTOR_IDS, 'supervisor', 'cajero', 'admin']
 
 export type Turno = 'dia' | 'noche'
 export type TipoMovimiento = 'produccion' | 'stock_inicial' | 'salida_venta' | 'envio' | 'merma' | 'vencimiento' | 'ajuste' | 'reasignacion'
@@ -57,6 +58,32 @@ export const NOMBRE_MARCA: Record<Marca, string> = { X: 'Diaria', XX: 'Profunda'
 
 // ---------- Entidades ----------
 
+/** Falla o incidencia de una máquina que reporta el supervisor o el administrador. */
+export type TipoIncidencia = 'falla' | 'incidencia'
+export const NOMBRE_TIPO_INCIDENCIA: Record<TipoIncidencia, string> = {
+  falla: 'Falla',
+  incidencia: 'Incidencia',
+}
+
+export interface Incidencia {
+  id: string
+  maquinaId: string
+  maquinaNombre: string
+  maquinaNumero: number
+  sector: SectorId
+  tipo: TipoIncidencia
+  descripcion: string
+  usuarioId: string
+  usuarioNombre: string
+  fecha: string
+  dia: string
+  /** null mientras sigue abierta. */
+  resueltaEn: string | null
+  resueltaPor: string | null
+  resueltaPorNombre: string | null
+  resolucion: string | null
+}
+
 export interface Sector {
   id: SectorId
   nombre: string
@@ -81,6 +108,11 @@ export interface Producto {
   activo: boolean
   /** C08: con menos que esto en frío (sumando finalidades y lotes) el sistema avisa. null = sin aviso. */
   stockMinimo: number | null
+  /**
+   * Stock obligatorio: el stock nunca puede quedar negativo y frena las salidas que no alcanzan (por ejemplo, la chipa).
+   * Sin stock obligatorio (por ejemplo, cocido o harina) puede quedar sin cargar o en negativo y nunca frena nada.
+   */
+  stockObligatorio: boolean
 }
 
 export interface Maquina {
@@ -237,6 +269,10 @@ export interface StockFila {
   distribucion: number
   /** Stock mínimo configurado (C08); null si no tiene. */
   minimo: number | null
+  /** El producto tiene stock obligatorio (no puede quedar negativo). */
+  obligatorio: boolean
+  /** Hay al menos un movimiento cargado. Sin stock obligatorio y sin movimientos, el stock está «sin cargar». */
+  conMovimientos: boolean
   lotes: { lote: string; cantidad: number; reposicion: number; distribucion: number }[]
 }
 
@@ -472,6 +508,12 @@ export interface PedidoLectura {
   mantenimientoPor?: string | null
   /** Imagen ya achicada en el navegador, como data URL JPEG. */
   foto?: string | null
+}
+
+export interface PedidoIncidencia {
+  maquinaId: string
+  tipo: TipoIncidencia
+  descripcion: string
 }
 
 export interface PedidoLimpieza {

@@ -9,7 +9,9 @@ import { ahora, nuevoId, sentencia, todas, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1 } from '../entorno'
 import { conflicto, invalido, noEncontrado, prohibido } from '../errores'
 import { aUsuario, COLUMNAS_USUARIO, type FilaUsuario } from '../mapeo'
-import { soloAdmin } from '../sesion'
+import { requiere } from '../sesion'
+
+const soloAdmin = requiere('usuarios.gestionar', 'Solo el administrador puede hacer esto.')
 import { booleano, cuerpo, texto } from '../validar'
 
 export const rutasUsuarios = new Hono<Entorno>()

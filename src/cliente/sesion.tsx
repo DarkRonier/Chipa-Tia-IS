@@ -1,5 +1,6 @@
 // Sesión del usuario en el navegador (A01). El token queda en localStorage; al recargar se valida con /auth/yo.
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { puede, type Permiso } from '../shared/permisos'
 import type { RespuestaLogin, Usuario } from '../shared/tipos'
 import { cuandoSePierdaLaSesion, fijarToken, get, hayToken, post } from './api'
 import { invalidar } from './consultas'
@@ -66,4 +67,10 @@ export function useUsuario(): Usuario {
   const u = useSesion().usuario
   if (!u) throw new Error('useUsuario sin sesión')
   return u
+}
+
+/** `puede('stock.ver')`: si el usuario con sesión tiene ese permiso (src/shared/permisos.ts). */
+export function usePuede(): (p: Permiso) => boolean {
+  const u = useUsuario()
+  return (p) => puede(u.rol, p)
 }

@@ -40,6 +40,7 @@ const NOMBRE_TABLA: Record<string, string> = {
   lote_chipa_mp: 'Lotes de chipa y MP',
   movimientos: 'Movimientos de stock',
   lecturas: 'Lecturas de máquinas',
+  incidencias: 'Incidencias de máquinas',
   limpiezas: 'Limpiezas',
   limpieza_marcas: 'Limpiezas por tarea',
   auditoria: 'Auditoría',
@@ -256,6 +257,7 @@ const ACCION: Record<string, string> = {
   bloquear: 'Bloqueó',
   desbloquear: 'Desbloqueó',
   controlar: 'Dio el visto bueno a',
+  resolver: 'Marcó como resuelta',
   restablecer_clave: 'Restableció la contraseña de',
 }
 const QUE: Record<string, string> = {
@@ -263,6 +265,7 @@ const QUE: Record<string, string> = {
   movimientos: 'el stock',
   lotes_mp: 'un lote de materia prima',
   limpiezas: 'una limpieza',
+  incidencias: 'una falla o incidencia de máquina',
   usuarios: 'un usuario',
   productos: 'un producto',
   maquinas: 'una máquina',
@@ -273,7 +276,7 @@ const QUE: Record<string, string> = {
   configuracion: 'la configuración',
   copias: 'una copia de seguridad',
 }
-const FILTRO_TABLAS = ['producciones', 'movimientos', 'lotes_mp', 'limpiezas', 'usuarios', 'productos', 'maquinas', 'areas_limpieza', 'tareas_limpieza', 'sucursales', 'sectores', 'configuracion', 'copias']
+const FILTRO_TABLAS = ['producciones', 'movimientos', 'incidencias', 'lotes_mp', 'limpiezas', 'usuarios', 'productos', 'maquinas', 'areas_limpieza', 'tareas_limpieza', 'sucursales', 'sectores', 'configuracion', 'copias']
 const CAMPO: Record<string, string> = {
   correoReportes: 'Correo de reportes', urlPublica: 'Dirección pública', nombre: 'Nombre', usuario: 'Usuario', rol: 'Rol',
   activo: 'Activo', debeCambiarClave: 'Debe cambiar la contraseña', unidad: 'Unidad', numero: 'N°', tipo: 'Tipo',
@@ -281,6 +284,8 @@ const CAMPO: Record<string, string> = {
   bloqueado: 'Bloqueado', lote: 'Lote', producto: 'Producto', stock: 'Stock', cantidad: 'Cantidad', motivo: 'Motivo',
   sector: 'Sector', controladoEn: 'Controlado el', corregidoEn: 'Corregido el', clave: 'Archivo', bytes: 'Tamaño',
   origen: 'Origen', fecha: 'Fecha', dia: 'Día', creadoEn: 'Creado el', cocinado: 'cocinado', guardado: 'guardado',
+  stockMinimo: 'Stock mínimo', stockObligatorio: 'Stock obligatorio', descripcion: 'Descripción', resolucion: 'Qué se hizo',
+  resueltaEn: 'Resuelta el',
 }
 /** Identificadores internos: no le dicen nada a quien lee (quién lo hizo ya figura arriba). */
 const OCULTOS = /^(id|.*Id|controladoPor|corregidoPor|corregidoPorNombre|controladoPorNombre)$/

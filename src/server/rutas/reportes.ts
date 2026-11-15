@@ -8,7 +8,7 @@ import type { Entorno } from '../entorno'
 import { invalido } from '../errores'
 import { armarReporte } from '../reporte'
 import { armarSerie } from '../serie'
-import { sectorPara, soloAdmin } from '../sesion'
+import { requiere, sectorPara } from '../sesion'
 import { cuerpo, diaOpcional, opcion } from '../validar'
 
 export const rutasReportes = new Hono<Entorno>()
@@ -29,7 +29,7 @@ function rangoPedido(q: Record<string, string>): { desde: string; hasta: string 
   return { desde, hasta }
 }
 
-rutasReportes.get('/reportes', soloAdmin, async (c) => {
+rutasReportes.get('/reportes', requiere('reportes.ver'), async (c) => {
   const q = c.req.query()
   const { desde, hasta } = rangoPedido(q)
   const sector = sectorPara(c.get('usuario'), q.sector)
@@ -37,11 +37,11 @@ rutasReportes.get('/reportes', soloAdmin, async (c) => {
 })
 
 // Serie por día y sector para los gráficos del Resumen.
-rutasReportes.get('/reportes/serie', soloAdmin, async (c) => {
+rutasReportes.get('/reportes/serie', requiere('reportes.ver'), async (c) => {
   return c.json<SerieReporte>(await armarSerie(c.env.DB, rangoPedido(c.req.query())))
 })
 
-rutasReportes.post('/reportes/enviar', soloAdmin, async (c) => {
+rutasReportes.post('/reportes/enviar', requiere('reportes.correo', 'Solo el administrador puede hacer esto.'), async (c) => {
   const b = await cuerpo(c)
   const periodo = b.periodo === undefined ? 'diario' : opcion(b.periodo, PERIODOS, 'El período del resumen')
   return c.json<ResumenCorreo>(await enviarResumen(c.env, periodo, diaPY()))

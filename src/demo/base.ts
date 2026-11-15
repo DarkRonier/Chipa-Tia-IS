@@ -14,6 +14,8 @@ export const USUARIOS_DEMO = [
   { id: 'usr-chipitas', nombre: 'Encargado Chipitas', usuario: 'chipitas', rol: 'chipitas' },
   { id: 'usr-panaderia', nombre: 'Encargado Panadería', usuario: 'panaderia', rol: 'panaderia' },
   { id: 'usr-cocina', nombre: 'Encargado Cocina', usuario: 'cocina', rol: 'cocina' },
+  { id: 'usr-supervisor', nombre: 'Supervisión', usuario: 'supervisor', rol: 'supervisor' },
+  { id: 'usr-cajero', nombre: 'Caja', usuario: 'cajero', rol: 'cajero' },
   { id: 'usr-admin', nombre: 'Administración', usuario: 'admin', rol: 'admin' },
 ] as const
 

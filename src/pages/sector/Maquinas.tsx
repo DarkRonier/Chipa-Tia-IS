@@ -1,19 +1,21 @@
 // F01–F05: el operador elige una máquina de su sector y carga estado, temperatura (obligatoria en los
 // equipos fríos y calientes), observación, mantenimiento y una foto opcional. Debajo, el historial de la
-// máquina con la temperatura en rojo cuando quedó fuera de rango.
-import { useState } from 'react'
+// máquina con la temperatura en rojo cuando quedó fuera de rango. El supervisor (y el administrador) no carga
+// lecturas desde acá sino fallas o incidencias, que quedan abiertas hasta que alguien las marca como resueltas.
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
+import { usePuede } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { CampoFoto, FotoBajoDemanda } from '../../components/Foto'
-import { useSector } from '../../components/Layout'
+import { useElegirSector, useSector } from '../../components/Layout'
 import { IconoMaquinas } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY, fechaHoraPY, horaPY, sumarDias } from '../../shared/hora'
 import {
-  NOMBRE_ESTADO, NOMBRE_MOMENTO,
-  type EstadoMaquina, type Lectura, type Maquina, type Momento, type PedidoLectura, type SectorId,
+  NOMBRE_ESTADO, NOMBRE_MOMENTO, NOMBRE_TIPO_INCIDENCIA, SECTOR_IDS,
+  type EstadoMaquina, type Incidencia, type PedidoIncidencia, type TipoIncidencia, type Lectura, type Maquina, type Momento, type PedidoLectura, type SectorId,
 } from '../../shared/tipos'
 import '../../styles/controles.css'
 
@@ -59,10 +61,23 @@ export default function Maquinas() {
 
 function Pantalla({ sector }: { sector: SectorId }) {
   const [params, setParams] = useSearchParams()
+  const puede = usePuede()
+  const elegirSector = useElegirSector()
   const hoy = diaPY()
   const maquinas = useConsulta<Maquina[]>('/maquinas', { sector })
   const recientes = useConsulta<Lectura[]>('/lecturas', { sector, desde: sumarDias(hoy, -30) })
+  const abiertas = useConsulta<Incidencia[]>('/incidencias', { sector, abiertas: true })
   const maquina = maquinas.datos?.find((m) => m.id === params.get('maquina'))
+
+  // Un aviso de otra máquina trae su sector (?sector=…): administrador y supervisor pasan a mirar ese sector.
+  const sectorPedido = params.get('sector')
+  useEffect(() => {
+    if (!sectorPedido) return
+    if ((SECTOR_IDS as string[]).includes(sectorPedido)) elegirSector(sectorPedido as SectorId)
+    const resto = new URLSearchParams(params)
+    resto.delete('sector')
+    setParams(resto, { replace: true })
+  }, [sectorPedido]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (maquina) {
     const deHoy = (recientes.datos ?? []).filter((l) => l.maquinaId === maquina.id && l.dia === hoy)
@@ -72,7 +87,8 @@ function Pantalla({ sector }: { sector: SectorId }) {
           <button className="volver" onClick={() => setParams({})} aria-label="Volver">‹</button>
           <h1>N° {maquina.numero} · {maquina.nombre}</h1>
         </div>
-        <Formulario key={maquina.id} maquina={maquina} deHoy={recientes.datos ? deHoy : null} />
+        {puede('maquinas.lectura') && <Formulario key={maquina.id} maquina={maquina} deHoy={recientes.datos ? deHoy : null} />}
+        <Incidencias key={`inc-${maquina.id}`} maquina={maquina} reportar={puede('maquinas.incidencia')} />
         <Historial maquina={maquina} />
       </>
     )
@@ -92,8 +108,9 @@ function Pantalla({ sector }: { sector: SectorId }) {
                 const u = ultima(m.id)
                 const alerta = !!u && (u.fueraDeRango || u.estado !== 'funciona')
                 const hoyCuenta = (recientes.datos ?? []).filter((l) => l.maquinaId === m.id && l.dia === hoy).length
+                const incidencias = (abiertas.datos ?? []).filter((i) => i.maquinaId === m.id).length
                 return (
-                  <button key={m.id} className={alerta ? 'item alerta' : 'item'} onClick={() => setParams({ maquina: m.id })}>
+                  <button key={m.id} className={alerta || incidencias ? 'item alerta' : 'item'} onClick={() => setParams({ maquina: m.id })}>
                     <strong>N° {m.numero} · {m.nombre}</strong>
                     <span className="suave">{tieneRango(m) ? `Rango: ${textoRango(m)}` : 'Sin control de temperatura'}</span>
                     <span className={alerta ? 'error chico' : 'suave chico'}>
@@ -105,6 +122,9 @@ function Pantalla({ sector }: { sector: SectorId }) {
                     </span>
                     {recientes.datos !== undefined && (
                       <span className="suave chico">Hoy: {hoyCuenta === 0 ? 'sin lecturas' : hoyCuenta === 1 ? '1 lectura' : `${hoyCuenta} lecturas`}</span>
+                    )}
+                    {incidencias > 0 && (
+                      <span className="error chico">{incidencias === 1 ? '1 falla o incidencia sin resolver' : `${incidencias} fallas o incidencias sin resolver`}</span>
                     )}
                   </button>
                 )
@@ -306,6 +326,106 @@ function Formulario({ maquina, deHoy }: { maquina: Maquina; deHoy: Lectura[] | n
         {enviando ? 'Guardando…' : 'Guardar reporte'}
       </button>
     </div>
+  )
+}
+
+// ---------- Fallas e incidencias ----------
+
+const TIPOS_INCIDENCIA: TipoIncidencia[] = ['falla', 'incidencia']
+
+/** Las fallas e incidencias de la máquina (abiertas primero) y, para el supervisor y el administrador, el formulario. */
+function Incidencias({ maquina, reportar }: { maquina: Maquina; reportar: boolean }) {
+  const lista = useConsulta<Incidencia[]>('/incidencias', { sector: maquina.sector, maquina: maquina.id })
+  const [tipo, setTipo] = useState<TipoIncidencia>('falla')
+  const [descripcion, setDescripcion] = useState('')
+  const [aviso, setAviso] = useState<string | null>(null)
+  const [listo, setListo] = useState<string | null>(null)
+  const crear = useAccion((p: PedidoIncidencia) => post<Incidencia>('/incidencias', p))
+  const resolver = useAccion((id: string, resolucion: string) => post<Incidencia>(`/incidencias/${id}/resolver`, { resolucion }))
+  const [resolviendo, setResolviendo] = useState<string | null>(null)
+  const [resolucion, setResolucion] = useState('')
+
+  const guardar = async () => {
+    setAviso(null)
+    setListo(null)
+    if (!descripcion.trim()) return setAviso('Contá qué pasó.')
+    const r = await crear.ejecutar({ maquinaId: maquina.id, tipo, descripcion: descripcion.trim() })
+    if (r) {
+      setListo(`${NOMBRE_TIPO_INCIDENCIA[r.tipo]} reportada. Queda abierta hasta que alguien la marque como resuelta.`)
+      setDescripcion('')
+    }
+  }
+  const marcarResuelta = async (id: string) => {
+    if (await resolver.ejecutar(id, resolucion.trim())) {
+      setResolviendo(null)
+      setResolucion('')
+    }
+  }
+
+  const ordenadas = [...(lista.datos ?? [])].sort((a, b) => Number(!!a.resueltaEn) - Number(!!b.resueltaEn))
+  if (!reportar && lista.datos && lista.datos.length === 0) return null
+  return (
+    <>
+      <h2>Fallas e incidencias</h2>
+      {reportar && (
+        <div className="tarjeta">
+          <div className="segmentado ctl-sin-margen" role="group" aria-label="Tipo">
+            {TIPOS_INCIDENCIA.map((t) => (
+              <button key={t} type="button" className={tipo === t ? 'activo' : ''} aria-pressed={tipo === t} onClick={() => setTipo(t)}>
+                {NOMBRE_TIPO_INCIDENCIA[t]}
+              </button>
+            ))}
+          </div>
+          <label className="campo">
+            <span>Qué pasó</span>
+            <textarea value={descripcion} maxLength={500} rows={3} onChange={(e) => setDescripcion(e.target.value)}
+              placeholder={tipo === 'falla' ? 'Ej.: no enfría, hace ruido, pierde agua' : 'Ej.: puerta mal cerrada, burlete roto'} />
+          </label>
+          <Aviso>{aviso ?? crear.error}</Aviso>
+          {listo && <p className="ok" role="status">{listo}</p>}
+          <button className="btn-primario" onClick={() => void guardar()} disabled={crear.enviando}>
+            {crear.enviando ? 'Guardando…' : `Reportar ${NOMBRE_TIPO_INCIDENCIA[tipo].toLowerCase()}`}
+          </button>
+        </div>
+      )}
+      <ConDatos consulta={lista}>
+        {() => ordenadas.length === 0 ? (
+          <p className="suave">Esta máquina no tiene fallas ni incidencias reportadas.</p>
+        ) : (
+          <div className="lista">
+            {ordenadas.map((i) => (
+              <div key={i.id} className={i.resueltaEn ? 'tarjeta' : 'tarjeta fila-roja'}>
+                <strong>{NOMBRE_TIPO_INCIDENCIA[i.tipo]}{i.resueltaEn ? ' · resuelta' : ' · sin resolver'}</strong>
+                <div>{i.descripcion}</div>
+                <div className="suave chico">{fechaHoraPY(i.fecha)} · {i.usuarioNombre}</div>
+                {i.resueltaEn && (
+                  <div className="suave chico">
+                    Resuelta el {fechaHoraPY(i.resueltaEn)} por {i.resueltaPorNombre}{i.resolucion ? `: ${i.resolucion}` : ''}
+                  </div>
+                )}
+                {reportar && !i.resueltaEn && (resolviendo === i.id ? (
+                  <>
+                    <label className="campo">
+                      <span>Qué se hizo (opcional)</span>
+                      <input value={resolucion} maxLength={500} onChange={(e) => setResolucion(e.target.value)} />
+                    </label>
+                    <Aviso>{resolver.error}</Aviso>
+                    <button className="btn-primario" onClick={() => void marcarResuelta(i.id)} disabled={resolver.enviando}>
+                      {resolver.enviando ? 'Guardando…' : 'Marcar como resuelta'}
+                    </button>
+                    <button className="btn-texto" onClick={() => setResolviendo(null)}>Cancelar</button>
+                  </>
+                ) : (
+                  <button className="btn-texto" onClick={() => { resolver.limpiarError(); setResolucion(''); setResolviendo(i.id) }}>
+                    Marcar como resuelta
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </ConDatos>
+    </>
   )
 }
 

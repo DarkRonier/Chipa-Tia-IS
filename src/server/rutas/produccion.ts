@@ -7,7 +7,7 @@ import { leerLotesMP, leerProducciones } from '../consultas'
 import { ahora, nuevoId, sentencia, todasPorTrozos } from '../db'
 import type { BaseD1, Entorno, SentenciaD1 } from '../entorno'
 import { conflicto, esSaldoLoteInsuficiente, esStockInsuficiente, invalido, noEncontrado } from '../errores'
-import { sectorPara, soloAdmin } from '../sesion'
+import { requiere, sectorPara } from '../sesion'
 import { cuerpo, diaOpcional, entero, numero, opcion, texto } from '../validar'
 
 export const rutasProduccion = new Hono<Entorno>()
@@ -139,7 +139,7 @@ async function unaProduccion(db: BaseD1, id: string): Promise<Produccion> {
 
 // ---------- Listado ----------
 
-rutasProduccion.get('/producciones', async (c) => {
+rutasProduccion.get('/producciones', requiere('produccion.ver'), async (c) => {
   const u = c.get('usuario')
   const q = c.req.query()
   const sector = sectorPara(u, q.sector)
@@ -151,7 +151,7 @@ rutasProduccion.get('/producciones', async (c) => {
 
 // ---------- Registrar (C01–C03, E02–E04) ----------
 
-rutasProduccion.post('/producciones', async (c) => {
+rutasProduccion.post('/producciones', requiere('produccion.cargar'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
@@ -223,7 +223,7 @@ rutasProduccion.post('/producciones', async (c) => {
 
 // ---------- Corregir (C04) · solo admin ----------
 
-rutasProduccion.patch('/producciones/:id', soloAdmin, async (c) => {
+rutasProduccion.patch('/producciones/:id', requiere('produccion.corregir', 'Solo el administrador puede hacer esto.'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const id = c.req.param('id')
