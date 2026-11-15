@@ -23,7 +23,7 @@ import { cuerpo, diaOpcional, texto } from '../validar'
 export const rutasStock = new Hono<Entorno>()
 
 const TIPOS_MOVIMIENTO: readonly TipoMovimiento[] = [
-  'produccion', 'stock_inicial', 'salida_venta', 'envio', 'merma', 'vencimiento', 'ajuste', 'reasignacion',
+  'produccion', 'stock_inicial', 'salida_venta', 'envio', 'merma', 'vencimiento', 'ajuste', 'reasignacion', 'compra', 'venta',
 ]
 const TIPOS_AJUSTE: readonly TipoAjuste[] = ['merma', 'vencimiento', 'ajuste', 'stock_inicial']
 const MAX_CANTIDAD = 1_000_000

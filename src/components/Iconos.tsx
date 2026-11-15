@@ -156,6 +156,30 @@ const DIBUJOS = {
       <circle cx="12" cy="12" r="3" />
     </>
   ),
+  // Carrito: compras a proveedores.
+  compras: (
+    <>
+      <path d="M2.5 3.5h2.6l2.3 11.2a1.3 1.3 0 0 0 1.3 1h8.7a1.3 1.3 0 0 0 1.3-1l1.6-7.2H6" />
+      <circle cx="9.5" cy="19.6" r="1.4" />
+      <circle cx="17" cy="19.6" r="1.4" />
+    </>
+  ),
+  // Caja registradora.
+  caja: (
+    <>
+      <path d="M3.5 13.5h17v6.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" />
+      <path d="M5.5 13.5l1.5-6h10l1.5 6" />
+      <path d="M9 4h6v3.5H9zM7 17.2h10" />
+    </>
+  ),
+  // Billete: ingresos y egresos.
+  dinero: (
+    <>
+      <rect x="2.5" y="6" width="19" height="12" rx="1.5" />
+      <circle cx="12" cy="12" r="2.6" />
+      <path d="M6 9.5v5M18 9.5v5" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>
 
 export type NombreIcono = keyof typeof DIBUJOS

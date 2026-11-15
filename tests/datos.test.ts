@@ -98,9 +98,9 @@ describe('descargar todos los datos (I03)', () => {
     const { tablas } = r.body
     expect(Date.parse(r.body.generadoEn)).toBeGreaterThan(Date.now() - 60_000)
     expect(Object.keys(tablas)).toEqual([
-      'sectores', 'usuarios', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales',
+      'sectores', 'usuarios', 'categorias', 'categorias_sectores', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales',
       'lotes_mp', 'producciones', 'produccion_items', 'lotes_chipa', 'lote_chipa_mp', 'movimientos', 'lecturas', 'incidencias',
-      'limpiezas', 'limpieza_marcas', 'auditoria', 'copias', 'configuracion', 'archivos',
+      'limpiezas', 'limpieza_marcas', 'proveedores', 'compras', 'compra_items', 'pagos_proveedor', 'auditoria', 'copias', 'configuracion', 'archivos',
     ])
     expect(tablas.sesiones).toBeUndefined()
     // Los registros de la prueba.

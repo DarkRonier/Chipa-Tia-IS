@@ -5,10 +5,12 @@
 // - Administrador: todo, incluido lo del cajero.
 // - Supervisor: «admin liviano». Ve producción, stock, máquinas, limpieza, lotes, trazabilidad y reportes de
 //   producción de todos los sectores. Reporta fallas o incidencias de máquinas (no carga estado ni temperatura) y
-//   da el visto bueno de la limpieza. No carga producción ni mueve stock. Más adelante: compras y pagos a proveedores.
+//   da el visto bueno de la limpieza. No carga producción ni mueve stock. Gestiona proveedores, registra compras de
+//   cualquier categoría, marca pagos y ve los reportes simples de compras y pagos.
 // - Cajero: caja, ventas y facturas (llegan en la etapa 3; por ahora solo entra a su inicio).
 // - Sectores (Chipería, Chipitas, Panadería, Cocina/Buffet): cargan y ven lo de su sector. Lotes y trazabilidad
-//   son solo de Chipería.
+//   son solo de Chipería. Cargan compras solo de productos de su sector en las categorías que el administrador les
+//   habilitó; no marcan pagos.
 import type { Rol, SectorId } from './tipos'
 import { SECTOR_IDS } from './tipos'
 
@@ -48,12 +50,19 @@ export type Permiso =
   | 'catalogos.editar'
   | 'usuarios.gestionar'
   | 'datos.gestionar'
-  // Etapas siguientes: se declaran ya para que los roles queden completos. Todavía no hay pantallas ni rutas.
+  // Compras y proveedores (M10)
+  /** Cargar compras. Los sectores, solo de productos de su sector en categorías habilitadas para ellos. */
+  | 'compras.registrar'
+  /** Marcar compras como pagadas (pagos parciales o totales), anular compras y pagos, ver saldos. */
+  | 'compras.pagar'
+  /** Alta y edición de proveedores. */
+  | 'proveedores.gestionar'
+  /** Reportes simples de compras y pagos a proveedores. */
+  | 'reportes.compras'
+  // Etapa 3: caja, ventas y facturas.
   | 'caja.operar'
   | 'ventas.registrar'
   | 'facturas.generar'
-  | 'compras.registrar'
-  | 'compras.pagar'
   /** En ingresos y egresos, solo los egresos por pagos a proveedores. */
   | 'ie.egresos_proveedores'
   /** Ingresos y egresos completos, gastos fijos y sueldos. */
@@ -69,8 +78,9 @@ export const PERMISOS: readonly Permiso[] = [
   'lotes.ver', 'lotes.cargar', 'lotes.bloquear', 'trazabilidad.ver',
   'reportes.ver', 'reportes.correo',
   'catalogos.editar', 'usuarios.gestionar', 'datos.gestionar',
+  'compras.registrar', 'compras.pagar', 'proveedores.gestionar', 'reportes.compras',
   'caja.operar', 'ventas.registrar', 'facturas.generar',
-  'compras.registrar', 'compras.pagar', 'ie.egresos_proveedores', 'ie.completo', 'reportes.detallados',
+  'ie.egresos_proveedores', 'ie.completo', 'reportes.detallados',
 ]
 
 /** Lo que hace cualquier sector en lo suyo. */
@@ -79,6 +89,7 @@ const DE_SECTOR: Permiso[] = [
   'stock.ver', 'stock.mover',
   'maquinas.ver', 'maquinas.lectura',
   'limpieza.ver', 'limpieza.cargar',
+  'compras.registrar',
 ]
 
 const TABLA: Record<Rol, readonly Permiso[]> = {
@@ -90,7 +101,7 @@ const TABLA: Record<Rol, readonly Permiso[]> = {
     'limpieza.ver', 'limpieza.controlar',
     'lotes.ver', 'trazabilidad.ver',
     'reportes.ver',
-    'compras.registrar', 'compras.pagar', 'ie.egresos_proveedores',
+    'compras.registrar', 'compras.pagar', 'proveedores.gestionar', 'reportes.compras', 'ie.egresos_proveedores',
   ],
   cajero: ['caja.operar', 'ventas.registrar', 'facturas.generar'],
   chiperia: [...DE_SECTOR, 'lotes.ver', 'lotes.cargar', 'trazabilidad.ver'],

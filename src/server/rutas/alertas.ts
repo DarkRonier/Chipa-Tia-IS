@@ -1,4 +1,4 @@
-// C08, E10, G08 e incidencias de máquinas: todos los avisos juntos, para el inicio de cada sector, el Resumen del
+// C08, E10, G08, incidencias de máquinas y vencimientos de compras (M10): todos los avisos juntos, para el inicio de cada sector, el Resumen del
 // administrador y del supervisor, y el correo. Cada uno ve solo los avisos de lo que tiene permiso de ver.
 import { Hono } from 'hono'
 import type { Alerta } from '../../shared/alertas'
@@ -7,6 +7,7 @@ import type { Rol, SectorId } from '../../shared/tipos'
 import { alertasLotes } from '../alertasLotes'
 import type { BaseD1, Entorno } from '../entorno'
 import { sectorPara } from '../sesion'
+import { alertasCompras } from './compras'
 import { alertasIncidencias } from './incidencias'
 import { alertasLimpieza } from './limpieza'
 import { alertasStock } from './stock'
@@ -21,13 +22,14 @@ export async function todasLasAlertas(db: BaseD1, sector: SectorId | null, rol: 
   const ve = (p: Permiso) => puede(rol, p)
   const nada = Promise.resolve<Alerta[]>([])
   const conLotes = (sector === null || sector === 'chiperia') && ve('lotes.ver')
-  const [stock, lotes, limpieza, incidencias] = await Promise.all([
+  const [compras, stock, lotes, limpieza, incidencias] = await Promise.all([
+    ve('compras.pagar') ? alertasCompras(db) : nada,
     ve('stock.ver') ? alertasStock(db, sector) : nada,
     conLotes ? alertasLotes(db) : nada,
     ve('limpieza.ver') ? alertasLimpieza(db, sector) : nada,
     ve('maquinas.ver') ? alertasIncidencias(db, sector) : nada,
   ])
-  return [...incidencias, ...stock, ...lotes, ...limpieza]
+  return [...compras, ...incidencias, ...stock, ...lotes, ...limpieza]
 }
 
 rutasAlertas.get('/alertas', async (c) => {

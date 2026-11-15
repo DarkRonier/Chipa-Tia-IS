@@ -38,6 +38,7 @@ export default function Inicio() {
         ] as Boton[])
       : []),
     { a: '/sector/historial', i: 'historial', t: 'Historial de salidas' },
+    { a: '/compras', i: 'compras', t: 'Compras' },
   ]
 
   return (

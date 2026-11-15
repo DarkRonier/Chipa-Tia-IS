@@ -26,6 +26,7 @@ import Controles from './pages/admin/Controles'
 import Reportes, { RecordarEnlaceReporte } from './pages/admin/Reportes'
 import Datos from './pages/admin/Datos'
 import InicioCaja from './pages/caja/Inicio'
+import Compras from './pages/compras/Compras'
 
 export default function App() {
   const { usuario, cargando } = useSesion()
@@ -72,6 +73,7 @@ export default function App() {
         {ruta('admin/historial', 'stock.ver', <Historial />)}
         {ruta('admin/reportes', 'reportes.ver', <Reportes />)}
         {ruta('admin/datos', 'datos.gestionar', <Datos />)}
+        {ruta('compras', 'compras.registrar', <Compras />)}
         {/* Etapa 3: venta, factura y caja. Por ahora, el inicio del cajero. */}
         {usuario.rol === 'cajero' && <Route path="caja" element={<InicioCaja />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

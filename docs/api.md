@@ -275,6 +275,39 @@ Los `PATCH` sin ningún campo editable dan `400`.
   `comentario` opcional, hasta 500 caracteres.
 - `/control` firma el «Controlado por» con auditoría (`controlar`).
 
+## Compras, proveedores y pagos (M10)
+
+Roles: los **sectores** cargan compras solo de productos de su sector cuya categoría el administrador habilitó para
+ese sector, y ven solo las compras que cargaron (sin pagos ni saldos). **Supervisor y administrador** compran
+cualquier producto (y renglones de texto libre, como un flete, que no tocan el stock), gestionan proveedores, marcan
+pagos (parciales o totales), anulan compras y pagos, y ven el reporte. El cajero no entra.
+
+Cada renglón con producto suma a su stock (movimiento `compra`, finalidad «Reponer venta», en el sector del producto).
+Anular una compra (sin pagos) descuenta ese stock; si el stock obligatorio ya se usó, `409 stock_insuficiente`.
+Lo pagado nunca supera el total (trigger `pagos_proveedor_sin_exceso`). Importes en guaraníes enteros.
+
+| Método | Ruta | Cuerpo / consulta | Respuesta |
+|---|---|---|---|
+| GET | `/categorias` | `?todos` (admin/supervisor) | `Categoria[]` |
+| POST | `/categorias` | `{ nombre, sectores?: SectorId[] }` · admin | `Categoria` |
+| PATCH | `/categorias/:id` | `{ nombre?, activo?, sectores? }` · admin | `Categoria` |
+| PATCH | `/productos/:id` | `{ categoriaId: string \| null }` (además de lo de B01) · admin | `Producto` |
+| GET | `/proveedores` | `?todos` (quien gestiona) | `Proveedor[]` (`saldo` solo para quien marca pagos) |
+| POST | `/proveedores` | `{ nombre, ruc?, telefono?, notas? }` · supervisor y admin | `Proveedor` |
+| PATCH | `/proveedores/:id` | `{ nombre?, ruc?, telefono?, notas?, activo? }` · supervisor y admin | `Proveedor` |
+| GET | `/proveedores/:id/cuenta` | — · supervisor y admin | `CuentaProveedor` (compras y pagos con el saldo después de cada uno) |
+| GET | `/compras/productos` | — | `ProductoCompra[]` (lo que ese usuario puede comprar) |
+| GET | `/compras` | `?desde&hasta&proveedor&estado=pendiente,parcial,pagada,anulada&sector` | `Compra[]` |
+| GET | `/compras/:id` | — | `Compra` con `pagos` (si puede verlos) |
+| POST | `/compras` | `PedidoCompra`: `{ proveedorId, comprobante?, diaCompra?, vencimiento?, nota?, items: [{ productoId? \| detalle?, cantidad, precioUnitario, lote? }], pago?: { importe, medio } }` | `Compra` |
+| POST | `/compras/:id/pagos` | `{ importe \| total: true, medio, diaPago?, nota? }` · supervisor y admin | `Compra` |
+| POST | `/compras/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` (`409 compra_con_pagos`) |
+| POST | `/pagos-proveedor/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` |
+| GET | `/reportes/compras` | `?desde&hasta` (por defecto, el mes actual) · supervisor y admin | `ReporteCompras` |
+
+Medios de pago: `efectivo`, `transferencia`, `tarjeta`, `qr`, `cheque`. Avisos nuevos en `/alertas` (supervisor y
+admin): `compra_por_vencer` (vence en 3 días o menos) y `compra_vencida`.
+
 ## Reportes (H01–H04) · admin y supervisor (el correo, solo admin)
 
 | Método | Ruta | Cuerpo / consulta | Respuesta |

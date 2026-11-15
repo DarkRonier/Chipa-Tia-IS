@@ -28,6 +28,8 @@ const OPCIONES_TIPO: { valor: string; texto: string }[] = [
   { valor: 'ajuste', texto: 'Ajustes' },
   { valor: 'reasignacion', texto: 'Cambios de finalidad' },
   { valor: 'stock_inicial', texto: NOMBRE_TIPO_MOVIMIENTO.stock_inicial },
+  { valor: 'compra', texto: 'Compras a proveedores' },
+  { valor: 'venta', texto: 'Ventas en caja' },
   { valor: 'produccion', texto: 'Producción (lo guardado)' },
   { valor: '', texto: 'Todos los movimientos' },
 ]

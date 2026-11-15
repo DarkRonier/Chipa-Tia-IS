@@ -95,9 +95,9 @@ rutasDatos.patch('/config', soloAdmin, async (c) => {
 
 /** Tablas en orden de lectura: primero los catálogos, después los registros. */
 const TABLAS = [
-  'sectores', 'usuarios', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales',
+  'sectores', 'usuarios', 'categorias', 'categorias_sectores', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales',
   'lotes_mp', 'producciones', 'produccion_items', 'lotes_chipa', 'lote_chipa_mp', 'movimientos', 'lecturas', 'incidencias',
-  'limpiezas', 'limpieza_marcas', 'auditoria', 'copias', 'configuracion', 'archivos',
+  'limpiezas', 'limpieza_marcas', 'proveedores', 'compras', 'compra_items', 'pagos_proveedor', 'auditoria', 'copias', 'configuracion', 'archivos',
 ]
 /** Nunca salen: las sesiones abiertas. */
 const EXCLUIDAS = new Set(['sesiones'])

@@ -8,7 +8,12 @@ export const SECTOR_IDS: SectorId[] = ['chiperia', 'chipitas', 'panaderia', 'coc
 export const ROLES: Rol[] = [...SECTOR_IDS, 'supervisor', 'cajero', 'admin']
 
 export type Turno = 'dia' | 'noche'
-export type TipoMovimiento = 'produccion' | 'stock_inicial' | 'salida_venta' | 'envio' | 'merma' | 'vencimiento' | 'ajuste' | 'reasignacion'
+export type TipoMovimiento =
+  | 'produccion' | 'stock_inicial' | 'salida_venta' | 'envio' | 'merma' | 'vencimiento' | 'ajuste' | 'reasignacion'
+  /** Lo comprado a un proveedor suma al stock (M10). Al anular la compra se descuenta con el mismo tipo. */
+  | 'compra'
+  /** Lo vendido en caja descuenta el stock (M11), solo en los productos marcados para eso. */
+  | 'venta'
 /** C05: para qué se guardó lo que está en frío: reponer la venta del propio sector o enviarlo a sucursales. */
 export type Finalidad = 'reposicion' | 'distribucion'
 export const FINALIDADES: Finalidad[] = ['reposicion', 'distribucion']
@@ -30,6 +35,8 @@ export const NOMBRE_TIPO_MOVIMIENTO: Record<TipoMovimiento, string> = {
   vencimiento: 'Vencimiento',
   ajuste: 'Ajuste',
   reasignacion: 'Cambio de finalidad',
+  compra: 'Compra',
+  venta: 'Venta',
 }
 export const NOMBRE_FINALIDAD: Record<Finalidad, string> = {
   reposicion: 'Reponer venta',
@@ -113,6 +120,8 @@ export interface Producto {
    * Sin stock obligatorio (por ejemplo, cocido o harina) puede quedar sin cargar o en negativo y nunca frena nada.
    */
   stockObligatorio: boolean
+  /** Categoría para compras (M10); null = sin categoría (solo la compran el administrador y el supervisor). */
+  categoriaId: string | null
 }
 
 export interface Maquina {
@@ -527,3 +536,177 @@ export interface PedidoLimpieza {
 }
 
 export interface ErrorRespuesta { error: { codigo: string; mensaje: string } }
+
+// ---------- Compras, proveedores y pagos (M10) ----------
+
+/** Medios de pago (pagos a proveedores, ventas y caja). */
+export type MedioPago = 'efectivo' | 'transferencia' | 'tarjeta' | 'qr' | 'cheque'
+export const MEDIOS_PAGO: MedioPago[] = ['efectivo', 'transferencia', 'tarjeta', 'qr', 'cheque']
+export const NOMBRE_MEDIO_PAGO: Record<MedioPago, string> = {
+  efectivo: 'Efectivo',
+  transferencia: 'Transferencia',
+  tarjeta: 'Tarjeta',
+  qr: 'QR / billetera',
+  cheque: 'Cheque',
+}
+
+export interface Categoria {
+  id: string
+  nombre: string
+  activo: boolean
+  /** Sectores que pueden cargar compras de los productos de esta categoría. */
+  sectores: SectorId[]
+}
+
+export interface Proveedor {
+  id: string
+  nombre: string
+  ruc: string
+  telefono: string
+  notas: string
+  activo: boolean
+  /** Lo que se le debe (compras sin anular menos pagos sin anular). Solo para quien marca pagos; si no, null. */
+  saldo: number | null
+}
+
+/** pendiente = no se pagó nada; parcial = se pagó una parte; pagada = saldo 0; anulada = no cuenta. */
+export type EstadoCompra = 'pendiente' | 'parcial' | 'pagada' | 'anulada'
+export const NOMBRE_ESTADO_COMPRA: Record<EstadoCompra, string> = {
+  pendiente: 'Pendiente',
+  parcial: 'Pago parcial',
+  pagada: 'Pagada',
+  anulada: 'Anulada',
+}
+
+export interface CompraItem {
+  id: string
+  /** null = renglón de texto libre (flete, servicio…), que no toca el stock. */
+  productoId: string | null
+  productoNombre: string | null
+  /** Sector del producto: ahí suma el stock. */
+  sector: SectorId | null
+  detalle: string
+  cantidad: number
+  precioUnitario: number
+  subtotal: number
+  lote: string | null
+}
+
+export interface PagoProveedor {
+  id: string
+  compraId: string
+  proveedorId: string
+  proveedorNombre: string
+  comprobante: string
+  /** Fecha del pago (AAAA-MM-DD). */
+  diaPago: string
+  importe: number
+  medio: MedioPago
+  nota: string
+  usuarioId: string
+  usuarioNombre: string
+  fecha: string
+  anulado: boolean
+  motivoAnulacion: string | null
+}
+
+export interface Compra {
+  id: string
+  proveedorId: string
+  proveedorNombre: string
+  /** Sector que la cargó; null si la cargó el administrador o el supervisor. */
+  sector: SectorId | null
+  comprobante: string
+  /** Fecha del comprobante (AAAA-MM-DD). */
+  diaCompra: string
+  vencimiento: string | null
+  total: number
+  pagado: number
+  saldo: number
+  estado: EstadoCompra
+  /** Pendiente o parcial con el vencimiento ya pasado. */
+  vencida: boolean
+  nota: string
+  usuarioId: string
+  usuarioNombre: string
+  fecha: string
+  anuladaEn: string | null
+  anuladaPorNombre: string | null
+  motivoAnulacion: string | null
+  items: CompraItem[]
+  /** Solo en el detalle (GET /compras/:id) y para quien puede ver pagos. */
+  pagos?: PagoProveedor[]
+}
+
+export interface PedidoCompraItem {
+  productoId?: string | null
+  detalle?: string | null
+  cantidad: number
+  precioUnitario: number
+  lote?: string | null
+}
+
+export interface PedidoCompra {
+  proveedorId: string
+  comprobante?: string
+  diaCompra?: string
+  vencimiento?: string | null
+  nota?: string
+  items: PedidoCompraItem[]
+  /** Solo administrador y supervisor: pago en el momento (al contado o una entrega). */
+  pago?: { importe: number; medio: MedioPago } | null
+}
+
+/** Producto que el usuario puede comprar, con el nombre de su sector y categoría. */
+export interface ProductoCompra {
+  id: string
+  nombre: string
+  unidad: string
+  sector: SectorId
+  sectorNombre: string
+  conLotes: boolean
+  categoriaId: string | null
+  categoriaNombre: string | null
+}
+
+/** Cuenta corriente de un proveedor: compras y pagos en orden, con el saldo después de cada uno. */
+export interface CuentaProveedor {
+  proveedor: Proveedor
+  totalComprado: number
+  totalPagado: number
+  saldo: number
+  movimientos: {
+    tipo: 'compra' | 'pago'
+    id: string
+    compraId: string
+    dia: string
+    fecha: string
+    comprobante: string
+    detalle: string
+    /** Compra: suma; pago: resta (en positivo). */
+    importe: number
+    saldo: number
+  }[]
+}
+
+export interface ReporteCompras {
+  desde: string
+  hasta: string
+  /** Compras del período (por fecha del comprobante), sin las anuladas. */
+  cantidadCompras: number
+  totalComprado: number
+  /** Pagos hechos en el período (por fecha de pago), de cualquier compra. */
+  totalPagado: number
+  /** Lo que queda por pagar de las compras del período. */
+  pendientePeriodo: number
+  /** Lo que se debe hoy a todos los proveedores (todas las fechas). */
+  deudaTotal: number
+  /** Deuda vencida hoy. */
+  deudaVencida: number
+  porProveedor: { proveedorId: string; proveedorNombre: string; comprado: number; pagado: number; saldo: number }[]
+  porCategoria: { categoriaId: string | null; categoriaNombre: string; importe: number }[]
+  porMedio: { medio: MedioPago; importe: number }[]
+  pagos: PagoProveedor[]
+  /** Compras con saldo y vencimiento hasta 7 días desde hoy (o ya vencidas), la más urgente primero. */
+  porVencer: Compra[]
+}

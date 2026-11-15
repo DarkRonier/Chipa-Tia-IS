@@ -9,13 +9,14 @@ import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector } from '../../components/Layout'
 import {
   FRECUENCIAS_LIMPIEZA, NOMBRE_TIPO_MAQUINA, SECTOR_IDS,
-  type AreaLimpieza, type Maquina, type Producto, type Sector, type SectorId, type Sucursal, type TareaLimpieza, type TipoMaquina,
+  type AreaLimpieza, type Categoria, type Maquina, type Producto, type Sector, type SectorId, type Sucursal, type TareaLimpieza, type TipoMaquina,
 } from '../../shared/tipos'
 import '../../styles/catalogos.css'
 
-type Pestana = 'productos' | 'maquinas' | 'limpieza' | 'sucursales' | 'sectores'
+type Pestana = 'productos' | 'categorias' | 'maquinas' | 'limpieza' | 'sucursales' | 'sectores'
 const PESTANAS: [Pestana, string][] = [
   ['productos', 'Productos'],
+  ['categorias', 'Categorías'],
   ['maquinas', 'Máquinas'],
   ['limpieza', 'Limpieza'],
   ['sucursales', 'Sucursales'],
@@ -71,6 +72,7 @@ export default function Catalogos() {
       {pestana === 'productos' && <Productos sector={sector} nombreSector={sectores.nombre(sector)} />}
       {pestana === 'maquinas' && <Maquinas sector={sector} nombreSector={sectores.nombre(sector)} />}
       {pestana === 'limpieza' && <Limpieza sector={sector} sectores={sectores.lista} />}
+      {pestana === 'categorias' && <Categorias sectores={sectores.lista} />}
       {pestana === 'sucursales' && <Sucursales />}
       {pestana === 'sectores' && <Sectores />}
     </>
@@ -243,8 +245,27 @@ function StockObligatorio({ p }: { p: Producto }) {
   )
 }
 
+/** Categoría de compras (M10): define qué sectores pueden comprar el producto. */
+function CategoriaProducto({ p, categorias }: { p: Producto; categorias: Categoria[] }) {
+  const cambiar = useAccion((v: string | null) => patch<Producto>(`/productos/${p.id}`, { categoriaId: v }))
+  const visibles = categorias.filter((k) => k.activo || k.id === p.categoriaId)
+  return (
+    <>
+      <label className="check pide-numero" title="Los sectores habilitados en esa categoría pueden cargar compras de este producto">
+        <span className="chico">Categoría de compras</span>
+        <select value={p.categoriaId ?? ''} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar(e.target.value || null)}>
+          <option value="">Sin categoría (solo supervisor y admin)</option>
+          {visibles.map((k) => <option key={k.id} value={k.id}>{k.nombre}</option>)}
+        </select>
+      </label>
+      <Aviso>{cambiar.error}</Aviso>
+    </>
+  )
+}
+
 function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: string }) {
   const c = useConsulta<Producto[]>('/productos', { sector, todos: true })
+  const categorias = useConsulta<Categoria[]>('/categorias', { todos: true })
   const [nombre, setNombre] = useState('')
   const [unidad, setUnidad] = useState('')
   const [obligatorio, setObligatorio] = useState(true)
@@ -283,7 +304,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
                 ]}
                 guardar={(cambios) => patch(`/productos/${p.id}`, cambios)}
                 cambiarActivo={(activo) => patch(`/productos/${p.id}`, { activo })}
-                debajo={p.activo && <StockObligatorio p={p} />}
+                debajo={p.activo && <><StockObligatorio p={p} /><CategoriaProducto p={p} categorias={categorias.datos ?? []} /></>}
               />
             )}
           />
@@ -524,11 +545,13 @@ function Limpieza({ sector, sectores }: { sector: SectorId; sectores: Sector[] }
   )
 }
 
-function SectoresCheck({ elegidos, sectores, alCambiar, deshabilitado }: {
+function SectoresCheck({ elegidos, sectores, alCambiar, deshabilitado, permitirVacio = false }: {
   elegidos: SectorId[]
   sectores: Sector[]
   alCambiar: (s: SectorId[]) => void
   deshabilitado?: boolean
+  /** Las categorías pueden quedar sin sectores; las áreas de limpieza no. */
+  permitirVacio?: boolean
 }) {
   const alternar = (id: SectorId) =>
     alCambiar(SECTOR_IDS.filter((s) => (s === id ? !elegidos.includes(s) : elegidos.includes(s))))
@@ -542,7 +565,7 @@ function SectoresCheck({ elegidos, sectores, alCambiar, deshabilitado }: {
               type="checkbox"
               checked={marcado}
               // No se puede dejar un área sin sectores.
-              disabled={deshabilitado || (marcado && elegidos.length === 1)}
+              disabled={deshabilitado || (!permitirVacio && marcado && elegidos.length === 1)}
               onChange={() => alternar(s.id)}
             />
             {s.nombre}
@@ -718,7 +741,7 @@ function NuevaArea({ sectorInicial, sectores, alCrear, alCancelar }: {
         </div>
         <div className="campo">
           <span>La cargan</span>
-          <SectoresCheck elegidos={elegidos} sectores={sectores} alCambiar={setElegidos} />
+          <SectoresCheck elegidos={elegidos} sectores={sectores} alCambiar={setElegidos} permitirVacio />
         </div>
         <div className="botones-cat">
           <button className="btn-primario" disabled={crear.enviando}>{crear.enviando ? 'Creando…' : 'Crear área'}</button>
@@ -772,6 +795,76 @@ function Sucursales() {
           <input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={80} />
         </label>
       </FormAlta>
+    </>
+  )
+}
+
+// ---------- Categorías de compras (M10) ----------
+
+function Categorias({ sectores }: { sectores: Sector[] }) {
+  const c = useConsulta<Categoria[]>('/categorias', { todos: true })
+  const [nombre, setNombre] = useState('')
+  const [elegidos, setElegidos] = useState<SectorId[]>([])
+  const [ok, setOk] = useState<string | null>(null)
+  const crear = useAccion(() => post<Categoria>('/categorias', { nombre, sectores: elegidos }))
+  const agregar = async () => {
+    setOk(null)
+    const k = await crear.ejecutar()
+    if (k) {
+      setOk(`«${k.nombre}» agregada. Asignala a los productos en la pestaña Productos.`)
+      setNombre('')
+      setElegidos([])
+    }
+  }
+  const nombres = (ids: SectorId[]) => ids.map((id) => sectores.find((s) => s.id === id)?.nombre ?? id).join(', ')
+  return (
+    <>
+      <p className="suave">
+        Cada producto puede tener una categoría (por ejemplo, «Bebidas» o «Insumos de limpieza»). Los sectores marcados en
+        una categoría pueden cargar compras de los productos de su sector con esa categoría. El supervisor y el
+        administrador compran cualquier producto.
+      </p>
+      <ConDatos consulta={c}>
+        {(lista) => (
+          <ListaConInactivos
+            items={lista}
+            vacio="Todavía no hay categorías."
+            textoInactivos="Categorías desactivadas"
+            render={(k) => (
+              <FilaEditable
+                key={k.id}
+                titulo={k.nombre}
+                detalle={k.sectores.length ? `Compran: ${nombres(k.sectores)}` : 'Ningún sector la compra (solo supervisor y admin)'}
+                activo={k.activo}
+                campos={[{ clave: 'nombre', etiqueta: 'Nombre', valor: k.nombre, max: 60 }]}
+                guardar={(cambios) => patch(`/categorias/${k.id}`, cambios)}
+                cambiarActivo={(activo) => patch(`/categorias/${k.id}`, { activo })}
+                debajo={k.activo && <SectoresCategoria k={k} sectores={sectores} />}
+              />
+            )}
+          />
+        )}
+      </ConDatos>
+      <FormAlta titulo="Nueva categoría" enviando={crear.enviando} error={crear.error} ok={ok} alEnviar={() => void agregar()}>
+        <label className="campo">
+          <span>Nombre</span>
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={60} placeholder="Bebidas" />
+        </label>
+        <div className="ancho">
+          <span className="chico">Sectores que pueden comprarla</span>
+          <SectoresCheck elegidos={elegidos} sectores={sectores} alCambiar={setElegidos} permitirVacio />
+        </div>
+      </FormAlta>
+    </>
+  )
+}
+
+function SectoresCategoria({ k, sectores }: { k: Categoria; sectores: Sector[] }) {
+  const cambiar = useAccion((v: SectorId[]) => patch<Categoria>(`/categorias/${k.id}`, { sectores: v }))
+  return (
+    <>
+      <SectoresCheck elegidos={k.sectores} sectores={sectores} alCambiar={(v) => void cambiar.ejecutar(v)} deshabilitado={cambiar.enviando} permitirVacio />
+      <Aviso>{cambiar.error}</Aviso>
     </>
   )
 }
