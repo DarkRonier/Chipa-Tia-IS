@@ -38,8 +38,8 @@ export default function Compras() {
   const nueva = params.get('nueva')
   return (
     <>
-      <Volver titulo="Compras" icono={<Icono nombre="compras" />} />
-      <Link to="/compras/nueva" className="btn-primario btn-bloque">+ Nueva compra</Link>
+      <Volver titulo="Compras" icono={<Icono nombre="compras" />}
+        accion={<Link to="/compras/nueva" className="btn-primario btn-accion">+ Nueva compra</Link>} />
       {nueva && pestana === 'pendientes' && (
         <Aviso tipo="ok">
           Compra guardada: lo comprado ya suma al stock y quedó pendiente de pago
@@ -140,8 +140,26 @@ export function NuevaCompra() {
   const [vencimiento, setVencimiento] = useState('')
   const [nota, setNota] = useState('')
   const [renglones, setRenglones] = useState<RenglonForm[]>([renglonVacio()])
+  /** Renglón con el basurero a la vista (después de un clic derecho o de mantenerlo apretado). */
+  const [menu, setMenu] = useState<number | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
   const guardar = useAccion((p: PedidoCompra) => post<Compra>('/compras', p))
+
+  // El basurero se esconde al tocar en otro lado o con Escape.
+  useEffect(() => {
+    if (menu === null) return
+    const cerrar = (e: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== 'Escape') return
+      if (e instanceof MouseEvent && (e.target as HTMLElement).closest('.btn-basurero')) return
+      setMenu(null)
+    }
+    document.addEventListener('mousedown', cerrar)
+    document.addEventListener('keydown', cerrar)
+    return () => {
+      document.removeEventListener('mousedown', cerrar)
+      document.removeEventListener('keydown', cerrar)
+    }
+  }, [menu])
 
   const lista = productos.datos ?? []
   const porId = useMemo(() => new Map(lista.map((p) => [p.id, p])), [lista])
@@ -154,7 +172,25 @@ export function NuevaCompra() {
   const cantidadDe = (r: RenglonForm) => (r.productoId ? aCantidad(r.cantidad) : r.libre ? aCantidad(r.cantidad) || 1 : 0)
   const subtotal = (r: RenglonForm) => Math.round(cantidadDe(r) * r.precio)
   const total = renglones.reduce((s, r) => s + subtotal(r), 0)
-  const cambiar = (clave: number, cambios: Partial<RenglonForm>) => setRenglones((rs) => rs.map((r) => (r.clave === clave ? { ...r, ...cambios } : r)))
+  const usado = (r: RenglonForm) => !!r.productoId || r.libre
+  const cambiar = (clave: number, cambios: Partial<RenglonForm>) => setRenglones((rs) => {
+    const nuevos = rs.map((r) => (r.clave === clave ? { ...r, ...cambios } : r))
+    // Siempre queda una línea vacía al final para seguir cargando.
+    return usado(nuevos[nuevos.length - 1]) ? [...nuevos, renglonVacio()] : nuevos
+  })
+  const quitar = (clave: number) => {
+    setMenu(null)
+    setRenglones((rs) => {
+      const quedan = rs.filter((x) => x.clave !== clave)
+      return quedan.length && !usado(quedan[quedan.length - 1]) ? quedan : [...quedan, renglonVacio()]
+    })
+  }
+  const enfocar = (id: string) => {
+    const el = document.getElementById(id) as HTMLInputElement | null
+    // Si el campo todavía está deshabilitado (la línea recién se completa), se enfoca después de dibujarla.
+    if (el && !el.disabled) el.focus()
+    else requestAnimationFrame(() => document.getElementById(id)?.focus())
+  }
 
   const enviar = async () => {
     setAviso(null)
@@ -163,8 +199,8 @@ export function NuevaCompra() {
     if (!usados.length) return setAviso('Cargá al menos un producto.')
     for (const r of usados) {
       const nombre = r.productoId ? porId.get(r.productoId)?.nombre ?? 'el producto' : r.detalle
-      if (r.productoId && aCantidad(r.cantidad) <= 0) return setAviso(`Cargá la cantidad de ${nombre}.`)
-      if (r.precio <= 0) return setAviso(`Cargá el precio de ${nombre}.`)
+      if (r.productoId && aCantidad(r.cantidad) <= 0) { enfocar(`cant-${r.clave}`); return setAviso(`Cargá la cantidad de ${nombre}.`) }
+      if (r.precio <= 0) { enfocar(`precio-${r.clave}`); return setAviso(`Cargá el precio de ${nombre}.`) }
     }
     const r = await guardar.ejecutar({
       proveedorId: proveedor?.id ?? null,
@@ -184,6 +220,7 @@ export function NuevaCompra() {
   }
 
   const sinProductos = productos.datos && productos.datos.length === 0
+  const cargados = renglones.filter(usado).length
 
   return (
     <>
@@ -195,13 +232,13 @@ export function NuevaCompra() {
             : 'Tu sector todavía no tiene categorías habilitadas para comprar. Pedíselo al administrador.'}
         </Aviso>
       )}
-      <div className="tarjeta filtros">
+      <section className="tarjeta datos-compra" aria-label="Datos de la compra">
         <Buscador
-          etiqueta="Proveedor (opcional)" opciones={opcionesProveedor} elegido={proveedor ? opcionesProveedor.find((p) => p.id === proveedor.id) ?? null : null}
-          onElegir={(p) => setProveedor(p)} textoVacio="Sin nombre" placeholder="Escribí el nombre o el RUC…"
+          etiqueta="Proveedor" opciones={opcionesProveedor} elegido={proveedor ? opcionesProveedor.find((p) => p.id === proveedor.id) ?? null : null}
+          onElegir={(p) => setProveedor(p)} vaciable placeholder="Sin nombre (opcional): buscá por nombre o RUC"
         />
         <label className="campo">
-          <span>N° de factura o recibo (opcional)</span>
+          <span>N° de factura o recibo <span className="opcional">opcional</span></span>
           <input value={comprobante} maxLength={60} onChange={(e) => setComprobante(e.target.value)} placeholder="001-001-0001234" />
         </label>
         <label className="campo">
@@ -209,71 +246,107 @@ export function NuevaCompra() {
           <input type="date" value={diaCompra} max={hoy} onChange={(e) => setDiaCompra(e.target.value)} />
         </label>
         <label className="campo">
-          <span>Vence (fecha para pagar; vacío = sin vencimiento)</span>
+          <span>Vence el pago <span className="opcional">opcional</span></span>
           <input type="date" value={vencimiento} min={diaCompra} onChange={(e) => setVencimiento(e.target.value)} />
         </label>
-      </div>
+      </section>
       {puede('proveedores.gestionar') && !proveedores.cargando && !opcionesProveedor.length && (
-        <p className="suave chico">Todavía no hay proveedores cargados: podés cargar la compra «Sin nombre» o crearlos en el menú Proveedores.</p>
+        <p className="suave chico">Todavía no hay proveedores: la compra queda «Sin nombre», o crealos en <Link to="/proveedores">Proveedores</Link>.</p>
       )}
 
-      <h2>Detalle</h2>
-      <div className="lista-renglones">
+      <section className="tarjeta renglones" aria-label="Productos comprados">
+        <div className="renglon renglon-cabeza" aria-hidden="true">
+          <span>Producto</span><span>Cantidad</span><span>Precio unitario</span><span className="a-la-derecha">Subtotal</span><span />
+        </div>
         {renglones.map((r, i) => {
           const p = porId.get(r.productoId)
+          const ultimo = i === renglones.length - 1
           return (
-            <div key={r.clave} className="tarjeta renglon-compra">
+            <div key={r.clave} className={`renglon${menu === r.clave ? ' con-menu' : ''}${!usado(r) ? ' vacio' : ''}`}
+              onContextMenu={(e) => {
+                if (!usado(r) && renglones.length === 1) return
+                e.preventDefault()
+                setMenu(r.clave)
+              }}>
               {r.libre ? (
-                <label className="campo ancho">
-                  <span>Otro gasto, sin stock (renglón {i + 1}) <button type="button" className="btn-texto" onClick={() => cambiar(r.clave, { libre: false, detalle: '' })}>Elegir un producto</button></span>
-                  <input value={r.detalle} maxLength={200} placeholder="Flete" autoFocus onChange={(e) => cambiar(r.clave, { detalle: e.target.value })} />
+                <label className="campo renglon-producto">
+                  <span className="solo-lector">Detalle del gasto</span>
+                  <input id={`prod-${r.clave}`} value={r.detalle} maxLength={200} placeholder="Otro gasto sin stock: flete, servicio…" autoFocus
+                    onChange={(e) => cambiar(r.clave, { detalle: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); enfocar(`cant-${r.clave}`) } }} />
                 </label>
               ) : (
-                <div className="ancho">
-                  <Buscador
-                    etiqueta={`Producto ${i + 1}`} opciones={opciones} elegido={opciones.find((x) => x.id === r.productoId) ?? null}
-                    onElegir={(x) => cambiar(r.clave, { productoId: x?.id ?? '', libre: false, detalle: '' })}
-                    extra={libre ? { texto: 'Otro gasto (flete, servicio…), sin stock', alElegir: () => cambiar(r.clave, { productoId: '', libre: true }) } : undefined}
-                  />
-                </div>
+                <Buscador
+                  className="renglon-producto" inputId={`prod-${r.clave}`} sinEtiqueta etiqueta={`Producto ${i + 1}`} opciones={opciones}
+                  elegido={opciones.find((x) => x.id === r.productoId) ?? null}
+                  placeholder={ultimo && i > 0 ? 'Agregar otro producto…' : 'Buscá el producto por nombre o código…'}
+                  onElegir={(x) => {
+                    if (!x) return
+                    cambiar(r.clave, { productoId: x.id, libre: false, detalle: '' })
+                    enfocar(`cant-${r.clave}`)
+                  }}
+                  extra={libre ? { texto: '+ Otro gasto sin stock (flete, servicio…)', alElegir: () => cambiar(r.clave, { productoId: '', libre: true }) } : undefined}
+                />
               )}
-              <label className="campo">
-                <span>Cantidad{p && p.unidad !== 'unidades' ? ` (${p.unidad})` : ''}</span>
-                <input inputMode={p ? 'numeric' : 'decimal'} value={r.cantidad} placeholder={p ? '0' : '1'} onChange={(e) => cambiar(r.clave, { cantidad: e.target.value })} />
+              <label className="campo renglon-cantidad">
+                <span className="etq-movil">Cantidad</span>
+                <span className="con-sufijo">
+                  <input id={`cant-${r.clave}`} inputMode="decimal" value={r.cantidad} placeholder={r.libre ? '1' : '0'} disabled={!usado(r)}
+                    onChange={(e) => cambiar(r.clave, { cantidad: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); enfocar(`precio-${r.clave}`) } }} />
+                  {p && p.unidad !== 'unidades' && <span className="sufijo">{p.unidad}</span>}
+                </span>
               </label>
-              <CampoImporte etiqueta="Precio por unidad (Gs.)" valor={r.precio} onChange={(n) => cambiar(r.clave, { precio: n })} />
+              <label className="campo renglon-precio">
+                <span className="etq-movil">Precio unitario</span>
+                <span className="con-sufijo">
+                  <span className="prefijo">Gs.</span>
+                  <input id={`precio-${r.clave}`} inputMode="numeric" value={r.precio ? miles(r.precio) : ''} placeholder="0" disabled={!usado(r)}
+                    onChange={(e) => cambiar(r.clave, { precio: leerImporte(e.target.value) })}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return
+                      e.preventDefault()
+                      const siguiente = renglones[i + 1]
+                      if (siguiente) enfocar(`prod-${siguiente.clave}`)
+                    }} />
+                </span>
+              </label>
+              <output className="renglon-subtotal" aria-label="Subtotal">{usado(r) ? gs(subtotal(r)) : ''}</output>
+              <div className="renglon-acciones">
+                {menu === r.clave && (
+                  <button type="button" className="btn-basurero" aria-label="Borrar esta línea" title="Borrar esta línea" autoFocus onClick={() => quitar(r.clave)}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
+                  </button>
+                )}
+              </div>
               {p?.conLotes && (
-                <label className="campo">
-                  <span>Lote (opcional)</span>
+                <label className="campo renglon-lote">
+                  <span>Lote <span className="opcional">opcional</span></span>
                   <input value={r.lote} maxLength={40} onChange={(e) => cambiar(r.clave, { lote: e.target.value })} />
                 </label>
               )}
-              <div className="subtotal-renglon">
-                <span className="suave">Subtotal</span> <strong>{gs(subtotal(r))}</strong>
-                {renglones.length > 1 && (
-                  <button type="button" className="btn-texto" onClick={() => setRenglones((rs) => rs.filter((x) => x.clave !== r.clave))}>Quitar</button>
-                )}
-              </div>
             </div>
           )
         })}
-      </div>
-      <button type="button" className="btn-secundario" onClick={() => setRenglones((rs) => [...rs, renglonVacio()])}>+ Agregar otro producto</button>
+        <div className="renglones-pie">
+          <span className="suave chico">
+            {cargados > 0 ? `${cargados} ${cargados === 1 ? 'producto' : 'productos'} · ` : ''}Para borrar una línea: clic derecho sobre ella (en el celular, mantenela apretada).
+          </span>
+          <div className="total-compra"><span>Total</span><strong>{gs(total)}</strong></div>
+        </div>
+      </section>
 
-      <div className="tarjeta">
-        <div className="total-compra"><span>Total</span><strong>{gs(total)}</strong></div>
-        <label className="campo">
-          <span>Nota (opcional)</span>
-          <input value={nota} maxLength={300} onChange={(e) => setNota(e.target.value)} />
-        </label>
-        <p className="suave chico">
-          La compra queda «pendiente de pago» y lo comprado suma al stock. El pago lo marcan el supervisor o el administrador en Pendientes de pago.
-        </p>
-      </div>
+      <label className="campo">
+        <span>Nota <span className="opcional">opcional</span></span>
+        <input value={nota} maxLength={300} onChange={(e) => setNota(e.target.value)} />
+      </label>
+      <p className="suave chico">
+        La compra queda pendiente de pago y lo comprado suma al stock. El pago lo marcan el supervisor o el administrador en Pendientes de pago.
+      </p>
       <Aviso>{aviso ?? guardar.error}</Aviso>
-      <div className="fila-acciones">
-        <button type="button" className="btn-primario" disabled={guardar.enviando} onClick={() => void enviar()}>
-          {guardar.enviando ? 'Guardando…' : 'Guardar compra'}
+      <div className="fila-acciones acciones-form">
+        <button type="button" className="btn-primario" disabled={guardar.enviando || !cargados} onClick={() => void enviar()}>
+          {guardar.enviando ? 'Guardando…' : `Guardar compra${total ? ` · ${gs(total)}` : ''}`}
         </button>
         <Link to="/compras" className="btn-texto">Cancelar</Link>
       </div>
