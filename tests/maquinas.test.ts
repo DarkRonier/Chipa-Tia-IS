@@ -213,6 +213,8 @@ describe('lecturas de máquinas', () => {
     await pedir({ maquinaId: 'maq-cocina-2', momento: 'inicio', temperatura: -20 })
     // Una lectura de hace 10 días.
     await p.sql('UPDATE lecturas SET dia = ?, fecha = ? WHERE id = ?', sumarDias(diaPY(), -10), '2020-01-01T10:00:00.000Z', a.body.id)
+    // La de Cocina un minuto antes que la del administrador: en el mismo milisegundo el orden saldría al azar.
+    await p.sql("UPDATE lecturas SET fecha = strftime('%Y-%m-%dT%H:%M:%fZ', fecha, '-1 minute') WHERE id = ?", b.body.id)
 
     const h = await p.pedir<Lectura[]>(t, 'GET', '/lecturas?maquina=maq-cocina-1')
     expect(h.body).toHaveLength(3)
