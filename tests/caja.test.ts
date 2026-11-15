@@ -206,6 +206,7 @@ describe('ingresos y egresos, gastos fijos y sueldos', () => {
     // Pago a proveedor que sale de la caja: aparece como retiro de la caja y como egreso, sin cargarlo dos veces.
     const sup = await p.entrar('supervisor')
     const prov = (await p.pedir<Proveedor>(sup, 'POST', '/proveedores', { nombre: 'Molinos' })).body
+    await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { tipo: 'materia_prima' })
     const compra = (await p.pedir<Compra>(sup, 'POST', '/compras', { proveedorId: prov.id, items: [{ productoId: COCIDO, cantidad: 5, precioUnitario: 2000 }] })).body
     const pagada = await p.pedir<Compra>(sup, 'POST', `/compras/${compra.id}/pagos`, { importe: 6000, medio: 'efectivo', desdeCaja: true })
     expect(pagada.status).toBe(200)

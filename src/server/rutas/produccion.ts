@@ -50,10 +50,11 @@ interface FilaProducto {
   sector: SectorId
   nombre: string
   activo: number
+  tipo: string
 }
 
 async function leerProductos(db: BaseD1, ids: string[]): Promise<Map<string, FilaProducto>> {
-  const filas = await todasPorTrozos<FilaProducto>(db, ids, (m) => `SELECT id, sector, nombre, activo FROM productos WHERE id IN (${m})`)
+  const filas = await todasPorTrozos<FilaProducto>(db, ids, (m) => `SELECT id, sector, nombre, activo, tipo FROM productos WHERE id IN (${m})`)
   return new Map(filas.map((f) => [f.id, f]))
 }
 
@@ -64,6 +65,7 @@ function controlarProductos(items: ItemPedido[], productos: Map<string, FilaProd
     if (!p) throw invalido('Uno de los productos no existe. Recargá la página y probá de nuevo.')
     if (p.sector !== sector) throw invalido(`${p.nombre} no es un producto de este sector.`)
     if (!p.activo && !yaEstaban.has(p.id)) throw invalido(`${p.nombre} está desactivado y no se puede cargar.`)
+    if (p.tipo !== 'elaborado' && !yaEstaban.has(p.id)) throw invalido(`${p.nombre} no se produce: es de compra.`)
   }
 }
 

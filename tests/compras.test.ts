@@ -31,8 +31,9 @@ async function escenario(): Promise<Escenario> {
   const admin = await p.entrar('admin')
   const bebidas = (await p.pedir<Categoria>(admin, 'POST', '/categorias', { nombre: 'Bebidas', sectores: ['cocina'] })).body
   const insumos = (await p.pedir<Categoria>(admin, 'POST', '/categorias', { nombre: 'Insumos', sectores: [] })).body
-  const gaseosa = (await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Gaseosa 500 ml', categoriaId: bebidas.id })).body
-  await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { categoriaId: insumos.id })
+  const gaseosa = (await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Gaseosa 500 ml', categoriaId: bebidas.id, tipo: 'reventa' })).body
+  await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { categoriaId: insumos.id, tipo: 'materia_prima' })
+  await p.pedir(admin, 'PATCH', `/productos/${PAN}`, { tipo: 'materia_prima' })
   const sup = await p.entrar('supervisor')
   const proveedor = (await p.pedir<Proveedor>(sup, 'POST', '/proveedores', { nombre: 'Distribuidora Sur', ruc: '80012345-6', telefono: '0981 123456' })).body
   return { p, admin, sup, cocina: await p.entrar('cocina'), panaderia: await p.entrar('panaderia'), bebidas, insumos, gaseosa, proveedor }
@@ -111,7 +112,10 @@ describe('compras de un sector', () => {
     const cocido = await p.pedir(cocina, 'POST', '/compras', item(COCIDO))
     expect(cocido.status).toBe(403)
     expect(cocido.body.error.mensaje).toContain('Insumos')
-    expect((await p.pedir(cocina, 'POST', '/compras', item(EMPANADA))).status).toBe(403)
+    // Lo que se elabora no se compra (ni siquiera el administrador).
+    const empanada = await p.pedir(cocina, 'POST', '/compras', item(EMPANADA))
+    expect(empanada.status).toBe(400)
+    expect(empanada.body.error.mensaje).toContain('se elabora')
     expect((await p.pedir(panaderia, 'POST', '/compras', item(gaseosa.id))).status).toBe(403)
     expect((await p.pedir(panaderia, 'POST', '/compras', item(PAN))).status).toBe(403)
     expect((await p.pedir(cocina, 'POST', '/compras', { ...base, items: [{ detalle: 'Flete', precioUnitario: 1000 }] })).status).toBe(400)
@@ -295,5 +299,23 @@ describe('avisos y reporte de compras', () => {
     expect(r.body.porMedio).toEqual([{ medio: 'transferencia', importe: 30_000 }])
     expect((await p.pedir(admin, 'GET', '/reportes/compras')).status).toBe(200)
     expect((await p.pedir(cocina, 'GET', '/reportes/compras')).status).toBe(403)
+  })
+})
+
+describe('tipo de producto', () => {
+  it('solo se compran materias primas y venta directa; lo elaborado no se compra ni lo materia prima se produce', async () => {
+    const { p, admin, proveedor } = await escenario()
+    const lista = (await p.pedir<ProductoCompra[]>(admin, 'GET', '/compras/productos')).body
+    expect(lista.map((x) => x.id)).not.toContain(EMPANADA)
+    expect(lista.map((x) => x.id)).toContain(COCIDO)
+    const r = await p.pedir(admin, 'POST', '/compras', { proveedorId: proveedor.id, items: [{ productoId: EMPANADA, cantidad: 1, precioUnitario: 1000 }] })
+    expect(r.status).toBe(400)
+    const queso = (await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'chiperia', nombre: 'Queso Paraguay', unidad: 'kg', tipo: 'materia_prima' })).body
+    expect(queso.tipo).toBe('materia_prima')
+    expect((await p.pedir(admin, 'POST', '/productos', { sector: 'chiperia', nombre: 'X', tipo: 'otro' })).status).toBe(400)
+    const chiperia = await p.entrar('chiperia')
+    const prod = await p.pedir(chiperia, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: queso.id, cocinado: 5, guardado: 0 }] })
+    expect(prod.status).toBe(400)
+    expect(prod.body.error.mensaje).toContain('no se produce')
   })
 })

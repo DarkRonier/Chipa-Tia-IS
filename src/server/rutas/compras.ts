@@ -14,7 +14,7 @@ import { puede } from '../../shared/permisos'
 import {
   MEDIOS_PAGO, NOMBRE_MEDIO_PAGO,
   type Compra, type CompraItem, type CuentaProveedor, type EstadoCompra, type MedioPago, type PagoProveedor, type ProductoCompra,
-  type Proveedor, type ReporteCompras, type SectorId,
+  type Proveedor, type ReporteCompras, type SectorId, type TipoProducto,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
@@ -213,6 +213,7 @@ interface FilaProductoCompra {
   sector_nombre: string
   con_lotes: number
   activo: number
+  tipo: TipoProducto
   categoria_id: string | null
   categoria_nombre: string | null
   /** 1 si la categoría está activa y habilitada para el sector de quien compra (o si compra admin/supervisor). */
@@ -224,7 +225,7 @@ interface FilaProductoCompra {
  * administrador para ese sector. Administrador y supervisor: todos los productos activos.
  */
 async function productosComprables(base: BaseD1, u: UsuarioSesion, ids?: string[]): Promise<FilaProductoCompra[]> {
-  const sql = `SELECT p.id, p.nombre, p.unidad, p.codigo, p.sector, s.nombre AS sector_nombre, s.con_lotes, p.activo, p.categoria_id,
+  const sql = `SELECT p.id, p.nombre, p.unidad, p.codigo, p.sector, s.nombre AS sector_nombre, s.con_lotes, p.activo, p.tipo, p.categoria_id,
         k.nombre AS categoria_nombre,
         ${u.sector
           ? `CASE WHEN p.sector = ? AND k.activo = 1 AND EXISTS (
@@ -238,7 +239,7 @@ async function productosComprables(base: BaseD1, u: UsuarioSesion, ids?: string[
     if (!ids.length) return []
     return todas<FilaProductoCompra>(base, `${sql} WHERE p.id IN (SELECT value FROM json_each(?))`, ...params, JSON.stringify([...new Set(ids)]))
   }
-  const filas = await todas<FilaProductoCompra>(base, `${sql} WHERE p.activo = 1 ORDER BY s.orden, k.orden, p.orden, p.nombre`, ...params)
+  const filas = await todas<FilaProductoCompra>(base, `${sql} WHERE p.activo = 1 AND p.tipo <> 'elaborado' ORDER BY s.orden, k.orden, p.orden, p.nombre`, ...params)
   return filas.filter((f) => f.habilitado)
 }
 
@@ -490,6 +491,9 @@ async function leerRenglones(base: BaseD1, u: UsuarioSesion, v: unknown): Promis
     if (!p) throw invalido('Ese producto no existe. Recargá la página y probá de nuevo.')
     if (!p.activo) throw invalido(`${p.nombre} está desactivado.`)
     if (u.sector && p.sector !== u.sector) throw prohibido(`${p.nombre} no es un producto de tu sector.`)
+    if (p.tipo === 'elaborado') {
+      throw invalido(`${p.nombre} se elabora, no se compra. Solo se compran materias primas y productos de venta directa (se marca en Catálogos).`)
+    }
     if (!p.habilitado) {
       throw prohibido(p.categoria_nombre
         ? `Tu sector no tiene habilitadas las compras de «${p.categoria_nombre}». Pedíselo al administrador o al supervisor.`

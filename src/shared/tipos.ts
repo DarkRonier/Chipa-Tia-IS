@@ -133,6 +133,17 @@ export interface Producto {
   ventaDescuentaStock: boolean
   /** Código del producto (opcional), para buscarlo. */
   codigo: string
+  /** Elaborado (se produce), materia prima o venta directa (reventa). Solo los dos últimos se compran. */
+  tipo: TipoProducto
+}
+
+/** Elaborado: se produce (chipa, sopa). Materia prima: se compra para producir (queso, harina). Reventa: se compra y se vende así (gaseosa). */
+export type TipoProducto = 'elaborado' | 'materia_prima' | 'reventa'
+export const TIPOS_PRODUCTO: TipoProducto[] = ['elaborado', 'materia_prima', 'reventa']
+export const NOMBRE_TIPO_PRODUCTO: Record<TipoProducto, string> = {
+  elaborado: 'Elaborado (se produce)',
+  materia_prima: 'Materia prima (se compra)',
+  reventa: 'Venta directa (se compra y se vende)',
 }
 
 export interface Maquina {
