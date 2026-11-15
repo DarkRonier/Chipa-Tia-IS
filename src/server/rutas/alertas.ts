@@ -7,7 +7,9 @@ import type { Rol, SectorId } from '../../shared/tipos'
 import { alertasLotes } from '../alertasLotes'
 import type { BaseD1, Entorno } from '../entorno'
 import { sectorPara } from '../sesion'
+import { alertasCaja } from './caja'
 import { alertasCompras } from './compras'
+import { alertasGastosFijos } from './finanzas'
 import { alertasIncidencias } from './incidencias'
 import { alertasLimpieza } from './limpieza'
 import { alertasStock } from './stock'
@@ -22,14 +24,16 @@ export async function todasLasAlertas(db: BaseD1, sector: SectorId | null, rol: 
   const ve = (p: Permiso) => puede(rol, p)
   const nada = Promise.resolve<Alerta[]>([])
   const conLotes = (sector === null || sector === 'chiperia') && ve('lotes.ver')
-  const [compras, stock, lotes, limpieza, incidencias] = await Promise.all([
+  const [caja, fijos, compras, stock, lotes, limpieza, incidencias] = await Promise.all([
+    ve('caja.operar') ? alertasCaja(db) : nada,
+    ve('ie.completo') ? alertasGastosFijos(db) : nada,
     ve('compras.pagar') ? alertasCompras(db) : nada,
     ve('stock.ver') ? alertasStock(db, sector) : nada,
     conLotes ? alertasLotes(db) : nada,
     ve('limpieza.ver') ? alertasLimpieza(db, sector) : nada,
     ve('maquinas.ver') ? alertasIncidencias(db, sector) : nada,
   ])
-  return [...compras, ...incidencias, ...stock, ...lotes, ...limpieza]
+  return [...caja, ...fijos, ...compras, ...incidencias, ...stock, ...lotes, ...limpieza]
 }
 
 rutasAlertas.get('/alertas', async (c) => {

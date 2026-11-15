@@ -97,7 +97,8 @@ rutasDatos.patch('/config', soloAdmin, async (c) => {
 const TABLAS = [
   'sectores', 'usuarios', 'categorias', 'categorias_sectores', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales',
   'lotes_mp', 'producciones', 'produccion_items', 'lotes_chipa', 'lote_chipa_mp', 'movimientos', 'lecturas', 'incidencias',
-  'limpiezas', 'limpieza_marcas', 'proveedores', 'compras', 'compra_items', 'pagos_proveedor', 'auditoria', 'copias', 'configuracion', 'archivos',
+  'limpiezas', 'limpieza_marcas', 'proveedores', 'compras', 'compra_items', 'pagos_proveedor',
+  'cajas', 'caja_movimientos', 'arqueos', 'ventas', 'venta_items', 'facturas', 'gastos_fijos', 'ie_movimientos', 'auditoria', 'copias', 'configuracion', 'archivos',
 ]
 /** Nunca salen: las sesiones abiertas. */
 const EXCLUIDAS = new Set(['sesiones'])

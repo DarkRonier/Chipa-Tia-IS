@@ -118,6 +118,16 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
   for (const [productoId, stockMinimo] of [['prod-cocina-10', 15], ['prod-cocina-04', 12], ['prod-chipitas-01', 400]] as const) {
     await pedir(t.admin, 'PATCH', `/productos/${productoId}`, { stockMinimo })
   }
+  // M11: precios de venta, para poder vender en la demo con el usuario cajero.
+  for (const [productoId, precioVenta] of [
+    ['prod-chiperia-01', 3000], ['prod-chiperia-02', 3500], ['prod-chiperia-03', 4000], ['prod-chiperia-04', 4500], ['prod-chiperia-05', 5000],
+    ['prod-chipitas-01', 6000], ['prod-panaderia-01', 1000], ['prod-cocina-04', 5000], ['prod-cocina-10', 6000], ['prod-cocina-15', 7000],
+  ] as const) {
+    await pedir(t.admin, 'PATCH', `/productos/${productoId}`, { precioVenta })
+  }
+  // M14: un gasto fijo y un sueldo, para que la pantalla de Finanzas tenga algo.
+  await pedir(t.admin, 'POST', '/gastos-fijos', { nombre: 'Alquiler del local', categoria: 'Alquiler', importe: 4_500_000, diaDelMes: 5 })
+  await pedir(t.admin, 'POST', '/gastos-fijos', { nombre: 'Sueldo de cajera', importe: 2_800_000, diaDelMes: 30, esSueldo: true })
   const nuevoLoteMP = async (insumo: string, proveedor: string, numeroLote: string, dia: string, cantidad: number, vence: number) =>
     (await el(dia, 6.5, () => pedir<{ id: string }>(t.chiperia, 'POST', '/lotes-mp', {
       insumo, proveedor, numeroLote, fechaIngreso: dia, cantidad, unidad: 'kg', vencimiento: sumarDias(hoy, vence),

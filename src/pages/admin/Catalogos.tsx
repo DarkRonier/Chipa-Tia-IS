@@ -8,9 +8,10 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector } from '../../components/Layout'
 import {
-  FRECUENCIAS_LIMPIEZA, NOMBRE_TIPO_MAQUINA, SECTOR_IDS,
+  FRECUENCIAS_LIMPIEZA, IVAS, NOMBRE_IVA, NOMBRE_TIPO_MAQUINA, SECTOR_IDS, type Iva,
   type AreaLimpieza, type Categoria, type Maquina, type Producto, type Sector, type SectorId, type Sucursal, type TareaLimpieza, type TipoMaquina,
 } from '../../shared/tipos'
+import { gs, miles } from '../../shared/dinero'
 import '../../styles/catalogos.css'
 
 type Pestana = 'productos' | 'categorias' | 'maquinas' | 'limpieza' | 'sucursales' | 'sectores'
@@ -216,6 +217,7 @@ function FormAlta({ titulo, children, enviando, error, ok, alEnviar, boton = 'Ag
 /** Lo que se cuenta aparte de «unidades» y el aviso de stock mínimo (C08). */
 const detalleProducto = (p: Producto) =>
   [
+    p.precioVenta !== null ? `Precio ${gs(p.precioVenta)} · ${NOMBRE_IVA[p.iva]}` : 'Sin precio de venta',
     p.unidad !== 'unidades' ? `Se cuenta en ${p.unidad}` : null,
     p.stockMinimo !== null ? `Avisa con menos de ${p.stockMinimo} en frío` : null,
     !p.activo && !p.stockObligatorio ? 'Stock libre' : null,
@@ -239,6 +241,30 @@ function StockObligatorio({ p }: { p: Producto }) {
       <label className="check pide-numero" title="Con la marca, el stock no puede quedar negativo y frena las salidas que no alcanzan">
         <input type="checkbox" checked={marcado} disabled={cambiar.enviando} onChange={(e) => void alternar(e.target.checked)} />
         <span className="chico">Stock obligatorio</span>
+      </label>
+      <Aviso>{cambiar.error}</Aviso>
+    </>
+  )
+}
+
+/**
+ * Venta en caja (M11): IVA de la factura y si la venta descuenta su stock. Se marca en lo que se compra para revender
+ * (gaseosas); la chipa no, porque su stock ya baja al sacarla del frío.
+ */
+function VentaProducto({ p }: { p: Producto }) {
+  const cambiar = useAccion((cambios: Partial<Producto>) => patch<Producto>(`/productos/${p.id}`, cambios))
+  if (p.precioVenta === null) return null
+  return (
+    <>
+      <label className="check pide-numero" title="Con la marca, cada venta en caja descuenta su stock. Sin la marca, el stock baja solo al sacarlo del frío.">
+        <input type="checkbox" checked={p.ventaDescuentaStock} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar({ ventaDescuentaStock: e.target.checked })} />
+        <span className="chico">La venta descuenta stock</span>
+      </label>
+      <label className="check pide-numero">
+        <span className="chico">IVA</span>
+        <select value={p.iva} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar({ iva: Number(e.target.value) as Iva })}>
+          {IVAS.map((i) => <option key={i} value={i}>{NOMBRE_IVA[i]}</option>)}
+        </select>
       </label>
       <Aviso>{cambiar.error}</Aviso>
     </>
@@ -269,8 +295,11 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
   const [nombre, setNombre] = useState('')
   const [unidad, setUnidad] = useState('')
   const [obligatorio, setObligatorio] = useState(true)
+  const [precio, setPrecio] = useState('')
   const [ok, setOk] = useState<string | null>(null)
-  const crear = useAccion(() => post<Producto>('/productos', { sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio }))
+  const crear = useAccion(() => post<Producto>('/productos', {
+    sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio, precioVenta: precio.trim() || null,
+  }))
   const agregar = async () => {
     setOk(null)
     const p = await crear.ejecutar()
@@ -279,6 +308,7 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
       setNombre('')
       setUnidad('')
       setObligatorio(true)
+      setPrecio('')
     }
   }
 
@@ -301,10 +331,11 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
                   { clave: 'nombre', etiqueta: 'Nombre', valor: p.nombre },
                   { clave: 'unidad', etiqueta: 'Unidad', valor: p.unidad, max: 30 },
                   { clave: 'stockMinimo', etiqueta: 'Stock mínimo en frío (vacío = sin aviso)', valor: p.stockMinimo === null ? '' : String(p.stockMinimo), max: 7 },
+                  { clave: 'precioVenta', etiqueta: 'Precio de venta en Gs. (vacío = no se vende en caja)', valor: p.precioVenta === null ? '' : miles(p.precioVenta), max: 15 },
                 ]}
                 guardar={(cambios) => patch(`/productos/${p.id}`, cambios)}
                 cambiarActivo={(activo) => patch(`/productos/${p.id}`, { activo })}
-                debajo={p.activo && <><StockObligatorio p={p} /><CategoriaProducto p={p} categorias={categorias.datos ?? []} /></>}
+                debajo={p.activo && <><StockObligatorio p={p} /><VentaProducto p={p} /><CategoriaProducto p={p} categorias={categorias.datos ?? []} /></>}
               />
             )}
           />
@@ -318,6 +349,10 @@ function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: s
         <label className="campo">
           <span>Unidad (vacío = unidades)</span>
           <input value={unidad} onChange={(e) => setUnidad(e.target.value)} maxLength={30} placeholder="unidades" />
+        </label>
+        <label className="campo">
+          <span>Precio de venta en Gs. (vacío = no se vende)</span>
+          <input value={precio} inputMode="numeric" onChange={(e) => setPrecio(e.target.value)} maxLength={15} placeholder="5.000" />
         </label>
         <label className="check">
           <input type="checkbox" checked={obligatorio} onChange={(e) => setObligatorio(e.target.checked)} />

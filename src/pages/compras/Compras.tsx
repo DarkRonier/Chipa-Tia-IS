@@ -431,10 +431,11 @@ function Pagos({ compra }: { compra: Compra }) {
   const [medio, setMedio] = useState<MedioPago>('efectivo')
   const [diaPago, setDiaPago] = useState(hoy)
   const [nota, setNota] = useState('')
+  const [desdeCaja, setDesdeCaja] = useState(false)
   const [anulando, setAnulando] = useState<string | null>(null)
   const [motivo, setMotivo] = useState('')
   const pagar = useAccion((todo: boolean) =>
-    post<Compra>(`/compras/${compra.id}/pagos`, { ...(todo ? { total: true } : { importe }), medio, diaPago, nota }))
+    post<Compra>(`/compras/${compra.id}/pagos`, { ...(todo ? { total: true } : { importe }), medio, diaPago, nota, desdeCaja: desdeCaja && medio === 'efectivo' }))
   const anular = useAccion((ruta: string) => post<Compra>(ruta, { motivo }))
   const pagos = compra.pagos ?? []
 
@@ -476,6 +477,9 @@ function Pagos({ compra }: { compra: Compra }) {
           <ElegirMedio valor={medio} onChange={setMedio} />
           <label className="campo"><span>Fecha del pago</span><input type="date" value={diaPago} max={hoy} onChange={(e) => setDiaPago(e.target.value)} /></label>
           <label className="campo"><span>Nota (opcional)</span><input value={nota} maxLength={300} onChange={(e) => setNota(e.target.value)} /></label>
+          {medio === 'efectivo' && (
+            <label className="check"><input type="checkbox" checked={desdeCaja} onChange={(e) => setDesdeCaja(e.target.checked)} /><span>Sale de la caja abierta</span></label>
+          )}
           <button type="button" className="btn-primario" disabled={pagar.enviando || importe <= 0} onClick={() => void pagar.ejecutar(false).then((r) => r && setImporte(0))}>
             Registrar pago
           </button>

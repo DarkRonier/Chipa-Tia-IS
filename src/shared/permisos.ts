@@ -7,7 +7,7 @@
 //   producción de todos los sectores. Reporta fallas o incidencias de máquinas (no carga estado ni temperatura) y
 //   da el visto bueno de la limpieza. No carga producción ni mueve stock. Gestiona proveedores, registra compras de
 //   cualquier categoría, marca pagos y ve los reportes simples de compras y pagos.
-// - Cajero: caja, ventas y facturas (llegan en la etapa 3; por ahora solo entra a su inicio).
+// - Cajero: abre, arquea y cierra la caja, registra ventas e imprime facturas.
 // - Sectores (Chipería, Chipitas, Panadería, Cocina/Buffet): cargan y ven lo de su sector. Lotes y trazabilidad
 //   son solo de Chipería. Cargan compras solo de productos de su sector en las categorías que el administrador les
 //   habilitó; no marcan pagos.
@@ -59,10 +59,15 @@ export type Permiso =
   | 'proveedores.gestionar'
   /** Reportes simples de compras y pagos a proveedores. */
   | 'reportes.compras'
-  // Etapa 3: caja, ventas y facturas.
+  // Caja, ventas y facturas (M11–M13)
+  /** Abrir la caja, cargar ingresos y retiros, arquear y cerrar. */
   | 'caja.operar'
+  /** Registrar y anular ventas (con la caja abierta). */
   | 'ventas.registrar'
+  /** Imprimir la factura preimpresa de una venta. */
   | 'facturas.generar'
+  /** Formato, numeración y calibración de la factura preimpresa. */
+  | 'facturas.configurar'
   /** En ingresos y egresos, solo los egresos por pagos a proveedores. */
   | 'ie.egresos_proveedores'
   /** Ingresos y egresos completos, gastos fijos y sueldos. */
@@ -79,7 +84,7 @@ export const PERMISOS: readonly Permiso[] = [
   'reportes.ver', 'reportes.correo',
   'catalogos.editar', 'usuarios.gestionar', 'datos.gestionar',
   'compras.registrar', 'compras.pagar', 'proveedores.gestionar', 'reportes.compras',
-  'caja.operar', 'ventas.registrar', 'facturas.generar',
+  'caja.operar', 'ventas.registrar', 'facturas.generar', 'facturas.configurar',
   'ie.egresos_proveedores', 'ie.completo', 'reportes.detallados',
 ]
 

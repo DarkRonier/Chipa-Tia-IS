@@ -97,3 +97,4 @@ export async function api<T>(ruta: string, opciones: { metodo?: string; cuerpo?:
 export const get = <T>(ruta: string, consulta?: Consulta) => api<T>(ruta, { consulta })
 export const post = <T>(ruta: string, cuerpo?: unknown) => api<T>(ruta, { metodo: 'POST', cuerpo: cuerpo ?? {} })
 export const patch = <T>(ruta: string, cuerpo: unknown) => api<T>(ruta, { metodo: 'PATCH', cuerpo })
+export const put = <T>(ruta: string, cuerpo: unknown) => api<T>(ruta, { metodo: 'PUT', cuerpo })

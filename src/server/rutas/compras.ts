@@ -21,6 +21,7 @@ import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, UsuarioSesion, ValorSQL } from '../entorno'
 import { conflicto, esStockInsuficiente, invalido, noEncontrado, prohibido } from '../errores'
 import { esSector, requiere } from '../sesion'
+import { cajaAbierta, cajaCerradaError, esCajaCerrada, sentenciaMovimientoCaja, sentenciasAnularMovimientoCaja } from './caja'
 import { booleano, cuerpo, dia, diaOpcional, texto, textoOpcional } from '../validar'
 
 export const rutasCompras = new Hono<Entorno>()
@@ -517,13 +518,35 @@ async function proveedorActivo(base: BaseD1, v: unknown) {
   return p
 }
 
-function sentenciaPago(base: BaseD1, p: { id: string; compraId: string; proveedorId: string; diaPago: string; importe: number; medio: MedioPago; nota: string; usuarioId: string; fecha: string; dia: string }) {
-  return sentencia(
-    base,
-    `INSERT INTO pagos_proveedor (id, compra_id, proveedor_id, dia_pago, importe, medio, nota, usuario_id, fecha, dia)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    p.id, p.compraId, p.proveedorId, p.diaPago, p.importe, p.medio, p.nota, p.usuarioId, p.fecha, p.dia,
-  )
+/**
+ * El pago y, si sale de la caja abierta (`desdeCaja`), su retiro en la caja: un solo registro que suma en los dos
+ * módulos. Si el pago supera el saldo, el trigger frena todo el batch.
+ */
+async function sentenciasPago(base: BaseD1, p: {
+  id: string; compraId: string; proveedorId: string; proveedorNombre: string; diaPago: string; importe: number; medio: MedioPago; nota: string
+  usuarioId: string; fecha: string; dia: string; desdeCaja: boolean
+}): Promise<SentenciaD1[]> {
+  let cajaMovId: string | null = null
+  const extra: SentenciaD1[] = []
+  if (p.desdeCaja) {
+    const caja = await cajaAbierta(base)
+    if (!caja) throw conflicto('caja_cerrada', 'La caja está cerrada: no puede salir el pago de ella. Desmarcá «sale de la caja» o pedí que la abran.')
+    cajaMovId = nuevoId()
+    extra.push(sentenciaMovimientoCaja(base, {
+      id: cajaMovId, cajaId: caja.id, tipo: 'retiro', medio: p.medio, importe: p.importe, concepto: `Pago a ${p.proveedorNombre}`,
+      origen: 'proveedor', origenId: p.id, usuarioId: p.usuarioId, fecha: p.fecha, dia: p.dia,
+    }))
+  }
+  return [
+    // El retiro de la caja va antes porque el pago lo referencia; si el pago no pasa, el batch no guarda ninguno.
+    ...extra,
+    sentencia(
+      base,
+      `INSERT INTO pagos_proveedor (id, compra_id, proveedor_id, dia_pago, importe, medio, nota, usuario_id, fecha, dia, caja_movimiento_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      p.id, p.compraId, p.proveedorId, p.diaPago, p.importe, p.medio, p.nota, p.usuarioId, p.fecha, p.dia, cajaMovId,
+    ),
+  ]
 }
 
 const esPagoExcedido = (e: unknown) => e instanceof Error && e.message.includes('PAGO_EXCEDE_SALDO')
@@ -543,11 +566,11 @@ rutasCompras.post('/compras', requiere('compras.registrar'), async (c) => {
   const total = renglones.reduce((s, r) => s + r.subtotal, 0)
   if (total <= 0) throw invalido('El total de la compra tiene que ser mayor que cero.')
 
-  let pago: { importe: number; medio: MedioPago } | null = null
+  let pago: { importe: number; medio: MedioPago; desdeCaja: boolean } | null = null
   if (!vacio(b.pago)) {
     if (!puede(u.rol, 'compras.pagar')) throw prohibido(SOLO_PAGOS)
     const crudo = (typeof b.pago === 'object' ? b.pago : {}) as Record<string, unknown>
-    pago = { importe: importe(crudo.importe, 'el importe pagado', 1), medio: medio(crudo.medio) }
+    pago = { importe: importe(crudo.importe, 'el importe pagado', 1), medio: medio(crudo.medio), desdeCaja: crudo.desdeCaja === true }
     if (pago.importe > total) throw invalido(`Lo pagado (${guaranies(pago.importe)}) no puede superar el total de la compra (${guaranies(total)}).`)
   }
 
@@ -569,12 +592,17 @@ rutasCompras.post('/compras', requiere('compras.registrar'), async (c) => {
     ...renglones.filter((r) => r.productoId).map((r) => sentenciaMovimientoCompra(base, r, id, r.cantidad, motivo, u.id, fecha, hoy)),
   ]
   if (pago) {
-    sentencias.push(sentenciaPago(base, {
-      id: nuevoId(), compraId: id, proveedorId: proveedor.id, diaPago: diaCompra, importe: pago.importe, medio: pago.medio,
-      nota: 'Pagado al cargar la compra', usuarioId: u.id, fecha, dia: hoy,
+    sentencias.push(...await sentenciasPago(base, {
+      id: nuevoId(), compraId: id, proveedorId: proveedor.id, proveedorNombre: proveedor.nombre, diaPago: diaCompra, importe: pago.importe,
+      medio: pago.medio, nota: 'Pagado al cargar la compra', usuarioId: u.id, fecha, dia: hoy, desdeCaja: pago.desdeCaja,
     }))
   }
-  await base.batch(sentencias)
+  try {
+    await base.batch(sentencias)
+  } catch (e) {
+    if (esCajaCerrada(e)) throw cajaCerradaError()
+    throw e
+  }
   return c.json<Compra>(await compraVisible(base, u, id))
 })
 
@@ -602,13 +630,12 @@ rutasCompras.post('/compras/:id/pagos', requiere('compras.pagar', SOLO_PAGOS), a
   const diaPago = diaHastaHoy(b.diaPago, 'La fecha del pago', hoy)
   const pagoId = nuevoId()
   try {
-    await base.batch([
-      sentenciaPago(base, {
-        id: pagoId, compraId: compra.id, proveedorId: compra.proveedorId, diaPago, importe: monto, medio: medio(b.medio),
-        nota: textoOpcional(b.nota, 'La nota', 300) ?? '', usuarioId: u.id, fecha, dia: hoy,
-      }),
-    ])
+    await base.batch(await sentenciasPago(base, {
+      id: pagoId, compraId: compra.id, proveedorId: compra.proveedorId, proveedorNombre: compra.proveedorNombre, diaPago, importe: monto,
+      medio: medio(b.medio), nota: textoOpcional(b.nota, 'La nota', 300) ?? '', usuarioId: u.id, fecha, dia: hoy, desdeCaja: b.desdeCaja === true,
+    }))
   } catch (e) {
+    if (esCajaCerrada(e)) throw cajaCerradaError()
     if (esPagoExcedido(e)) throw conflicto('pago_excede_saldo', 'Ese pago supera lo que falta pagar. Recargá la página: puede que otro pago se haya cargado recién.')
     throw e
   }
@@ -624,7 +651,9 @@ rutasCompras.post('/pagos-proveedor/:id/anular', requiere('compras.pagar', SOLO_
   if (!pago) throw noEncontrado('No se encontró ese pago.')
   if (pago.anulado) throw conflicto('pago_anulado', 'Ese pago ya está anulado.')
   const { fecha } = ahora()
+  const cajaMov = await una<{ caja_movimiento_id: string | null }>(base, 'SELECT caja_movimiento_id FROM pagos_proveedor WHERE id = ?', pago.id)
   await base.batch([
+    ...(await sentenciasAnularMovimientoCaja(base, cajaMov?.caja_movimiento_id ?? null, u.id, fecha)),
     sentencia(base, 'UPDATE pagos_proveedor SET anulado_por = ?, anulado_en = ?, motivo_anulacion = ? WHERE id = ? AND anulado_en IS NULL', u.id, fecha, motivo, pago.id),
     sentenciaAuditoria(base, { tabla: 'pagos_proveedor', registroId: pago.id, accion: 'anular', usuarioId: u.id, antes: pago, despues: { ...pago, anulado: true, motivoAnulacion: motivo } }),
   ])

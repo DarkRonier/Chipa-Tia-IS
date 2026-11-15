@@ -5,9 +5,11 @@ import type { Entorno } from './entorno'
 import { ErrorApi, esStockInsuficiente } from './errores'
 import { rutasAlertas } from './rutas/alertas'
 import { rutasAuth } from './rutas/auth'
+import { rutasCaja } from './rutas/caja'
 import { rutasCatalogos } from './rutas/catalogos'
 import { rutasCompras } from './rutas/compras'
 import { rutasDatos } from './rutas/datos'
+import { rutasFinanzas } from './rutas/finanzas'
 import { rutasIncidencias } from './rutas/incidencias'
 import { rutasLimpieza } from './rutas/limpieza'
 import { rutasLotes } from './rutas/lotes'
@@ -49,6 +51,8 @@ export function crearApp() {
   app.route('/', rutasMaquinas)
   app.route('/', rutasIncidencias)
   app.route('/', rutasCompras)
+  app.route('/', rutasCaja)
+  app.route('/', rutasFinanzas)
   app.route('/', rutasLimpieza)
   app.route('/', rutasReportes)
   app.route('/', rutasDatos)

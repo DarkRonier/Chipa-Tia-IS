@@ -10,6 +10,8 @@ export type TipoAlerta =
   | 'incidencia_maquina' // falla o incidencia de una máquina reportada y todavía sin resolver
   | 'compra_por_vencer' // M10: compra con saldo que vence en los próximos días
   | 'compra_vencida' // M10: compra con saldo y el vencimiento ya pasado
+  | 'caja_sin_cerrar' // M13: la caja quedó abierta desde un día anterior
+  | 'gasto_fijo_pendiente' // M14: gasto fijo (o sueldo) del mes vencido y sin marcar como pagado
 
 export interface Alerta {
   tipo: TipoAlerta

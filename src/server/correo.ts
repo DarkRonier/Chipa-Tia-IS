@@ -193,13 +193,13 @@ ${boton}
 // ---------- Armado y envío ----------
 
 /** Arma el resumen del período que corresponde a `hoy` (día de Paraguay), sin enviarlo. 'hoy' cubre solo el día de hoy, hasta ahora. */
-export async function prepararResumen(env: Env, periodo: PeriodoResumen, hoy: string) {
+export async function prepararResumen(env: Env, periodo: PeriodoResumen, hoy: string, alertasYa?: Alerta[]) {
   const { desde, hasta } = periodo === 'hoy' ? { desde: hoy, hasta: hoy } : rangoResumen(periodo, hoy)
   const [config, reporte, sectores, alertas] = await Promise.all([
     leerConfiguracion(env.DB),
     armarReporte(env.DB, { desde, hasta, sector: null }),
     todas<{ id: string; nombre: string }>(env.DB, 'SELECT id, nombre FROM sectores ORDER BY orden'),
-    todasLasAlertas(env.DB, null),
+    alertasYa ?? todasLasAlertas(env.DB, null),
   ])
   const enlace = enlaceReporte(config.urlPublica, desde, hasta)
   return {
@@ -212,8 +212,9 @@ export async function prepararResumen(env: Env, periodo: PeriodoResumen, hoy: st
 }
 
 /** Arma y envía el resumen. Nunca lanza por un problema de envío: lo devuelve en `motivo`. */
-export async function enviarResumen(env: Env, periodo: PeriodoResumen, hoy: string): Promise<ResumenCorreo> {
-  const r = await prepararResumen(env, periodo, hoy)
+/** `alertas`: las ya calculadas, para no repetir las consultas cuando salen varios resúmenes juntos. */
+export async function enviarResumen(env: Env, periodo: PeriodoResumen, hoy: string, alertas?: Alerta[]): Promise<ResumenCorreo> {
+  const r = await prepararResumen(env, periodo, hoy, alertas)
   const base = { destino: r.destino, asunto: r.asunto, html: r.html }
   const motivo = env.MODO_DEMO
     ? 'Es la demo: no se envían correos. Así se vería el resumen.'

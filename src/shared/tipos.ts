@@ -122,6 +122,15 @@ export interface Producto {
   stockObligatorio: boolean
   /** Categoría para compras (M10); null = sin categoría (solo la compran el administrador y el supervisor). */
   categoriaId: string | null
+  /** Precio de venta en caja (M11), en guaraníes; null = no se vende en caja. */
+  precioVenta: number | null
+  /** IVA de la factura: 10, 5 o 0 (exenta). */
+  iva: Iva
+  /**
+   * La venta en caja descuenta su stock (por ejemplo, una gaseosa comprada para revender). Sin la marca (la chipa y lo
+   * que sale del frío) la venta no toca el stock: ya bajó con «Sacar para la venta».
+   */
+  ventaDescuentaStock: boolean
 }
 
 export interface Maquina {
@@ -537,6 +546,10 @@ export interface PedidoLimpieza {
 
 export interface ErrorRespuesta { error: { codigo: string; mensaje: string } }
 
+export type Iva = 0 | 5 | 10
+export const IVAS: Iva[] = [10, 5, 0]
+export const NOMBRE_IVA: Record<Iva, string> = { 10: 'IVA 10 %', 5: 'IVA 5 %', 0: 'Exenta' }
+
 // ---------- Compras, proveedores y pagos (M10) ----------
 
 /** Medios de pago (pagos a proveedores, ventas y caja). */
@@ -709,4 +722,245 @@ export interface ReporteCompras {
   pagos: PagoProveedor[]
   /** Compras con saldo y vencimiento hasta 7 días desde hoy (o ya vencidas), la más urgente primero. */
   porVencer: Compra[]
+}
+
+// ---------- Caja (M13) ----------
+
+/** Totales por medio de pago dentro de una caja. */
+export interface TotalesMedio {
+  medio: MedioPago
+  ventas: number
+  ingresos: number
+  retiros: number
+  /** Fondo inicial (solo efectivo) + ventas + ingresos − retiros. */
+  esperado: number
+}
+
+export interface MovimientoCaja {
+  id: string
+  tipo: 'ingreso' | 'retiro'
+  medio: MedioPago
+  importe: number
+  concepto: string
+  /** manual = cargado en la caja; ie = gasto o ingreso de Ingresos y egresos; proveedor = pago a un proveedor. */
+  origen: 'manual' | 'ie' | 'proveedor'
+  usuarioNombre: string
+  fecha: string
+  anulado: boolean
+}
+
+export interface Arqueo {
+  id: string
+  usuarioNombre: string
+  fecha: string
+  esperado: number
+  contado: number
+  /** contado − esperado: positivo sobra, negativo falta. */
+  diferencia: number
+  nota: string
+  esCierre: boolean
+}
+
+export interface Caja {
+  id: string
+  abierta: boolean
+  abiertaPorNombre: string
+  abiertaEn: string
+  dia: string
+  fondoInicial: number
+  cerradaPorNombre: string | null
+  cerradaEn: string | null
+  cantidadVentas: number
+  totalVentas: number
+  totales: TotalesMedio[]
+  /** Efectivo que debería haber en la caja ahora (o al cerrar). */
+  esperadoEfectivo: number
+  contadoEfectivo: number | null
+  diferencia: number | null
+  notaCierre: string
+  /** Solo en el detalle. */
+  movimientos?: MovimientoCaja[]
+  arqueos?: Arqueo[]
+}
+
+// ---------- Ventas (M11) y factura (M12) ----------
+
+export interface ProductoVenta {
+  id: string
+  nombre: string
+  sector: SectorId
+  sectorNombre: string
+  precio: number
+  iva: Iva
+  descuentaStock: boolean
+  /** Stock actual si la venta lo descuenta; null si no. */
+  stock: number | null
+  stockObligatorio: boolean
+}
+
+export interface VentaItem {
+  productoId: string
+  nombre: string
+  cantidad: number
+  precioUnitario: number
+  subtotal: number
+  iva: Iva
+}
+
+export interface Factura {
+  id: string
+  /** "001-001-0000123" */
+  numeroCompleto: string
+  prefijo: string
+  numero: number
+  timbrado: string
+  fecha: string
+  impresiones: number
+  anulada: boolean
+}
+
+export interface Venta {
+  id: string
+  numero: number
+  cajaId: string
+  clienteNombre: string
+  clienteRuc: string
+  subtotal: number
+  descuento: number
+  total: number
+  medio: MedioPago
+  recibido: number | null
+  vuelto: number | null
+  usuarioNombre: string
+  fecha: string
+  dia: string
+  anulada: boolean
+  anuladaEn: string | null
+  motivoAnulacion: string | null
+  items: VentaItem[]
+  factura: Factura | null
+}
+
+export interface PedidoVenta {
+  items: { productoId: string; cantidad: number }[]
+  /** Descuento en guaraníes sobre el total. */
+  descuento?: number
+  medio: MedioPago
+  recibido?: number | null
+  clienteNombre?: string
+  clienteRuc?: string
+}
+
+/** Posición de un dato en la hoja preimpresa, en milímetros desde la esquina de arriba a la izquierda. */
+export interface PosicionFactura { x: number; y: number }
+
+/**
+ * Formato de la factura preimpresa (M12): numeración y dónde va cada dato sobre la hoja de la imprenta. Los márgenes
+ * corren todo junto para calibrar con la impresora.
+ */
+export interface ConfigFactura {
+  timbrado: string
+  /** "001-001": establecimiento y punto de expedición. */
+  prefijo: string
+  /** Número con el que empieza la numeración (si todavía no se imprimió ninguna). */
+  numeroInicial: number
+  anchoHoja: number
+  altoHoja: number
+  margenIzquierdo: number
+  margenSuperior: number
+  tamanoLetra: number
+  fecha: PosicionFactura
+  cliente: PosicionFactura
+  ruc: PosicionFactura
+  /** Primer renglón del detalle; los siguientes bajan `altoRenglon`. */
+  detalle: PosicionFactura
+  altoRenglon: number
+  maxRenglones: number
+  /** Columnas del detalle (x en mm). */
+  columnaCantidad: number
+  columnaDescripcion: number
+  columnaPrecio: number
+  columnaExentas: number
+  columna5: number
+  columna10: number
+  /** Fila de subtotales por columna, total, total en letras y liquidación del IVA. */
+  subtotales: PosicionFactura
+  total: PosicionFactura
+  totalLetras: PosicionFactura
+  liquidacionIva: PosicionFactura
+}
+
+// ---------- Ingresos y egresos (M14) ----------
+
+export interface GastoFijo {
+  id: string
+  nombre: string
+  categoria: string
+  importe: number
+  diaDelMes: number
+  esSueldo: boolean
+  activo: boolean
+}
+
+/** Estado de un gasto fijo en un mes: si ya se pagó y con qué movimiento. */
+export interface GastoFijoMes extends GastoFijo {
+  periodo: string
+  pagado: boolean
+  movimientoId: string | null
+  importePagado: number | null
+  vence: string
+}
+
+export type OrigenIE = 'manual' | 'gasto_fijo' | 'venta' | 'proveedor'
+
+export interface MovimientoIE {
+  id: string
+  tipo: 'ingreso' | 'egreso'
+  dia: string
+  concepto: string
+  categoria: string
+  importe: number
+  medio: MedioPago | null
+  /** Ventas y pagos a proveedores entran solos (no se cargan a mano). */
+  origen: OrigenIE
+  usuarioNombre: string | null
+  anulado: boolean
+  /** Solo en los manuales y gastos fijos. */
+  desdeCaja: boolean
+}
+
+export interface ResumenIE {
+  desde: string
+  hasta: string
+  /** El supervisor solo ve los egresos por pagos a proveedores. */
+  soloProveedores: boolean
+  ingresos: number
+  egresos: number
+  resultado: number
+  porCategoria: { tipo: 'ingreso' | 'egreso'; categoria: string; importe: number }[]
+  porMedio: { medio: MedioPago; ingresos: number; egresos: number }[]
+  movimientos: MovimientoIE[]
+}
+
+export interface ReporteDetallado {
+  desde: string
+  hasta: string
+  ventas: {
+    cantidad: number
+    bruto: number
+    descuentos: number
+    total: number
+    anuladas: number
+    ticketPromedio: number
+    porMedio: { medio: MedioPago; cantidad: number; importe: number }[]
+    porDia: { dia: string; cantidad: number; importe: number }[]
+    porProducto: { productoId: string; nombre: string; cantidad: number; importe: number }[]
+    facturas: number
+  }
+  cajas: Caja[]
+  diferenciasCaja: number
+  ie: Omit<ResumenIE, 'movimientos' | 'soloProveedores' | 'desde' | 'hasta'>
+  sueldos: { pagados: number; pendientes: number; detalle: GastoFijoMes[] }
+  gastosFijos: { pagados: number; pendientes: number }
+  compras: { total: number; pagado: number; deudaTotal: number }
 }

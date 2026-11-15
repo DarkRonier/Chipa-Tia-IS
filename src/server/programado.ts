@@ -8,7 +8,9 @@
 // Nunca lanza: si algo falla, lo anota en el log y sigue con lo demás.
 import { diaDeSemana, diaPY } from '../shared/hora'
 import type { Periodo } from '../shared/tipos'
+import type { Alerta } from '../shared/alertas'
 import { enviarResumen } from './correo'
+import { todasLasAlertas } from './rutas/alertas'
 import { ejecutar } from './db'
 import type { Env } from './entorno'
 import { hacerCopia } from './rutas/datos'
@@ -60,9 +62,12 @@ export async function tareasProgramadas(env: Env, cuando: Date, cron?: string): 
     const periodos: Periodo[] = ['diario']
     if (lunes) periodos.push('semanal')
     if (hoy.endsWith('-01')) periodos.push('mensual')
+    // Los avisos son los mismos para los tres resúmenes: se calculan una vez (límite de consultas de D1 por pedido).
+    let alertas: Alerta[] | undefined
     for (const periodo of periodos) {
       await intentar(`resumen ${periodo}`, async () => {
-        const r = await enviarResumen(env, periodo, hoy)
+        alertas ??= await todasLasAlertas(env.DB, null)
+        const r = await enviarResumen(env, periodo, hoy, alertas)
         if (!r.enviado) {
           console.warn(`Resumen ${periodo} no enviado: ${r.motivo}`)
           return `no enviado (${r.motivo})`
