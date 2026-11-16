@@ -14,6 +14,7 @@ import { fechaHoraPY } from '../../shared/hora'
 import type { PedidoEnvio, RespuestaEnvio, StockFila, Sucursal } from '../../shared/tipos'
 import { useStock } from './Stock'
 import '../../styles/stock.css'
+import BotonIcono from '../../components/BotonIcono'
 
 interface Linea { clave: number; productoId: string; lote: string; cantidad: number }
 
@@ -155,13 +156,10 @@ function Formulario() {
                   <div className="stk-linea-cabeza">
                     <strong>Producto {i + 1}</strong>
                     {lineas.length > 1 && (
-                      <button
-                        type="button"
-                        className="btn-texto"
+                      <BotonIcono
+                        icono="basurero" texto={`Quitar el producto ${i + 1}`} tono="peligro"
                         onClick={() => { limpiarMensajes(); setLineas((ls) => ls.filter((x) => x.clave !== l.clave)) }}
-                      >
-                        Quitar
-                      </button>
+                      />
                     )}
                   </div>
                   <label className="campo">

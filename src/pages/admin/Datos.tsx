@@ -8,6 +8,7 @@ import { Aviso, ConDatos } from '../../components/Estado'
 import { diaLegible, diaPY, fechaHoraPY, sumarDias } from '../../shared/hora'
 import { NOMBRE_TIPO_MOVIMIENTO, type Auditoria, type Configuracion, type Copia, type Exportacion, type TipoMovimiento } from '../../shared/tipos'
 import '../../styles/reportes.css'
+import BotonIcono from '../../components/BotonIcono'
 
 export default function Datos() {
   return (
@@ -163,7 +164,7 @@ function FormularioConfig({ actual }: { actual: Configuracion }) {
         <span className="chico suave">
           Se usa en el enlace de los correos.{' '}
           {url.trim() !== estaPagina && (
-            <button type="button" className="btn-texto" onClick={() => { setUrl(estaPagina); setGuardado(false) }}>Usar la de esta página</button>
+            <BotonIcono icono="enlace" texto="Usar la dirección de esta página" className="en-texto" onClick={() => { setUrl(estaPagina); setGuardado(false) }} />
           )}
         </span>
       </label>

@@ -8,6 +8,7 @@ import { Aviso, ConDatos } from '../../components/Estado'
 import { diaLegible, diaPY } from '../../shared/hora'
 import { ROLES, type Rol, type Usuario } from '../../shared/tipos'
 import '../../styles/catalogos.css'
+import BotonIcono from '../../components/BotonIcono'
 
 const CLAVE_MINIMA = 6
 
@@ -200,14 +201,12 @@ function FilaUsuario({ u, esYo, rolTexto }: { u: Usuario; esYo: boolean; rolText
 
       {modo === null && (
         <div className="acciones-cat con-botones">
-          <button type="button" className="btn-secundario" onClick={() => abrir('editar')}>{esYo ? 'Cambiar nombre' : 'Editar'}</button>
+          <BotonIcono icono="editar" texto={esYo ? 'Cambiar mi nombre' : `Editar ${u.usuario}`} onClick={() => abrir('editar')} />
           {!esYo && u.activo && (
-            <button type="button" className="btn-secundario" onClick={() => abrir('clave')}>Cambiar contraseña</button>
+            <BotonIcono icono="clave" texto={`Cambiar la contraseña de ${u.usuario}`} onClick={() => abrir('clave')} />
           )}
           {!u.activo && (
-            <button type="button" className="btn-secundario" disabled={enviando} onClick={() => void activar()}>
-              {enviando ? 'Activando…' : 'Activar'}
-            </button>
+            <BotonIcono icono="activar" texto={`Activar ${u.usuario}`} tono="positivo" disabled={enviando} onClick={() => void activar()} />
           )}
         </div>
       )}

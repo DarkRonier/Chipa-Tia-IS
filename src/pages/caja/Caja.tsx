@@ -1,7 +1,7 @@
 // M11–M13: la caja del local. El cajero (y el administrador) abre la caja con el fondo inicial, vende, imprime la
 // factura preimpresa, carga ingresos y retiros, arquea y cierra. El administrador además configura la factura y ve el
 // historial de cajas.
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
@@ -17,6 +17,7 @@ import {
 } from '../../shared/tipos'
 import { ConfigurarFactura, ImprimirFactura } from './Factura'
 import '../../styles/compras.css'
+import BotonIcono, { Acciones } from '../../components/BotonIcono'
 
 type Pestana = 'vender' | 'ventas' | 'caja' | 'factura' | 'historial'
 
@@ -167,7 +168,7 @@ function Vender() {
             <button type="button" className="btn-secundario" disabled={factura.enviando} onClick={() => void factura.imprimir(hecha.id)}>
               Imprimir factura
             </button>
-            <button type="button" className="btn-texto" onClick={() => setHecha(null)}>Sin factura, seguir</button>
+            <BotonIcono icono="cancelar" texto="Seguir sin factura" onClick={() => setHecha(null)} />
           </div>
           <Aviso>{factura.error}</Aviso>
           {factura.ultima?.id === hecha.id && factura.ultima.factura && <p className="chico">Factura {factura.ultima.factura.numeroCompleto}</p>}
@@ -239,7 +240,7 @@ function Vender() {
           <button type="button" className="btn-primario" disabled={vender.enviando || !lineas.length} onClick={() => void cobrar()}>
             {vender.enviando ? 'Cobrando…' : `Cobrar ${gs(total)}`}
           </button>
-          {lineas.length > 0 && <button type="button" className="btn-texto" onClick={limpiar}>Vaciar</button>}
+          {lineas.length > 0 && <BotonIcono icono="basurero" texto="Vaciar la venta" tono="peligro" onClick={limpiar} />}
         </div>
       </div>
       </div>
@@ -259,36 +260,57 @@ function VentasDeLaCaja({ cajaId }: { cajaId: string }) {
       <Aviso>{factura.error ?? anular.error}</Aviso>
       <ConDatos consulta={ventas}>
         {(lista) => lista.length ? (
-          <div className="lista">
-            {lista.map((v) => (
-              <div key={v.id} className={`item${v.anulada ? ' apagado' : ''}`}>
-                <div className="compra-cabeza">
-                  <span><strong>N° {v.numero}</strong> · {fechaHoraPY(v.fecha).slice(11)} · {NOMBRE_MEDIO_PAGO[v.medio]}{v.clienteNombre && ` · ${v.clienteNombre}`}</span>
-                  <span className="compra-cifras"><strong>{gs(v.total)}</strong>{v.anulada && <span className="etq-compra anulada">Anulada</span>}</span>
-                  <span className="suave chico">
-                    {v.items.map((i) => `${i.cantidad} ${i.nombre}`).join(', ')}
-                    {v.descuento > 0 && ` · descuento ${gs(v.descuento)}`}
-                    {v.factura && ` · factura ${v.factura.numeroCompleto}${v.factura.anulada ? ' (anulada)' : ''}`}
-                  </span>
-                </div>
-                {!v.anulada && (
-                  <div className="fila-acciones">
-                    <button type="button" className="btn-texto" disabled={factura.enviando} onClick={() => void factura.imprimir(v.id)}>
-                      {v.factura ? 'Reimprimir factura' : 'Imprimir factura'}
-                    </button>
-                    {anulando !== v.id && <button type="button" className="btn-texto" onClick={() => { setAnulando(v.id); setMotivo('') }}>Anular venta</button>}
-                  </div>
-                )}
-                {anulando === v.id && (
-                  <div className="filtros anular">
-                    <label className="campo"><span>Motivo</span><input value={motivo} maxLength={300} autoFocus onChange={(e) => setMotivo(e.target.value)} /></label>
-                    <button type="button" className="btn-primario" disabled={anular.enviando || !motivo.trim()} onClick={() => void anular.ejecutar(v.id).then((r) => r && setAnulando(null))}>Anular</button>
-                    <button type="button" className="btn-texto" onClick={() => setAnulando(null)}>Cancelar</button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          <table className="tabla tabla-tarjetas">
+            <thead>
+              <tr>
+                <th>Venta</th><th>Hora</th><th>Detalle</th><th>Medio</th><th className="num">Total</th>
+                <th className="acciones"><span className="solo-lector">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lista.map((v) => (
+                <Fragment key={v.id}>
+                  <tr className={`${v.anulada ? 'apagado' : ''}${anulando === v.id ? ' con-detalle' : ''}`}>
+                    <td data-etiqueta="Venta">
+                      <strong>N° {v.numero}</strong>{v.anulada && <span className="etq-compra anulada">Anulada</span>}
+                      {v.clienteNombre && <div className="suave chico">{v.clienteNombre}</div>}
+                    </td>
+                    <td data-etiqueta="Hora">{fechaHoraPY(v.fecha).slice(11)}</td>
+                    <td data-etiqueta="Detalle" className="texto-largo">
+                      {v.items.map((i) => `${i.cantidad} ${i.nombre}`).join(', ')}
+                      {(v.descuento > 0 || v.factura) && (
+                        <div className="suave chico">
+                          {[v.descuento > 0 && `descuento ${gs(v.descuento)}`, v.factura && `factura ${v.factura.numeroCompleto}${v.factura.anulada ? ' (anulada)' : ''}`].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                    </td>
+                    <td data-etiqueta="Medio">{NOMBRE_MEDIO_PAGO[v.medio]}</td>
+                    <td data-etiqueta="Total" className="num"><strong>{gs(v.total)}</strong></td>
+                    <td className="acciones">
+                      {!v.anulada && (
+                        <Acciones>
+                          <BotonIcono icono="imprimir" texto={v.factura ? 'Reimprimir factura' : 'Imprimir factura'} disabled={factura.enviando} onClick={() => void factura.imprimir(v.id)} />
+                          <BotonIcono icono="anular" texto={`Anular la venta N° ${v.numero}`} tono="peligro" presionado={anulando === v.id}
+                            onClick={() => { setAnulando(anulando === v.id ? null : v.id); setMotivo('') }} />
+                        </Acciones>
+                      )}
+                    </td>
+                  </tr>
+                  {anulando === v.id && (
+                    <tr className="fila-detalle">
+                      <td colSpan={6}>
+                        <div className="filtros anular">
+                          <label className="campo"><span>Motivo</span><input value={motivo} maxLength={300} autoFocus onChange={(e) => setMotivo(e.target.value)} /></label>
+                          <button type="button" className="btn-primario" disabled={anular.enviando || !motivo.trim()} onClick={() => void anular.ejecutar(v.id).then((r) => r && setAnulando(null))}>Anular</button>
+                          <BotonIcono icono="cancelar" texto="Cancelar" onClick={() => setAnulando(null)} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
         ) : <p className="suave">Todavía no hay ventas en esta caja.</p>}
       </ConDatos>
       {factura.vista}
@@ -370,7 +392,7 @@ function EstadoCaja({ caja }: { caja: TipoCaja }) {
             <p><strong>¿Cerrar la caja con {gs(contado)} contados?</strong> {textoDiferencia(diferencia)}. Después no se puede vender ni anular ventas de esta caja.</p>
             <div className="fila-acciones">
               <button type="button" className="btn-primario" disabled={arqueo.enviando} onClick={() => void arqueo.ejecutar(true)}>Sí, cerrar la caja</button>
-              <button type="button" className="btn-texto" onClick={() => setCerrando(false)}>Volver</button>
+              <BotonIcono icono="volver" texto="Volver sin cerrar" onClick={() => setCerrando(false)} />
             </div>
           </>
         ) : (
@@ -384,16 +406,30 @@ function EstadoCaja({ caja }: { caja: TipoCaja }) {
       {(caja.movimientos?.length ?? 0) > 0 && (
         <>
           <h2>Movimientos</h2>
-          <ul className="lista-pagos">
-            {caja.movimientos!.map((m) => (
-              <li key={m.id} className={m.anulado ? 'apagado' : ''}>
-                {fechaHoraPY(m.fecha).slice(11)} · {m.tipo === 'ingreso' ? 'Ingreso' : 'Retiro'} {NOMBRE_MEDIO_PAGO[m.medio].toLowerCase()} · <strong>{gs(m.importe)}</strong> · {m.concepto} · {m.usuarioNombre}
-                {m.anulado ? ' (anulado)' : m.origen === 'manual' && (
-                  <button type="button" className="btn-texto" disabled={anularMov.enviando} onClick={() => void anularMov.ejecutar(m.id)}>Anular</button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <table className="tabla tabla-tarjetas">
+            <thead>
+              <tr>
+                <th>Concepto</th><th>Hora</th><th>Tipo</th><th>Quién</th><th className="num">Importe</th>
+                <th className="acciones"><span className="solo-lector">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {caja.movimientos!.map((m) => (
+                <tr key={m.id} className={m.anulado ? 'apagado' : ''}>
+                  <td data-etiqueta="Concepto">{m.concepto}{m.anulado && <span className="suave chico"> · anulado</span>}</td>
+                  <td data-etiqueta="Hora">{fechaHoraPY(m.fecha).slice(11)}</td>
+                  <td data-etiqueta="Tipo">{m.tipo === 'ingreso' ? 'Ingreso' : 'Retiro'} {NOMBRE_MEDIO_PAGO[m.medio].toLowerCase()}</td>
+                  <td data-etiqueta="Quién">{m.usuarioNombre}</td>
+                  <td data-etiqueta="Importe" className={`num ${m.tipo === 'ingreso' ? 'positivo' : 'negativo'}`}><strong>{m.tipo === 'ingreso' ? '+' : '−'}{miles(m.importe)}</strong></td>
+                  <td className="acciones">
+                    {!m.anulado && m.origen === 'manual' && (
+                      <BotonIcono icono="anular" texto="Anular este movimiento" tono="peligro" disabled={anularMov.enviando} onClick={() => void anularMov.ejecutar(m.id)} />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </>
       )}
       {(caja.arqueos?.length ?? 0) > 0 && (

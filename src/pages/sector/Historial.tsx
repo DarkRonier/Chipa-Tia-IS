@@ -12,6 +12,7 @@ import { fechaHoraPY } from '../../shared/hora'
 import { NOMBRE_FINALIDAD, NOMBRE_TIPO_MOVIMIENTO, type Movimiento, type Producto, type Sucursal, type TipoMovimiento } from '../../shared/tipos'
 import { useStock } from './Stock'
 import '../../styles/stock.css'
+import BotonIcono from '../../components/BotonIcono'
 
 /** "+8" o "−3" (con signo menos tipográfico). */
 export const conSigno = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0')
@@ -131,7 +132,7 @@ function Pantalla() {
             {OPCIONES_TIPO.map((o) => <option key={o.texto} value={o.valor}>{o.texto}</option>)}
           </select>
         </label>
-        {hayFiltros && <button type="button" className="btn-texto stk-limpiar" onClick={limpiar}>Quitar filtros</button>}
+        {hayFiltros && <BotonIcono icono="quitarFiltros" texto="Quitar filtros" className="stk-limpiar" onClick={limpiar} />}
       </div>
       {fechasAlReves ? (
         <p className="error" role="alert">La fecha desde no puede ser posterior a la fecha hasta.</p>

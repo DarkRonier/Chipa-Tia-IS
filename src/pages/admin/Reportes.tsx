@@ -19,6 +19,7 @@ import {
   type Configuracion, type Lectura, type PeriodoResumen, type Reporte, type ResumenCorreo, type SectorId,
 } from '../../shared/tipos'
 import '../../styles/reportes.css'
+import BotonIcono from '../../components/BotonIcono'
 
 type Atajo = 'hoy' | 'ayer' | 'semana' | 'semanaPasada' | 'mes' | 'mesPasado'
 const ATAJOS: [Atajo, string][] = [
@@ -510,7 +511,7 @@ function ResumenPorCorreo({ verPeriodo }: { verPeriodo: (desde: string, hasta: s
         </div>
         <p className="rep-nota">
           Cubre {QUE_CUBRE[periodo]}: {periodoLegible(desde, hasta)}.{' '}
-          <button type="button" className="btn-texto" onClick={() => verPeriodo(desde, hasta)}>Ver ese período arriba</button>
+          <BotonIcono icono="arriba" texto="Ver ese período arriba" className="en-texto" onClick={() => verPeriodo(desde, hasta)} />
         </p>
         <p className="rep-nota">
           {config.datos === undefined ? 'Buscando el correo configurado…'

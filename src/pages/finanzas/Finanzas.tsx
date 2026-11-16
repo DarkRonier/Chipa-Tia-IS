@@ -1,7 +1,7 @@
 // M14 y reportes detallados. El administrador ve y carga ingresos y egresos, define los gastos fijos y sueldos y
 // mira el reporte detallado (ventas, cajas, ingresos y egresos, sueldos). El supervisor solo ve los egresos por pagos
 // a proveedores.
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { get, patch, post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
@@ -18,6 +18,7 @@ import {
 } from '../../shared/tipos'
 import { TablaTotales, textoDiferencia } from '../caja/Caja'
 import '../../styles/compras.css'
+import BotonIcono, { Acciones } from '../../components/BotonIcono'
 
 type Pestana = 'ie' | 'fijos' | 'reporte'
 
@@ -108,28 +109,56 @@ function IngresosEgresos({ desde, hasta, completo }: { desde: string; hasta: str
             )}
             <div className="fila-acciones">
               <h2>Movimientos</h2>
-              <button type="button" className="btn-texto" disabled={exportar.enviando} onClick={() => void exportar.ejecutar()}>Descargar Excel</button>
+              <BotonIcono icono="descargar" texto="Descargar Excel" disabled={exportar.enviando} onClick={() => void exportar.ejecutar()} />
             </div>
             <Aviso>{exportar.error ?? anular.error}</Aviso>
             {d.movimientos.length ? (
-              <ul className="lista-pagos">
-                {d.movimientos.map((m) => (
-                  <li key={m.id} className={m.anulado ? 'apagado' : ''}>
-                    {diaLegible(m.dia)} · <strong className={m.tipo === 'egreso' ? 'diferencia-negativa' : 'diferencia-positiva'}>{m.tipo === 'ingreso' ? '+' : '−'}{miles(m.importe)}</strong> · {m.concepto}
-                    <span className="suave chico"> · {m.categoria}{m.medio && ` · ${NOMBRE_MEDIO_PAGO[m.medio]}`}{m.desdeCaja && ' · de la caja'}{m.origen === 'venta' || m.origen === 'proveedor' ? ' · automático' : ''}{m.anulado && ' · anulado'}</span>
-                    {completo && !m.anulado && (m.origen === 'manual' || m.origen === 'gasto_fijo') && anulando !== m.id && (
-                      <button type="button" className="btn-texto" onClick={() => { setAnulando(m.id); setMotivo('') }}>Anular</button>
-                    )}
-                    {anulando === m.id && (
-                      <div className="filtros anular">
-                        <label className="campo"><span>Motivo</span><input value={motivo} maxLength={300} autoFocus onChange={(e) => setMotivo(e.target.value)} /></label>
-                        <button type="button" className="btn-primario" disabled={!motivo.trim() || anular.enviando} onClick={() => void anular.ejecutar(m.id).then((x) => x && setAnulando(null))}>Anular</button>
-                        <button type="button" className="btn-texto" onClick={() => setAnulando(null)}>Cancelar</button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <table className="tabla tabla-tarjetas">
+                <thead>
+                  <tr>
+                    <th>Concepto</th><th>Fecha</th><th>Categoría</th><th>Medio</th><th className="num">Importe</th>
+                    {completo && <th className="acciones"><span className="solo-lector">Acciones</span></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.movimientos.map((m) => {
+                    const anulable = completo && !m.anulado && (m.origen === 'manual' || m.origen === 'gasto_fijo')
+                    const notas = [m.desdeCaja && 'de la caja', (m.origen === 'venta' || m.origen === 'proveedor') && 'automático', m.anulado && 'anulado'].filter(Boolean).join(' · ')
+                    return (
+                      <Fragment key={m.id}>
+                        <tr className={`${m.anulado ? 'apagado' : ''}${anulando === m.id ? ' con-detalle' : ''}`}>
+                          <td data-etiqueta="Concepto">{m.concepto}{notas && <span className="suave chico"> · {notas}</span>}</td>
+                          <td data-etiqueta="Fecha">{diaLegible(m.dia)}</td>
+                          <td data-etiqueta="Categoría">{m.categoria}</td>
+                          <td data-etiqueta="Medio" className={m.medio ? undefined : 'vacia'}>{m.medio ? NOMBRE_MEDIO_PAGO[m.medio] : <span className="suave">—</span>}</td>
+                          <td data-etiqueta="Importe" className={`num ${m.tipo === 'egreso' ? 'negativo' : 'positivo'}`}>
+                            <strong>{m.tipo === 'ingreso' ? '+' : '−'}{miles(m.importe)}</strong>
+                          </td>
+                          {completo && (
+                            <td className="acciones">
+                              {anulable && (
+                                <BotonIcono icono="anular" texto="Anular este movimiento" tono="peligro" presionado={anulando === m.id}
+                                  onClick={() => { setAnulando(anulando === m.id ? null : m.id); setMotivo('') }} />
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                        {anulando === m.id && (
+                          <tr className="fila-detalle">
+                            <td colSpan={completo ? 6 : 5}>
+                              <div className="filtros anular">
+                                <label className="campo"><span>Motivo</span><input value={motivo} maxLength={300} autoFocus onChange={(e) => setMotivo(e.target.value)} /></label>
+                                <button type="button" className="btn-primario" disabled={!motivo.trim() || anular.enviando} onClick={() => void anular.ejecutar(m.id).then((x) => x && setAnulando(null))}>Anular</button>
+                                <BotonIcono icono="cancelar" texto="Cancelar" onClick={() => setAnulando(null)} />
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
             ) : <p className="suave">No hay movimientos en ese período.</p>}
           </>
         )}
@@ -193,7 +222,7 @@ function GastosFijos() {
     <>
       <p className="suave">
         Los gastos que se repiten cada mes (alquiler, luz, internet) y los sueldos. Solo el administrador define y cambia
-        sus importes. Cada mes, al pagarlo, tocá «Marcar pagado»: queda como egreso en Ingresos y egresos.
+        sus importes. Cada mes, al pagarlo, tocá el botón de pagar (el billete): queda como egreso en Ingresos y egresos.
       </p>
       <label className="campo"><span>Mes</span><input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} /></label>
       <ConDatos consulta={c}>
@@ -203,7 +232,15 @@ function GastosFijos() {
               Sueldos: {gs(lista.filter((g) => g.esSueldo && g.activo).reduce((s, g) => s + g.importe, 0))} · Otros gastos fijos: {gs(lista.filter((g) => !g.esSueldo && g.activo).reduce((s, g) => s + g.importe, 0))}
               {' · '}Falta pagar: {gs(lista.filter((g) => !g.pagado && g.activo).reduce((s, g) => s + g.importe, 0))}
             </p>
-            <div className="lista">{lista.map((g) => <FilaGasto key={g.id} g={g} />)}</div>
+            <table className="tabla tabla-tarjetas">
+              <thead>
+                <tr>
+                  <th>Gasto</th><th>Categoría</th><th>Vence</th><th className="num">Importe</th><th>Estado</th>
+                  <th className="acciones"><span className="solo-lector">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody>{lista.map((g) => <FilaGasto key={g.id} g={g} />)}</tbody>
+            </table>
           </>
         ) : <p className="suave">Todavía no hay gastos fijos.</p>}
       </ConDatos>
@@ -229,43 +266,60 @@ function FilaGasto({ g }: { g: GastoFijoMes }) {
   const [pagando, setPagando] = useState(false)
   const guardar = useAccion((cambios: Partial<GastoFijo>) => patch<GastoFijo>(`/gastos-fijos/${g.id}`, cambios))
   const pagar = useAccion(() => post(`/gastos-fijos/${g.id}/pagar`, { periodo: g.periodo, medio, desdeCaja }))
+  const estado = g.pagado ? 'pagada' : g.vence < diaPY() ? 'vencida' : 'pendiente'
+  const abierto = editando || pagando
   return (
-    <div className={`item${g.activo ? '' : ' apagado'}`}>
-      <div className="compra-cabeza">
-        <span><strong>{g.nombre}</strong> <span className="suave chico">· {g.esSueldo ? 'Sueldo' : g.categoria}</span></span>
-        <span className="compra-cifras">
+    <>
+      <tr className={`${g.activo ? '' : 'apagado'}${abierto ? ' con-detalle' : ''}`}>
+        <td data-etiqueta="Gasto"><strong>{g.nombre}</strong>{!g.activo && <span className="etiqueta apagada">Desactivado</span>}</td>
+        <td data-etiqueta="Categoría">{g.esSueldo ? 'Sueldo' : g.categoria}</td>
+        <td data-etiqueta="Vence">{diaLegible(g.vence)}</td>
+        <td data-etiqueta="Importe" className="num">
           <strong>{gs(g.importe)}</strong>
-          <span className={`etq-compra ${g.pagado ? 'pagada' : g.vence < diaPY() ? 'vencida' : 'pendiente'}`}>{g.pagado ? 'Pagado' : g.vence < diaPY() ? 'Vencido' : 'Pendiente'}</span>
-        </span>
-        <span className="suave chico">Vence el {diaLegible(g.vence)}{g.pagado && g.importePagado !== g.importe ? ` · se pagó ${gs(g.importePagado ?? 0)}` : ''}{!g.activo && ' · desactivado'}</span>
-      </div>
-      {editando ? (
-        <div className="filtros">
-          <CampoImporte etiqueta="Importe mensual (Gs.)" valor={importe} onChange={setImporte} />
-          <button type="button" className="btn-primario" disabled={guardar.enviando} onClick={() => void guardar.ejecutar({ importe }).then((r) => r && setEditando(false))}>Guardar</button>
-          <button type="button" className="btn-texto" onClick={() => setEditando(false)}>Cancelar</button>
-        </div>
-      ) : pagando ? (
-        <div className="filtros">
-          <label className="campo">
-            <span>Medio</span>
-            <select value={medio} onChange={(e) => setMedio(e.target.value as MedioPago)}>
-              {MEDIOS_PAGO.map((m) => <option key={m} value={m}>{NOMBRE_MEDIO_PAGO[m]}</option>)}
-            </select>
-          </label>
-          <label className="check"><input type="checkbox" checked={desdeCaja} onChange={(e) => setDesdeCaja(e.target.checked)} /><span>Sale de la caja abierta</span></label>
-          <button type="button" className="btn-primario" disabled={pagar.enviando} onClick={() => void pagar.ejecutar().then((r) => r && setPagando(false))}>Marcar pagado {gs(g.importe)}</button>
-          <button type="button" className="btn-texto" onClick={() => setPagando(false)}>Cancelar</button>
-        </div>
-      ) : (
-        <div className="fila-acciones">
-          {!g.pagado && g.activo && <button type="button" className="btn-texto" onClick={() => setPagando(true)}>Marcar pagado</button>}
-          <button type="button" className="btn-texto" onClick={() => { setImporte(g.importe); setEditando(true) }}>Cambiar importe</button>
-          <button type="button" className="btn-texto" disabled={guardar.enviando} onClick={() => void guardar.ejecutar({ activo: !g.activo })}>{g.activo ? 'Desactivar' : 'Activar'}</button>
-        </div>
+          {g.pagado && g.importePagado !== g.importe && <div className="suave chico">se pagó {gs(g.importePagado ?? 0)}</div>}
+        </td>
+        <td data-etiqueta="Estado"><span className={`etq-compra ${estado}`}>{g.pagado ? 'Pagado' : estado === 'vencida' ? 'Vencido' : 'Pendiente'}</span></td>
+        <td className="acciones">
+          <Acciones>
+            {!g.pagado && g.activo && (
+              <BotonIcono icono="dinero" texto={`Marcar pagado ${g.nombre}`} tono="positivo" presionado={pagando} onClick={() => { setEditando(false); setPagando(!pagando) }} />
+            )}
+            <BotonIcono icono="editar" texto={`Cambiar el importe de ${g.nombre}`} presionado={editando} onClick={() => { setPagando(false); setImporte(g.importe); setEditando(!editando) }} />
+            <BotonIcono
+              icono={g.activo ? 'desactivar' : 'activar'} texto={`${g.activo ? 'Desactivar' : 'Activar'} ${g.nombre}`} tono={g.activo ? 'peligro' : 'positivo'}
+              disabled={guardar.enviando} onClick={() => void guardar.ejecutar({ activo: !g.activo })}
+            />
+          </Acciones>
+        </td>
+      </tr>
+      {(abierto || guardar.error || pagar.error) && (
+        <tr className="fila-detalle">
+          <td colSpan={6}>
+            {editando && (
+              <div className="filtros">
+                <CampoImporte etiqueta="Importe mensual (Gs.)" valor={importe} onChange={setImporte} />
+                <button type="button" className="btn-primario" disabled={guardar.enviando} onClick={() => void guardar.ejecutar({ importe }).then((r) => r && setEditando(false))}>Guardar</button>
+                <BotonIcono icono="cancelar" texto="Cancelar" onClick={() => setEditando(false)} />
+              </div>
+            )}
+            {pagando && (
+              <div className="filtros">
+                <label className="campo">
+                  <span>Medio</span>
+                  <select value={medio} onChange={(e) => setMedio(e.target.value as MedioPago)}>
+                    {MEDIOS_PAGO.map((m) => <option key={m} value={m}>{NOMBRE_MEDIO_PAGO[m]}</option>)}
+                  </select>
+                </label>
+                <label className="check"><input type="checkbox" checked={desdeCaja} onChange={(e) => setDesdeCaja(e.target.checked)} /><span>Sale de la caja abierta</span></label>
+                <button type="button" className="btn-primario" disabled={pagar.enviando} onClick={() => void pagar.ejecutar().then((r) => r && setPagando(false))}>Marcar pagado {gs(g.importe)}</button>
+                <BotonIcono icono="cancelar" texto="Cancelar" onClick={() => setPagando(false)} />
+              </div>
+            )}
+            <Aviso>{guardar.error ?? pagar.error}</Aviso>
+          </td>
+        </tr>
       )}
-      <Aviso>{guardar.error ?? pagar.error}</Aviso>
-    </div>
+    </>
   )
 }
 

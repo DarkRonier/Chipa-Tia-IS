@@ -9,6 +9,7 @@ import { useSectorActivo } from '../../components/Layout'
 import { diaPY, fechaHoraPY, inicioDeMes, sumarDias } from '../../shared/hora'
 import { textoUsoMP, type Produccion, type Producto, type Turno } from '../../shared/tipos'
 import '../../styles/produccion.css'
+import BotonIcono from '../../components/BotonIcono'
 
 const NOMBRE_TURNO: Record<Turno, string> = { dia: 'turno día', noche: 'turno noche' }
 
@@ -160,7 +161,7 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
         <strong>{fechaHoraPY(p.fecha)} · {NOMBRE_TURNO[p.turno]}</strong>
         <span className="suave chico">{p.usuarioNombre}</span>
         {p.lote && <span className="chip">{p.lote.codigo}</span>}
-        {!editando && puedeCorregir && <button className="btn-texto" onClick={empezar}>Corregir</button>}
+        {!editando && puedeCorregir && <BotonIcono icono="editar" texto="Corregir esta carga" onClick={empezar} />}
       </div>
       {p.lote && p.lote.lotesMP.length > 0 && (
         <span className="suave chico">Materia prima: {p.lote.lotesMP.map(textoUsoMP).join(' · ')}</span>
@@ -232,7 +233,7 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
             <button className="btn-primario" onClick={() => void guardar()} disabled={corregir.enviando || (!cambios.length && !invalidas.length)}>
               {corregir.enviando ? 'Guardando…' : 'Guardar corrección'}
             </button>
-            <button className="btn-texto" onClick={() => setFilas(null)} disabled={corregir.enviando}>Cancelar</button>
+            <BotonIcono icono="cancelar" texto="Cancelar" onClick={() => setFilas(null)} disabled={corregir.enviando} />
           </div>
         </>
       )}
