@@ -1,4 +1,5 @@
-// Crea los cuatro encargados de sector (uno por rol) en la base de Cloudflare D1, todos con la misma contraseña.
+// Crea los usuarios de cada rol (cuatro encargados de sector, supervisor y cajero) en la base de Cloudflare D1, todos
+// con la misma contraseña. Después el administrador le pone a cada uno la suya desde Usuarios.
 // Uso: npm run crear-encargados -- <contraseña> [--remoto]
 // Si un usuario ya existe (por id o por nombre de usuario) no se toca. Las contraseñas se cambian desde Usuarios.
 import { execFileSync } from 'node:child_process'
@@ -12,6 +13,8 @@ const ENCARGADOS = [
   ['usr-chipitas', 'Encargado Chipitas', 'chipitas'],
   ['usr-panaderia', 'Encargado Panadería', 'panaderia'],
   ['usr-cocina', 'Encargado Cocina', 'cocina'],
+  ['usr-supervisor', 'Supervisión', 'supervisor'],
+  ['usr-cajero', 'Caja', 'cajero'],
 ] as const
 
 const [clave, ...resto] = process.argv.slice(2)
@@ -29,4 +32,4 @@ writeFileSync(archivo, sql + '\n')
 execFileSync('npx', ['wrangler', 'd1', 'execute', 'chipa-tia', resto.includes('--remoto') ? '--remote' : '--local', `--file=${archivo}`], {
   stdio: 'inherit',
 })
-console.log('Listo: encargados de Chipería, Chipitas, Panadería y Cocina (los que ya existían quedaron igual).')
+console.log('Listo: encargados de Chipería, Chipitas, Panadería y Cocina, supervisor y cajero (los que ya existían quedaron igual).')
