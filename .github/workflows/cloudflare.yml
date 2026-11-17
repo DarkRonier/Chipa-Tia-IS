@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       clave_encargados:
-        description: 'Crear los cuatro encargados de sector con esta contraseña (vacío = no crear)'
+        description: 'Crear encargados de sector, supervisor y cajero con esta contraseña temporal (vacío = no crear)'
         type: string
         default: ''
 
@@ -65,7 +65,7 @@ jobs:
         env:
           ADMIN_CLAVE_INICIAL: ${{ secrets.ADMIN_CLAVE_INICIAL }}
         run: npm run crear-admin -- "$ADMIN_CLAVE_INICIAL" --remoto
-      - name: Encargados de sector
+      - name: Encargados de sector, supervisor y cajero
         if: github.event_name == 'workflow_dispatch' && inputs.clave_encargados != ''
         env:
           CLAVE_ENCARGADOS: ${{ inputs.clave_encargados }}
