@@ -1,10 +1,12 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { menuDe } from '../cliente/menu'
 import { useSectores } from '../cliente/catalogo'
-import { usePuede, useSesion, useUsuario } from '../cliente/sesion'
+import { useSesion, useUsuario } from '../cliente/sesion'
 import { Icono } from './Iconos'
 import { NOMBRE_ROL_GENERAL, sectorDeRol, veTodosLosSectores } from '../shared/permisos'
 import { SECTOR_IDS, type Sector, type SectorId } from '../shared/tipos'
+import '../styles/lateral.css'
 
 const SectorActivo = createContext<Sector>({ id: 'chiperia', nombre: 'Chipería', conLotes: true })
 const ElegirSector = createContext<(s: SectorId) => void>(() => undefined)
@@ -16,6 +18,7 @@ export const useSectorActivo = () => useContext(SectorActivo)
 export const useElegirSector = () => useContext(ElegirSector)
 
 const CLAVE_ELEGIDO = 'chipa-tia-sector'
+const CLAVE_PLEGADO = 'chipa-tia-menu-plegado'
 
 function leerElegido(): SectorId {
   try {
@@ -26,20 +29,76 @@ function leerElegido(): SectorId {
   }
 }
 
+function leerPlegado(): boolean {
+  try {
+    return localStorage.getItem(CLAVE_PLEGADO) === '1'
+  } catch {
+    return false
+  }
+}
+
+const NOMBRE_ROL: Record<string, string> = { ...NOMBRE_ROL_GENERAL }
+/** Sigla del sector en la barra plegada: Chipería y Chipitas empiezan igual, así que cada uno tiene la suya. */
+const SIGLA_SECTOR: Record<string, string> = { chiperia: 'CP', chipitas: 'CT', panaderia: 'PA', cocina: 'CO' }
+
 export default function Layout() {
   const usuario = useUsuario()
   const { salir } = useSesion()
   const sectores = useSectores()
-  const puede = usePuede()
-  // Administrador y supervisor miran todos los sectores y eligen cuál arriba; el cajero no tiene sector.
+  // Administrador y supervisor miran todos los sectores y eligen cuál en el menú; el cajero no tiene sector.
   const general = veTodosLosSectores(usuario.rol)
   const propio = sectorDeRol(usuario.rol)
-  // «Lotes» y «Máquinas» viven bajo /sector pero tienen su propia pestaña: «Vista del sector» no se marca ahí.
-  const ruta = useLocation().pathname
-  const conPestanaPropia = ruta.startsWith('/sector/lotes') || ruta.startsWith('/sector/maquinas')
+  const { pathname, search } = useLocation()
   const [elegido, setElegido] = useState<SectorId>(leerElegido)
   const id: SectorId = propio ?? elegido
   const sector: Sector = sectores.lista.find((s) => s.id === id) ?? { id, nombre: '', conLotes: id === 'chiperia' }
+  const grupos = menuDe(usuario.rol, sector.conLotes)
+
+  // Escritorio: la barra se pliega a solo íconos y lo recuerda. Celular: el menú se abre como una página entera.
+  const [plegado, setPlegado] = useState(leerPlegado)
+  const [abierto, setAbierto] = useState(false)
+  const botonAbrir = useRef<HTMLButtonElement>(null)
+  const botonCerrar = useRef<HTMLButtonElement>(null)
+
+  const plegar = () => {
+    setPlegado((v) => {
+      try {
+        localStorage.setItem(CLAVE_PLEGADO, v ? '0' : '1')
+      } catch {
+        // sin almacenamiento
+      }
+      return !v
+    })
+  }
+
+  // Al navegar, el menú del celular se cierra solo.
+  useEffect(() => setAbierto(false), [pathname, search])
+
+  // Menú abierto en el celular: la página de abajo no se desplaza, Escape lo cierra y el foco va al botón de cerrar.
+  useEffect(() => {
+    if (!abierto) return
+    const anterior = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    botonCerrar.current?.focus()
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cerrar()
+    }
+    document.addEventListener('keydown', tecla)
+    // Si la pantalla se agranda a escritorio con el menú abierto, se cierra.
+    const ancho = matchMedia('(min-width: 900px)')
+    const alCambiar = () => ancho.matches && setAbierto(false)
+    ancho.addEventListener('change', alCambiar)
+    return () => {
+      document.body.style.overflow = anterior
+      // El foco quedó en el menú que se ocultó: vuelve al botón ☰ (después de quitar el inert).
+      const foco = document.activeElement
+      if (!foco || foco === document.body || foco.closest('.lateral')) requestAnimationFrame(() => botonAbrir.current?.focus())
+      document.removeEventListener('keydown', tecla)
+      ancho.removeEventListener('change', alCambiar)
+    }
+  }, [abierto])
+
+  const cerrar = () => setAbierto(false)
 
   const elegir = (s: SectorId) => {
     if (!general || s === elegido) return
@@ -51,59 +110,118 @@ export default function Layout() {
     }
   }
 
+  const nombreRol = propio ? sector.nombre : NOMBRE_ROL[usuario.rol] ?? ''
+  const iniciales = (texto: string) => texto.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase()
+  const logo = <img className="logo" src="./logo.png" alt="Chipa Tía, ir al inicio" width="50" height="40" />
+
   return (
     <SectorActivo.Provider value={sector}>
     <ElegirSector.Provider value={elegir}>
-      <header className="barra">
-        <Link to="/" className="marca"><img className="logo" src="./logo.png" alt="Chipa Tía" width="50" height="40" /></Link>
-        <div className="barra-der">
-          {general ? (
-            <select aria-label="Sector a ver" title={sector.nombre} value={elegido} onChange={(e) => elegir(e.target.value as SectorId)}>
-              {sectores.lista.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-            </select>
-          ) : propio ? (
-            <span className="chip" title={sector.nombre}>{sector.nombre}</span>
-          ) : (
-            <span className="chip">{NOMBRE_ROL_GENERAL[usuario.rol as keyof typeof NOMBRE_ROL_GENERAL]}</span>
-          )}
-          <NavLink className="btn-texto btn-icono" to="/configuracion" aria-label="Configuración" title="Configuración">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          </NavLink>
-          <button type="button" className="btn-texto btn-icono" onClick={() => void salir()} aria-label="Salir" title="Salir"><Icono nombre="salir" /></button>
-        </div>
-      </header>
-      {general && (
-        <nav className="pestanas">
-          {puede('reportes.ver') && <NavLink to="/admin" end>Resumen</NavLink>}
-          {puede('produccion.ver') && <NavLink to="/admin/registros">Producción</NavLink>}
-          {puede('stock.ver') && <NavLink to="/admin/stock">Stock</NavLink>}
-          {puede('stock.ver') && <NavLink to="/admin/historial">Salidas</NavLink>}
-          {puede('maquinas.ver') && <NavLink to="/sector/maquinas">Máquinas</NavLink>}
-          {puede('limpieza.ver') && <NavLink to="/admin/controles">Limpieza y temp.</NavLink>}
-          {puede('lotes.ver') && <NavLink to="/sector/lotes">Lotes</NavLink>}
-          {puede('trazabilidad.ver') && <NavLink to="/trazabilidad">Trazabilidad</NavLink>}
-          {puede('compras.pagar') && <NavLink to="/compras">Compras</NavLink>}
-          {puede('proveedores.gestionar') && <NavLink to="/proveedores">Proveedores</NavLink>}
-          {puede('caja.operar') && <NavLink to="/caja">Caja</NavLink>}
-          {(puede('ie.completo') || puede('ie.egresos_proveedores')) && <NavLink to="/finanzas">{puede('ie.completo') ? 'Finanzas' : 'Egresos'}</NavLink>}
-          {puede('reportes.ver') && <NavLink to="/admin/reportes">Reportes</NavLink>}
-          {puede('catalogos.editar') && <NavLink to="/admin/catalogos">Catálogos</NavLink>}
-          {puede('usuarios.gestionar') && <NavLink to="/admin/usuarios">Usuarios</NavLink>}
-          {puede('datos.gestionar') && <NavLink to="/admin/datos">Datos</NavLink>}
-          {puede('produccion.cargar') && (
-            <NavLink to="/sector" className={({ isActive }) => (isActive && !conPestanaPropia ? 'active' : '')}>Vista del sector</NavLink>
-          )}
-        </nav>
-      )}
-      <main className="contenido">
-        <Outlet />
-      </main>
-      <footer className="pie">
-        {usuario.nombre}
-      </footer>
+      <div className={`app${plegado ? ' plegado' : ''}${abierto ? ' menu-abierto' : ''}`}>
+        {/* Celular: barra de arriba con el botón del menú. */}
+        <header className="barra-movil" inert={abierto}>
+          <button
+            ref={botonAbrir}
+            type="button"
+            className="btn-lateral"
+            onClick={() => setAbierto(true)}
+            aria-label="Abrir menú"
+            aria-expanded={abierto}
+            aria-controls="menu-principal"
+          >
+            <Icono nombre="menu" />
+          </button>
+          <Link to="/" className="marca">{logo}</Link>
+          <button type="button" className="sector-movil" onClick={() => setAbierto(true)} title={general ? 'Cambiar de sector' : undefined}>
+            {general ? sector.nombre : nombreRol}
+          </button>
+        </header>
+
+        <aside id="menu-principal" className="lateral" aria-label="Menú principal">
+          <div className="lateral-cabeza">
+            <Link to="/" className="marca" title="Inicio">{logo}</Link>
+            <button
+              type="button"
+              className="btn-lateral solo-escritorio"
+              onClick={plegar}
+              aria-label={plegado ? 'Desplegar menú' : 'Plegar menú'}
+              aria-expanded={!plegado}
+              title={plegado ? 'Desplegar menú' : 'Plegar menú'}
+            >
+              <Icono nombre={plegado ? 'desplegar' : 'plegar'} />
+            </button>
+            <button ref={botonCerrar} type="button" className="btn-lateral solo-movil" onClick={cerrar} aria-label="Cerrar menú">
+              <Icono nombre="cancelar" />
+            </button>
+          </div>
+
+          <div className="lateral-sector">
+            {general ? (
+              <>
+                <label className="lateral-etiqueta" htmlFor="sector-a-ver">Sector</label>
+                <select id="sector-a-ver" value={elegido} onChange={(e) => elegir(e.target.value as SectorId)}>
+                  {sectores.lista.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                </select>
+                <button type="button" className="sector-plegado" onClick={plegar} title={`Sector: ${sector.nombre}. Desplegar para cambiarlo`} aria-label={`Sector: ${sector.nombre}. Desplegar menú para cambiarlo`}>
+                  {SIGLA_SECTOR[sector.id] ?? iniciales(sector.nombre)}
+                </button>
+              </>
+            ) : (
+              <>
+              <span className="lateral-etiqueta" aria-hidden="true">{propio ? 'Sector' : 'Rol'}</span>
+              <span className="sector-fijo" title={nombreRol}>
+                <span className="sector-plegado" aria-hidden="true">{(propio && SIGLA_SECTOR[propio]) || iniciales(nombreRol)}</span>
+                <span className="lateral-texto">{nombreRol}</span>
+              </span>
+              </>
+            )}
+          </div>
+
+          <nav className="lateral-nav" aria-label="Secciones">
+            {grupos.map((g) => (
+              <div key={g.titulo} className="lateral-grupo">
+                <p className="lateral-titulo" id={`grupo-${g.titulo}`}>{g.titulo}</p>
+                <ul aria-labelledby={`grupo-${g.titulo}`}>
+                  {g.opciones.map((o) => (
+                    <li key={o.a + o.texto}>
+                      <NavLink
+                        to={o.a}
+                        end={o.exacta}
+                        title={plegado ? o.texto : undefined}
+                        className={({ isActive }) => (isActive && !o.noEn?.some((r) => pathname.startsWith(r)) ? 'active' : '')}
+                      >
+                        <Icono nombre={o.icono} />
+                        <span className="lateral-texto">{o.texto}</span>
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </nav>
+
+          <div className="lateral-pie">
+            <NavLink to="/configuracion" title={plegado ? 'Configuración' : undefined}>
+              <Icono nombre="configuracion" />
+              <span className="lateral-texto">Configuración</span>
+            </NavLink>
+            <div className="lateral-usuario">
+              <span className="avatar" aria-hidden="true">{iniciales(usuario.nombre)}</span>
+              <span className="lateral-texto">
+                <strong title={usuario.nombre}>{usuario.nombre}</strong>
+                <small>{nombreRol}</small>
+              </span>
+              <button type="button" className="btn-lateral" onClick={() => void salir()} aria-label="Salir" title="Salir">
+                <Icono nombre="salir" />
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <main className="contenido" inert={abierto}>
+          <Outlet />
+        </main>
+      </div>
     </ElegirSector.Provider>
     </SectorActivo.Provider>
   )

@@ -27,6 +27,8 @@
   .boton-grande.con-icono { grid-template-columns: minmax(0, 1fr); row-gap: 0.3rem; align-items: start; align-content: start; padding: 1.1rem 1rem; min-height: 150px; }
   .boton-grande.con-icono .icono-caja { grid-row: auto; width: 3.4rem; height: 3.4rem; margin-bottom: 0.4rem; font-size: 1.9rem; }
   .boton-grande.con-icono strong, .boton-grande.con-icono span { align-self: auto; }
+  /* Sin línea de detalle el título va igual debajo del ícono (antes quedaba arriba). */
+  .boton-grande.con-icono strong:last-child { grid-row: auto; align-self: auto; }
 }
 
 /* Ícono chico al lado del título de la pantalla. */

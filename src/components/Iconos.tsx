@@ -311,6 +311,39 @@ const DIBUJOS = {
     </>
   ),
   mas: <path d="M12 5v14M5 12h14" />,
+  // ——— Menú lateral ———
+  // Tres rayas: abre el menú en el celular.
+  menu: <path d="M4 6.5h16M4 12h16M4 17.5h16" />,
+  // Panel con la columna izquierda: plegar o desplegar la barra lateral.
+  plegar: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+      <path d="M15.5 9.5L13 12l2.5 2.5" />
+    </>
+  ),
+  desplegar: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+      <path d="M13 9.5l2.5 2.5-2.5 2.5" />
+    </>
+  ),
+  // Casita: inicio del sector.
+  inicio: (
+    <>
+      <path d="M3.5 11L12 3.5l8.5 7.5" />
+      <path d="M5.5 9.5V20a1 1 0 0 0 1 1h4v-6h3v6h4a1 1 0 0 0 1-1V9.5" />
+    </>
+  ),
+  // Local con toldo: proveedores.
+  proveedores: (
+    <>
+      <path d="M3.5 9.5L5 4h14l1.5 5.5" />
+      <path d="M3.5 9.5a2.8 2.8 0 0 0 5.67 0 2.8 2.8 0 0 0 5.66 0 2.8 2.8 0 0 0 5.67 0z" />
+      <path d="M5 12.3V20h14v-7.7M10 20v-4.5h4V20" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>
 
 export type NombreIcono = keyof typeof DIBUJOS

@@ -28,12 +28,13 @@
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-shadow: none !important; }
 
   /* Lo que no sirve en papel: barras, pestañas, botones, filtros y todo lo interactivo. */
-  .barra, .pestanas, .pie, .volver, .titulo, .accion-fija, .aviso, .no-imprimir,
+  .lateral, .barra-movil, .volver, .titulo, .accion-fija, .aviso, .no-imprimir,
   .contenido button, .contenido select, .contenido input, .contenido textarea, .contenido iframe,
   .contenido .campo, .contenido .segmentado, .contenido .chips,
   .rep-pagina > h1, .rep-rango, .rep-acciones, .lot-pdf, .lot-buscar, .lot-fechas { display: none !important; }
   .solo-impresion { display: block; }
 
+  .app { display: block !important; }
   .contenido { max-width: none; margin: 0; padding: 0; }
   a { color: inherit; text-decoration: none; }
   h1, h2, h3 { break-after: avoid; }
