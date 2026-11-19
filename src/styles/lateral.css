@@ -1,0 +1,149 @@
+/* Barra lateral (Layout.tsx). Escritorio (≥ 900 px): columna fija a la izquierda que se pliega a solo íconos.
+   Celular: barra roja arriba con el botón ☰; el menú se abre como una página entera encima de todo. */
+
+.app { --ancho-lateral: 0px; min-height: 100vh; }
+
+/* ——— Barra de arriba del celular ——— */
+.barra-movil {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.75rem; padding-top: calc(0.4rem + env(safe-area-inset-top, 0px));
+  background: var(--marca); color: var(--sobre-marca);
+  border-bottom: 3px solid var(--acento); box-shadow: var(--sombra);
+  position: sticky; top: 0; z-index: 15;
+}
+.barra-movil :focus-visible { outline-color: var(--sobre-marca); }
+.barra-movil .btn-lateral { color: var(--sobre-marca); }
+.barra-movil .btn-lateral:hover { background: color-mix(in srgb, var(--sobre-marca) 20%, transparent); }
+.sector-movil {
+  margin-left: auto; min-width: 0; max-width: 45vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border: none; border-radius: 999px; padding: 0.35rem 0.8rem; cursor: pointer; font-weight: 600; font-size: 0.9rem;
+  background: color-mix(in srgb, var(--sobre-marca) 20%, transparent); color: var(--sobre-marca);
+}
+.sector-movil:empty { display: none; }
+
+/* El logo tiene trazo rojo: va siempre sobre una placa blanca, como en la web de la empresa. */
+.app .marca { display: flex; align-items: center; flex-shrink: 0; text-decoration: none; border-radius: 10px; }
+.app .logo { height: 40px; width: auto; display: block; background: #fff; border-radius: 10px; padding: 2px 6px; }
+
+/* Botón cuadrado de la barra (☰, plegar, cerrar, salir). */
+.btn-lateral {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 44px; height: 44px; padding: 0; border: none; border-radius: 10px; cursor: pointer;
+  background: transparent; color: var(--suave); font-size: 24px;
+}
+.btn-lateral:hover { background: var(--neutro); color: var(--texto); }
+
+/* ——— El menú ——— */
+.lateral { display: flex; flex-direction: column; background: var(--superficie); color: var(--texto); }
+.lateral-cabeza { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem; }
+
+.lateral-sector { padding: 0 0.75rem 0.5rem; }
+.lateral-etiqueta { display: block; font-size: 0.75rem; font-weight: 700; color: var(--suave); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.3rem 0.2rem; }
+.lateral-sector select { min-height: 44px; padding: 0.5rem 0.6rem; font-weight: 600; background: var(--fondo); }
+.sector-fijo {
+  display: flex; align-items: center; gap: 0.6rem; min-height: 44px; padding: 0.5rem 0.7rem; border-radius: 8px;
+  background: var(--fondo); border: 1px solid var(--borde); font-weight: 600; min-width: 0;
+}
+.sector-fijo .sector-plegado { background: var(--marca); color: var(--sobre-marca); }
+.sector-plegado {
+  display: none; place-items: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
+  border: none; cursor: pointer; font-weight: 800; font-size: 0.8rem; letter-spacing: 0.02em;
+  background: var(--marca-claro); color: var(--marca-texto);
+}
+
+.lateral-nav { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0.25rem 0.75rem 0.75rem; }
+.lateral-grupo + .lateral-grupo { margin-top: 0.6rem; }
+.lateral-titulo { margin: 0.5rem 0 0.25rem 0.7rem; font-size: 0.72rem; font-weight: 800; color: var(--suave); text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; }
+.lateral ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+
+.lateral-nav a, .lateral-pie > a {
+  position: relative; display: flex; align-items: center; gap: 0.75rem; min-height: 44px; padding: 0.5rem 0.7rem;
+  border-radius: 10px; text-decoration: none; color: var(--texto); font-weight: 600; font-size: 0.95rem;
+  transition: background 0.12s, color 0.12s;
+}
+.lateral-nav a svg, .lateral-pie > a svg { width: 22px; height: 22px; flex-shrink: 0; color: var(--suave); transition: color 0.12s; }
+.lateral-nav a:hover, .lateral-pie > a:hover { background: var(--neutro); }
+.lateral-nav a:hover svg, .lateral-pie > a:hover svg { color: var(--texto); }
+/* Opción activa: fondo de marca suave, texto de marca y una raya amarilla a la izquierda. */
+.lateral-nav a.active, .lateral-pie > a.active { background: var(--marca-claro); color: var(--marca-texto); font-weight: 800; }
+.lateral-nav a.active svg, .lateral-pie > a.active svg { color: var(--marca-texto); }
+.lateral-nav a.active::before, .lateral-pie > a.active::before {
+  content: ''; position: absolute; left: -0.75rem; top: 8px; bottom: 8px; width: 4px; border-radius: 0 4px 4px 0; background: var(--acento);
+}
+.lateral-texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lateral-pie { border-top: 1px solid var(--borde); padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); display: grid; gap: 0.25rem; }
+.lateral-usuario { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0 0 0.35rem; min-width: 0; }
+.lateral-usuario .lateral-texto { flex: 1; display: grid; }
+.lateral-usuario strong { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; }
+.lateral-usuario small { font-size: 0.78rem; color: var(--suave); overflow: hidden; text-overflow: ellipsis; }
+.lateral-usuario .btn-lateral:hover { color: var(--error); background: var(--error-fondo); }
+.avatar {
+  display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
+  background: var(--acento); color: #1c1a1a; font-weight: 800; font-size: 0.8rem;
+}
+
+.contenido { max-width: 960px; margin: 0 auto; padding: 1rem 1rem 6rem; }
+
+/* ——— Celular y tablet chica: el menú es una página entera ——— */
+@media (max-width: 899.98px) {
+  .solo-escritorio { display: none !important; }
+  .lateral {
+    position: fixed; inset: 0; z-index: 40; overflow: hidden;
+    visibility: hidden; opacity: 0; transform: translateX(-24px);
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0.18s;
+  }
+  .menu-abierto .lateral { visibility: visible; opacity: 1; transform: none; transition: opacity 0.18s ease, transform 0.18s ease; }
+  /* Cabeza del menú: la misma barra roja de arriba, con la ✕ en lugar del ☰. */
+  .lateral-cabeza {
+    flex-direction: row-reverse; justify-content: flex-end;
+    padding: 0.4rem 0.75rem; padding-top: calc(0.4rem + env(safe-area-inset-top, 0px));
+    background: var(--marca); border-bottom: 3px solid var(--acento);
+  }
+  .lateral-cabeza .btn-lateral { color: var(--sobre-marca); }
+  .lateral-cabeza .btn-lateral:hover { background: color-mix(in srgb, var(--sobre-marca) 20%, transparent); }
+  .lateral-cabeza :focus-visible { outline-color: var(--sobre-marca); }
+  .lateral-sector { padding: 1rem 1rem 0.25rem; }
+  .lateral-nav { padding: 0.25rem 1rem 1rem; }
+  .lateral-nav a, .lateral-pie > a { min-height: 52px; font-size: 1.02rem; }
+  .lateral-nav a.active::before, .lateral-pie > a.active::before { left: -1rem; }
+  .lateral-pie { padding-left: 1rem; padding-right: 1rem; }
+}
+@media (max-width: 899.98px) and (prefers-reduced-motion: reduce) {
+  .lateral, .menu-abierto .lateral { transition: none; transform: none; }
+}
+
+/* ——— Escritorio: columna a la izquierda, plegable ——— */
+@media (min-width: 900px) {
+  .app { --ancho-lateral: 256px; display: grid; grid-template-columns: var(--ancho-lateral) minmax(0, 1fr); align-items: start; }
+  .app.plegado { --ancho-lateral: 76px; }
+  .barra-movil, .solo-movil { display: none !important; }
+  .lateral {
+    position: sticky; top: 0; height: 100vh; z-index: 10;
+    border-right: 1px solid var(--borde); box-shadow: var(--sombra);
+    border-top: 4px solid var(--marca);
+  }
+  .contenido { padding-top: 1.5rem; width: 100%; }
+
+  /* Plegada: solo íconos; el nombre de cada opción aparece al pasar el mouse (title) y lo leen los lectores de pantalla. */
+  .plegado .lateral-cabeza { flex-direction: column; padding: 0.75rem 0.5rem; }
+  .plegado .logo { height: 32px; padding: 2px 4px; }
+  .plegado .lateral-sector { padding: 0 0.5rem 0.5rem; display: flex; justify-content: center; }
+  .plegado .lateral-sector select, .plegado .lateral-etiqueta { display: none; }
+  .plegado .sector-plegado { display: grid; }
+  .plegado .sector-fijo { padding: 0; min-height: 0; background: none; border: none; }
+  .plegado .lateral-nav { padding: 0.25rem 0.5rem 0.75rem; scrollbar-width: none; }
+  .plegado .lateral-titulo { font-size: 0; height: 1px; margin: 0.6rem 0.6rem; background: var(--borde); }
+  .plegado .lateral-grupo:first-child .lateral-titulo { display: none; }
+  .plegado .lateral-nav a, .plegado .lateral-pie > a { justify-content: center; padding: 0.5rem; }
+  .plegado .lateral-nav a.active::before, .plegado .lateral-pie > a.active::before { left: -0.5rem; }
+  .plegado .lateral-texto {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .plegado .lateral-pie { padding: 0.5rem; }
+  .plegado .lateral-usuario { flex-direction: column; padding: 0.4rem 0 0; }
+}
+@media (min-width: 900px) {
+  .lateral-nav a, .lateral-pie > a { min-height: 40px; padding-top: 0.4rem; padding-bottom: 0.4rem; }
+  .lateral-grupo + .lateral-grupo { margin-top: 0.4rem; }
+}
