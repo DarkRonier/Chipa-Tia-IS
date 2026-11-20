@@ -10,6 +10,8 @@ export type OpcionMenu = {
   icono: NombreIcono
   /** Solo se marca en la ruta exacta (no en las de abajo). */
   exacta?: boolean
+  /** Pestaña de la pantalla (?ver=…) con la que se marca; '' es la pestaña que se abre sin ?ver. */
+  ver?: string[]
   /** Entrada de un sector (administrador): al tocarla se elige ese sector y se abre su vista. */
   sector?: SectorId
 }
@@ -59,7 +61,11 @@ export function menuDe(rol: Rol, conLotes: boolean, sectores: { id: SectorId; no
     ])
     agregar('Administración', [
       p('reportes.ver') && { a: '/admin/reportes', texto: 'Reportes', icono: 'reportes' },
-      p('catalogos.editar') && { a: '/admin/catalogos', texto: 'Catálogos', icono: 'catalogos' },
+      // Productos tiene su propia entrada; «Catálogos» abre el resto (categorías, máquinas, limpieza, sucursales, sectores).
+      p('catalogos.editar') && { a: '/admin/catalogos?ver=productos', texto: 'Productos', icono: 'productos', ver: ['productos', ''] },
+      p('catalogos.editar') && {
+        a: '/admin/catalogos?ver=categorias', texto: 'Catálogos', icono: 'catalogos', ver: ['categorias', 'maquinas', 'limpieza', 'sucursales', 'sectores'],
+      },
       p('usuarios.gestionar') && { a: '/admin/usuarios', texto: 'Usuarios', icono: 'usuarios' },
       p('datos.gestionar') && { a: '/admin/datos', texto: 'Datos', icono: 'datos' },
     ])
