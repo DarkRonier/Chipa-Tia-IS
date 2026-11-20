@@ -329,6 +329,14 @@ const DIBUJOS = {
       <path d="M13 9.5l2.5 2.5-2.5 2.5" />
     </>
   ),
+  // Caja de cartón: productos.
+  productos: (
+    <>
+      <path d="M12 2.8l8.5 4.6v9.2L12 21.2l-8.5-4.6V7.4z" />
+      <path d="M3.5 7.4L12 12l8.5-4.6M12 12v9.2" />
+      <path d="M7.8 5.1l8.5 4.6" />
+    </>
+  ),
   // Casita: inicio del sector.
   inicio: (
     <>

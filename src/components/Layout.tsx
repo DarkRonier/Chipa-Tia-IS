@@ -52,6 +52,7 @@ export default function Layout() {
   const sector: Sector = sectores.lista.find((s) => s.id === id) ?? { id, nombre: '', conLotes: id === 'chiperia' }
   const grupos = menuDe(usuario.rol, sector.conLotes, sectores.lista)
   const enVistaDeSector = esVistaDeSector(pathname)
+  const verActual = new URLSearchParams(search).get('ver') ?? ''
 
   // Escritorio: la barra se pliega a solo íconos y lo recuerda. Celular: el menú se abre como una página entera.
   const [plegado, setPlegado] = useState(leerPlegado)
@@ -184,10 +185,23 @@ export default function Layout() {
                           <span className="lateral-texto">{o.texto}</span>
                         </Link>
                       ) : (
-                        <NavLink to={o.a} end={o.exacta} title={plegado ? o.texto : undefined}>
-                          <Icono nombre={o.icono} />
-                          <span className="lateral-texto">{o.texto}</span>
-                        </NavLink>
+                        o.ver ? (
+                          // Una pestaña de una pantalla (Productos y Catálogos): se marca según ?ver.
+                          <Link
+                            to={o.a}
+                            title={plegado ? o.texto : undefined}
+                            className={pathname === o.a.split('?')[0] && o.ver.includes(verActual) ? 'active' : ''}
+                            aria-current={pathname === o.a.split('?')[0] && o.ver.includes(verActual) ? 'page' : undefined}
+                          >
+                            <Icono nombre={o.icono} />
+                            <span className="lateral-texto">{o.texto}</span>
+                          </Link>
+                        ) : (
+                          <NavLink to={o.a} end={o.exacta} title={plegado ? o.texto : undefined}>
+                            <Icono nombre={o.icono} />
+                            <span className="lateral-texto">{o.texto}</span>
+                          </NavLink>
+                        )
                       )}
                     </li>
                   ))}

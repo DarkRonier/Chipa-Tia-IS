@@ -36,7 +36,8 @@ const SECTORES = [
   { id: 'chiperia', nombre: 'Chipería' }, { id: 'chipitas', nombre: 'Chipitas' },
   { id: 'panaderia', nombre: 'Panadería' }, { id: 'cocina', nombre: 'Cocina y buffet' },
 ] as const
-const rutas = (rol: Rol, conLotes = true) => [...new Set(menuDe(rol, conLotes, [...SECTORES]).flatMap((g) => g.opciones.map((o) => o.a)))]
+const sinQuery = (a: string) => a.split('?')[0]
+const rutas = (rol: Rol, conLotes = true) => [...new Set(menuDe(rol, conLotes, [...SECTORES]).flatMap((g) => g.opciones.map((o) => sinQuery(o.a))))]
 const textos = (rol: Rol, conLotes = true) => menuDe(rol, conLotes, [...SECTORES]).flatMap((g) => g.opciones.map((o) => o.texto))
 
 describe('menú lateral', () => {
@@ -58,7 +59,7 @@ describe('menú lateral', () => {
 
   it('el administrador ve todo: gestión, finanzas completas y la vista del sector', () => {
     const t = textos('admin')
-    for (const x of ['Resumen', 'Producción', 'Stock', 'Caja', 'Compras', 'Proveedores', 'Finanzas', 'Reportes', 'Catálogos', 'Usuarios', 'Datos']) {
+    for (const x of ['Resumen', 'Producción', 'Stock', 'Caja', 'Compras', 'Proveedores', 'Finanzas', 'Reportes', 'Productos', 'Catálogos', 'Usuarios', 'Datos']) {
       expect(t).toContain(x)
     }
   })
@@ -67,6 +68,15 @@ describe('menú lateral', () => {
     const grupo = menuDe('admin', true, [...SECTORES]).find((g) => g.titulo === 'Sectores')!
     expect(grupo.opciones.map((o) => [o.texto, o.a, o.sector])).toEqual(SECTORES.map((s) => [s.nombre, '/sector', s.id]))
     expect(textos('admin')).not.toContain('Vista del sector')
+  })
+
+  it('Productos y Catálogos abren la misma pantalla en pestañas distintas y no se marcan a la vez', () => {
+    const opciones = menuDe('admin', true, [...SECTORES]).flatMap((g) => g.opciones)
+    const productos = opciones.find((o) => o.texto === 'Productos')!
+    const catalogos = opciones.find((o) => o.texto === 'Catálogos')!
+    expect(productos.a).toBe('/admin/catalogos?ver=productos')
+    expect(productos.ver).toContain('')
+    expect(productos.ver!.filter((v) => catalogos.ver!.includes(v))).toEqual([])
   })
 
   it('el supervisor no ve gestión ni caja; de ingresos y egresos solo «Egresos»', () => {
