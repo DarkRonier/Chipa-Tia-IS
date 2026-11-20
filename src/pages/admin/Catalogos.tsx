@@ -8,12 +8,12 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector } from '../../components/Layout'
 import {
-  FRECUENCIAS_LIMPIEZA, IVAS, NOMBRE_IVA, NOMBRE_TIPO_MAQUINA, NOMBRE_TIPO_PRODUCTO, SECTOR_IDS, TIPOS_PRODUCTO, type Iva, type TipoProducto,
-  type AreaLimpieza, type Categoria, type Maquina, type Producto, type Sector, type SectorId, type Sucursal, type TareaLimpieza, type TipoMaquina,
+  FRECUENCIAS_LIMPIEZA, NOMBRE_TIPO_MAQUINA, SECTOR_IDS,
+  type AreaLimpieza, type Categoria, type Maquina, type Sector, type SectorId, type Sucursal, type TareaLimpieza, type TipoMaquina,
 } from '../../shared/tipos'
-import { gs, miles } from '../../shared/dinero'
 import '../../styles/catalogos.css'
 import BotonIcono from '../../components/BotonIcono'
+import Productos from './Productos'
 
 type Pestana = 'productos' | 'categorias' | 'maquinas' | 'limpieza' | 'sucursales' | 'sectores'
 const PESTANAS: [Pestana, string][] = [
@@ -32,12 +32,13 @@ export default function Catalogos() {
   const [sector, setSector] = useState<SectorId>(sectorArriba)
   useEffect(() => setSector(sectorArriba), [sectorArriba])
   const sectores = useSectores()
-  const porSector = pestana === 'productos' || pestana === 'maquinas' || pestana === 'limpieza'
+  // Productos muestra todos los sectores juntos en su tabla (el sector es una columna).
+  const porSector = pestana === 'maquinas' || pestana === 'limpieza'
 
   return (
     <>
-      <h1>Catálogos</h1>
-      <div className="segmentado pestanas-cat" role="tablist">
+      <h1 className="no-imprimir">{pestana === 'productos' ? 'Productos' : 'Catálogos'}</h1>
+      <div className="segmentado pestanas-cat no-imprimir" role="tablist">
         {PESTANAS.map(([p, texto]) => (
           <button
             key={p}
@@ -71,7 +72,7 @@ export default function Catalogos() {
         </div>
       )}
 
-      {pestana === 'productos' && <Productos sector={sector} nombreSector={sectores.nombre(sector)} />}
+      {pestana === 'productos' && <Productos />}
       {pestana === 'maquinas' && <Maquinas sector={sector} nombreSector={sectores.nombre(sector)} />}
       {pestana === 'limpieza' && <Limpieza sector={sector} sectores={sectores.lista} />}
       {pestana === 'categorias' && <Categorias sectores={sectores.lista} />}
@@ -211,193 +212,6 @@ function FormAlta({ titulo, children, enviando, error, ok, alEnviar, boton = 'Ag
       <Aviso>{error}</Aviso>
       {ok && <Aviso tipo="ok">{ok}</Aviso>}
     </form>
-  )
-}
-
-// ---------- Productos (B01) ----------
-
-/** Lo que se cuenta aparte de «unidades» y el aviso de stock mínimo (C08). */
-const detalleProducto = (p: Producto) =>
-  [
-    p.tipo === 'materia_prima' ? 'Materia prima' : p.tipo === 'reventa' ? 'Venta directa' : null,
-    p.codigo ? `Código ${p.codigo}` : null,
-    p.precioVenta !== null ? `Precio ${gs(p.precioVenta)} · ${NOMBRE_IVA[p.iva]}` : 'Sin precio de venta',
-    p.unidad !== 'unidades' ? `Se cuenta en ${p.unidad}` : null,
-    p.stockMinimo !== null ? `Avisa con menos de ${p.stockMinimo} en frío` : null,
-    !p.activo && !p.stockObligatorio ? 'Stock libre' : null,
-  ].filter(Boolean).join(' · ') || null
-
-/**
- * Stock obligatorio: con la marca, el stock nunca queda negativo y frena las salidas que no alcanzan (la chipa).
- * Sin la marca (cocido, harina…) puede quedar sin cargar o en negativo y no frena nada.
- */
-function StockObligatorio({ p }: { p: Producto }) {
-  const cambiar = useAccion((v: boolean) => patch<Producto>(`/productos/${p.id}`, { stockObligatorio: v }))
-  // Se marca al instante; si la API lo rechaza (por ejemplo, el stock está en negativo) vuelve a como estaba.
-  const [marcado, setMarcado] = useState(p.stockObligatorio)
-  useEffect(() => setMarcado(p.stockObligatorio), [p.stockObligatorio])
-  const alternar = async (v: boolean) => {
-    setMarcado(v)
-    if (!(await cambiar.ejecutar(v))) setMarcado(p.stockObligatorio)
-  }
-  return (
-    <>
-      <label className="check pide-numero" title="Con la marca, el stock no puede quedar negativo y frena las salidas que no alcanzan">
-        <input type="checkbox" checked={marcado} disabled={cambiar.enviando} onChange={(e) => void alternar(e.target.checked)} />
-        <span className="chico">Stock obligatorio</span>
-      </label>
-      <Aviso>{cambiar.error}</Aviso>
-    </>
-  )
-}
-
-/**
- * Venta en caja (M11): IVA de la factura y si la venta descuenta su stock. Se marca en lo que se compra para revender
- * (gaseosas); la chipa no, porque su stock ya baja al sacarla del frío.
- */
-function VentaProducto({ p }: { p: Producto }) {
-  const cambiar = useAccion((cambios: Partial<Producto>) => patch<Producto>(`/productos/${p.id}`, cambios))
-  if (p.precioVenta === null) return null
-  return (
-    <>
-      <label className="check pide-numero" title="Con la marca, cada venta en caja descuenta su stock. Sin la marca, el stock baja solo al sacarlo del frío.">
-        <input type="checkbox" checked={p.ventaDescuentaStock} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar({ ventaDescuentaStock: e.target.checked })} />
-        <span className="chico">La venta descuenta stock</span>
-      </label>
-      <label className="check pide-numero">
-        <span className="chico">IVA</span>
-        <select value={p.iva} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar({ iva: Number(e.target.value) as Iva })}>
-          {IVAS.map((i) => <option key={i} value={i}>{NOMBRE_IVA[i]}</option>)}
-        </select>
-      </label>
-      <Aviso>{cambiar.error}</Aviso>
-    </>
-  )
-}
-
-/** Categoría de compras (M10): define qué sectores pueden comprar el producto. */
-function TipoDeProducto({ p }: { p: Producto }) {
-  const cambiar = useAccion((v: TipoProducto) => patch<Producto>(`/productos/${p.id}`, { tipo: v }))
-  return (
-    <>
-      <label className="check pide-numero" title="Solo las materias primas y los productos de venta directa se pueden comprar">
-        <span className="chico">Tipo</span>
-        <select value={p.tipo} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar(e.target.value as TipoProducto)}>
-          {TIPOS_PRODUCTO.map((t) => <option key={t} value={t}>{NOMBRE_TIPO_PRODUCTO[t]}</option>)}
-        </select>
-      </label>
-      <Aviso>{cambiar.error}</Aviso>
-    </>
-  )
-}
-
-function CategoriaProducto({ p, categorias }: { p: Producto; categorias: Categoria[] }) {
-  const cambiar = useAccion((v: string | null) => patch<Producto>(`/productos/${p.id}`, { categoriaId: v }))
-  const visibles = categorias.filter((k) => k.activo || k.id === p.categoriaId)
-  return (
-    <>
-      <label className="check pide-numero" title="Los sectores habilitados en esa categoría pueden cargar compras de este producto">
-        <span className="chico">Categoría de compras</span>
-        <select value={p.categoriaId ?? ''} disabled={cambiar.enviando} onChange={(e) => void cambiar.ejecutar(e.target.value || null)}>
-          <option value="">Sin categoría (solo supervisor y admin)</option>
-          {visibles.map((k) => <option key={k.id} value={k.id}>{k.nombre}</option>)}
-        </select>
-      </label>
-      <Aviso>{cambiar.error}</Aviso>
-    </>
-  )
-}
-
-function Productos({ sector, nombreSector }: { sector: SectorId; nombreSector: string }) {
-  const c = useConsulta<Producto[]>('/productos', { sector, todos: true })
-  const categorias = useConsulta<Categoria[]>('/categorias', { todos: true })
-  const [nombre, setNombre] = useState('')
-  const [unidad, setUnidad] = useState('')
-  const [obligatorio, setObligatorio] = useState(true)
-  const [precio, setPrecio] = useState('')
-  const [codigo, setCodigo] = useState('')
-  const [tipo, setTipo] = useState<TipoProducto>('elaborado')
-  const [ok, setOk] = useState<string | null>(null)
-  const crear = useAccion(() => post<Producto>('/productos', {
-    sector, nombre, unidad: unidad || undefined, stockObligatorio: obligatorio, precioVenta: precio.trim() || null, codigo, tipo,
-  }))
-  const agregar = async () => {
-    setOk(null)
-    const p = await crear.ejecutar()
-    if (p) {
-      setOk(`«${p.nombre}» agregado a ${nombreSector}.`)
-      setNombre('')
-      setUnidad('')
-      setObligatorio(true)
-      setPrecio('')
-      setCodigo('')
-      setTipo('elaborado')
-    }
-  }
-
-  return (
-    <>
-      <ConDatos consulta={c}>
-        {(lista) => (
-          <ListaConInactivos
-            items={lista}
-            vacio="Este sector todavía no tiene productos."
-            textoInactivos="Productos desactivados"
-            render={(p) => (
-              <FilaEditable
-                key={p.id}
-                titulo={p.nombre}
-                detalle={detalleProducto(p)}
-                activo={p.activo}
-                textoEditar="Editar"
-                campos={[
-                  { clave: 'nombre', etiqueta: 'Nombre', valor: p.nombre },
-                  { clave: 'codigo', etiqueta: 'Código (opcional)', valor: p.codigo, max: 30 },
-                  { clave: 'unidad', etiqueta: 'Unidad', valor: p.unidad, max: 30 },
-                  { clave: 'stockMinimo', etiqueta: 'Stock mínimo en frío (vacío = sin aviso)', valor: p.stockMinimo === null ? '' : String(p.stockMinimo), max: 7 },
-                  { clave: 'precioVenta', etiqueta: 'Precio de venta en Gs. (vacío = no se vende en caja)', valor: p.precioVenta === null ? '' : miles(p.precioVenta), max: 15 },
-                ]}
-                guardar={(cambios) => patch(`/productos/${p.id}`, cambios)}
-                cambiarActivo={(activo) => patch(`/productos/${p.id}`, { activo })}
-                debajo={p.activo && <><StockObligatorio p={p} /><TipoDeProducto p={p} /><VentaProducto p={p} />{p.tipo !== 'elaborado' && <CategoriaProducto p={p} categorias={categorias.datos ?? []} />}</>}
-              />
-            )}
-          />
-        )}
-      </ConDatos>
-      <FormAlta titulo={`Nuevo producto en ${nombreSector}`} enviando={crear.enviando} error={crear.error} ok={ok} alEnviar={() => void agregar()}>
-        <label className="campo">
-          <span>Nombre</span>
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={100} />
-        </label>
-        <label className="campo">
-          <span>Tipo</span>
-          <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoProducto)}>
-            {TIPOS_PRODUCTO.map((t) => <option key={t} value={t}>{NOMBRE_TIPO_PRODUCTO[t]}</option>)}
-          </select>
-        </label>
-        <label className="campo">
-          <span>Código (opcional, para buscarlo)</span>
-          <input value={codigo} onChange={(e) => setCodigo(e.target.value)} maxLength={30} />
-        </label>
-        <label className="campo">
-          <span>Unidad (vacío = unidades)</span>
-          <input value={unidad} onChange={(e) => setUnidad(e.target.value)} maxLength={30} placeholder="unidades" />
-        </label>
-        <label className="campo">
-          <span>Precio de venta en Gs. (vacío = no se vende)</span>
-          <input value={precio} inputMode="numeric" onChange={(e) => setPrecio(e.target.value)} maxLength={15} placeholder="5.000" />
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={obligatorio} onChange={(e) => setObligatorio(e.target.checked)} />
-          <span>Stock obligatorio</span>
-        </label>
-        <p className="pista-campo ancho">
-          Con stock obligatorio el stock nunca queda en negativo y no deja sacar más de lo que hay (por ejemplo, la chipa).
-          Sin la marca puede quedar sin cargar o en negativo y nunca frena (por ejemplo, el cocido o la harina).
-        </p>
-      </FormAlta>
-    </>
   )
 }
 

@@ -1,0 +1,26 @@
+/* Ventana modal (components/Modal.tsx). Solo variables del tema: se ve bien en claro y en oscuro. */
+.modal {
+  padding: 0; border: none; border-radius: 16px; background: var(--superficie); color: var(--texto);
+  width: min(560px, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+.modal.modal-grande { width: min(720px, calc(100vw - 2rem)); }
+.modal::backdrop { background: rgba(20, 12, 12, 0.55); }
+.modal[open] { animation: modal-entra 0.16s ease-out; }
+@keyframes modal-entra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .modal[open] { animation: none; } }
+.modal-caja { padding: 1rem 1.25rem 1.25rem; }
+.modal-cabeza {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  position: sticky; top: -1rem; margin: -1rem -1.25rem 0.75rem; padding: 1rem 1.25rem 0.75rem;
+  background: var(--superficie); border-bottom: 1px solid var(--borde); z-index: 1;
+}
+.modal-cabeza h2 { margin: 0; font-size: 1.2rem; overflow-wrap: anywhere; }
+.modal-cerrar {
+  display: inline-grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 10px;
+  border: none; background: transparent; color: var(--suave); cursor: pointer; font-size: 1.25rem;
+}
+.modal-cerrar:hover { background: var(--neutro); color: var(--texto); }
+/* Celular: la modal ocupa toda la pantalla. */
+@media (max-width: 560px) {
+  .modal, .modal.modal-grande { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; margin: 0; }
+}

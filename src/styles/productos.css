@@ -1,0 +1,85 @@
+/* Pantalla de productos (pages/admin/Productos.tsx). Reusa .tabla y .tabla-tarjetas (compras.css). */
+
+/* Barra de arriba: filtro a la izquierda, «Nuevo producto» a la derecha. */
+.prod-barra { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.75rem; }
+.prod-barra > .prod-filtro { flex: 1 1 520px; }
+.prod-barra > .prod-nuevo { flex: none; width: auto; min-height: 44px; padding: 0.55rem 1.1rem; display: inline-flex; align-items: center; gap: 0.4rem; margin-left: auto; }
+.prod-nuevo svg { font-size: 1.15rem; }
+
+.prod-filtro { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.prod-filtro .campo { flex: 0 1 auto; }
+.prod-filtro select, .prod-filtro input { min-height: 44px; padding: 0.5rem 0.7rem; width: auto; }
+.prod-filtro select { max-width: 13rem; }
+.prod-buscar { position: relative; flex: 1 1 260px !important; min-width: 220px; }
+.prod-buscar input { width: 100%; padding-left: 2.3rem; }
+.prod-lupa { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); display: grid; color: var(--suave); pointer-events: none; }
+.prod-lupa svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.prod-limpiar { min-height: 44px; }
+
+/* Sobre la tabla: cuántos se ven a la izquierda, la descarga a la derecha. */
+.prod-sobre-tabla { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.4rem; }
+.prod-sobre-tabla p { margin: 0; }
+.prod-descarga { position: relative; }
+.prod-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 15rem; padding: 0.35rem;
+  background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.prod-menu-titulo { margin: 0; padding: 0.4rem 0.6rem 0.5rem; font-size: 0.78rem; color: var(--suave); border-bottom: 1px solid var(--borde); }
+.prod-menu button {
+  display: grid; width: 100%; text-align: left; gap: 0.05rem; padding: 0.55rem 0.6rem; min-height: 44px; margin-top: 0.2rem;
+  background: none; border: none; border-radius: 8px; color: var(--texto); cursor: pointer; font: inherit;
+}
+.prod-menu button span { font-size: 0.8rem; color: var(--suave); }
+.prod-menu button:hover, .prod-menu button:focus-visible { background: var(--marca-claro); outline: none; }
+
+/* Tabla. */
+.prod-tabla strong { font-weight: 700; }
+.prod-sub { display: block; margin-top: 0.1rem; }
+.prod-tipo { display: inline-block; font-size: 0.8rem; padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--neutro); white-space: nowrap; }
+.prod-tipo.tipo-elaborado { background: var(--marca-claro); }
+.prod-tipo.tipo-reventa { background: var(--ok-fondo); color: var(--ok); }
+.prod-estado { font-size: 0.85rem; color: var(--suave); white-space: nowrap; }
+.prod-estado.activo { color: var(--ok); font-weight: 600; }
+.prod-estado::before { content: ''; display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.prod-vacio { justify-items: start; }
+.prod-vacio p { margin: 0; }
+.prod-vacio .btn-secundario { width: auto; min-height: 44px; margin: 0; }
+
+/* Paginación. */
+.prod-paginas { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0.3rem; margin: 0.9rem 0 0.5rem; }
+.prod-pag {
+  min-width: 40px; height: 40px; padding: 0 0.6rem; border-radius: 10px; border: 1px solid var(--borde);
+  background: var(--superficie); color: var(--texto); cursor: pointer; font: inherit; font-weight: 600;
+}
+.prod-pag:hover:not(:disabled):not(.actual) { border-color: var(--marca-texto); color: var(--marca-texto); }
+.prod-pag.actual { background: var(--marca); border-color: var(--marca); color: var(--sobre-marca); }
+.prod-pag:disabled { opacity: 0.4; cursor: default; }
+.prod-pag-salto { color: var(--suave); padding: 0 0.2rem; }
+
+/* Formulario del modal. */
+.prod-form { display: grid; gap: 0.9rem; }
+.prod-form-grilla { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); align-items: end; }
+.prod-form-grilla .ancho { grid-column: 1 / -1; }
+.prod-fijo { margin: 0; padding: 0.7rem; border-radius: 8px; background: var(--neutro); color: var(--suave); }
+.prod-pista-tipo { margin: 0; align-self: center; }
+.prod-grupo { border: 1px solid var(--borde); border-radius: 12px; padding: 0.6rem 0.9rem 0.9rem; margin: 0; display: grid; gap: 0.5rem; }
+.prod-grupo legend { padding: 0 0.35rem; font-weight: 700; font-size: 0.92rem; }
+.prod-grupo .pista-campo { margin: 0; }
+.prod-form select:disabled { opacity: 0.6; }
+.prod-form-botones { display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap; }
+.prod-form-botones button { width: auto; min-height: 48px; margin: 0; }
+
+@media (max-width: 720px) {
+  .prod-barra > .prod-nuevo { order: -1; width: 100%; justify-content: center; margin-left: 0; }
+  .prod-filtro select { flex: 1 1 45%; max-width: none; width: 100%; }
+  .prod-filtro .campo:not(.prod-buscar) { flex: 1 1 45%; }
+  .prod-form-botones button { flex: 1 1 auto; }
+}
+
+/* PDF: tabla compacta para A4. */
+@media print {
+  .prod-impresion { font-size: 8.5pt; }
+  .prod-impresion th, .prod-impresion td { padding: 3px 5px; }
+  .prod-impresion tr { break-inside: avoid; }
+  .prod-impresion td:not(:first-child):not(:nth-child(5)) { white-space: nowrap; }
+}

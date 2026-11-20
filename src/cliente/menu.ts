@@ -40,7 +40,18 @@ export function menuDe(rol: Rol, conLotes: boolean, sectores: { id: SectorId; no
 
   if (veTodosLosSectores(rol)) {
     // Administrador y supervisor: todo lo de todos los sectores, más la gestión.
-    agregar('General', [p('reportes.ver') && { a: '/admin', texto: 'Resumen', icono: 'resumen', exacta: true }])
+    // Administración va primero (pedido de Mati, 2026-11-20), con el Resumen adentro.
+    agregar('Administración', [
+      p('reportes.ver') && { a: '/admin', texto: 'Resumen', icono: 'resumen', exacta: true },
+      p('reportes.ver') && { a: '/admin/reportes', texto: 'Reportes', icono: 'reportes' },
+      // Productos tiene su propia entrada; «Catálogos» abre el resto (categorías, máquinas, limpieza, sucursales, sectores).
+      p('catalogos.editar') && { a: '/admin/catalogos?ver=productos', texto: 'Productos', icono: 'productos', ver: ['productos', ''] },
+      p('catalogos.editar') && {
+        a: '/admin/catalogos?ver=categorias', texto: 'Catálogos', icono: 'catalogos', ver: ['categorias', 'maquinas', 'limpieza', 'sucursales', 'sectores'],
+      },
+      p('usuarios.gestionar') && { a: '/admin/usuarios', texto: 'Usuarios', icono: 'usuarios' },
+      p('datos.gestionar') && { a: '/admin/datos', texto: 'Datos', icono: 'datos' },
+    ])
     agregar('Sectores', p('produccion.cargar') ? sectores.map((s) => ({ a: '/sector', texto: s.nombre, icono: 'inicio' as const, sector: s.id })) : [])
     agregar('Producción', [
       p('produccion.ver') && { a: '/admin/registros', texto: 'Producción', icono: 'produccion' },
@@ -58,16 +69,6 @@ export function menuDe(rol: Rol, conLotes: boolean, sectores: { id: SectorId; no
       p('ie.completo')
         ? { a: '/finanzas', texto: 'Finanzas', icono: 'dinero' }
         : p('ie.egresos_proveedores') && { a: '/finanzas', texto: 'Egresos', icono: 'dinero' },
-    ])
-    agregar('Administración', [
-      p('reportes.ver') && { a: '/admin/reportes', texto: 'Reportes', icono: 'reportes' },
-      // Productos tiene su propia entrada; «Catálogos» abre el resto (categorías, máquinas, limpieza, sucursales, sectores).
-      p('catalogos.editar') && { a: '/admin/catalogos?ver=productos', texto: 'Productos', icono: 'productos', ver: ['productos', ''] },
-      p('catalogos.editar') && {
-        a: '/admin/catalogos?ver=categorias', texto: 'Catálogos', icono: 'catalogos', ver: ['categorias', 'maquinas', 'limpieza', 'sucursales', 'sectores'],
-      },
-      p('usuarios.gestionar') && { a: '/admin/usuarios', texto: 'Usuarios', icono: 'usuarios' },
-      p('datos.gestionar') && { a: '/admin/datos', texto: 'Datos', icono: 'datos' },
     ])
     return grupos
   }

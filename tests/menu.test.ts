@@ -64,6 +64,15 @@ describe('menú lateral', () => {
     }
   })
 
+  it('Administración va primero, con el Resumen adentro como primera opción', () => {
+    for (const rol of ['admin', 'supervisor'] as const) {
+      const [primero] = menuDe(rol, true, [...SECTORES])
+      expect(primero.titulo).toBe('Administración')
+      expect(primero.opciones[0].texto).toBe('Resumen')
+    }
+    expect(menuDe('admin', true, [...SECTORES]).map((g) => g.titulo)).not.toContain('General')
+  })
+
   it('el administrador tiene una entrada por cada sector, que lleva a su vista; ya no hay «Vista del sector»', () => {
     const grupo = menuDe('admin', true, [...SECTORES]).find((g) => g.titulo === 'Sectores')!
     expect(grupo.opciones.map((o) => [o.texto, o.a, o.sector])).toEqual(SECTORES.map((s) => [s.nombre, '/sector', s.id]))
