@@ -9,7 +9,7 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { usePuede } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { CampoFoto, FotoBajoDemanda } from '../../components/Foto'
-import { useElegirSector, useSector } from '../../components/Layout'
+import { SelectorSector, useElegirSector, useSector } from '../../components/Layout'
 import { IconoMaquinas } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY, fechaHoraPY, horaPY, sumarDias } from '../../shared/hora'
@@ -99,6 +99,7 @@ function Pantalla({ sector }: { sector: SectorId }) {
   return (
     <>
       <Volver titulo="Máquinas y temperatura" icono={<IconoMaquinas />} />
+      <SelectorSector />
       <ConDatos consulta={maquinas}>
         {(lista) =>
           lista.length === 0 ? (

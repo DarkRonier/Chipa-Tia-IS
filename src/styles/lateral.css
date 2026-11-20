@@ -39,7 +39,6 @@
 
 .lateral-sector { padding: 0 0.75rem 0.5rem; }
 .lateral-etiqueta { display: block; font-size: 0.75rem; font-weight: 700; color: var(--suave); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.3rem 0.2rem; }
-.lateral-sector select { min-height: 44px; padding: 0.5rem 0.6rem; font-weight: 600; background: var(--fondo); }
 .sector-fijo {
   display: flex; align-items: center; gap: 0.6rem; min-height: 44px; padding: 0.5rem 0.7rem; border-radius: 8px;
   background: var(--fondo); border: 1px solid var(--borde); font-weight: 600; min-width: 0;
@@ -129,7 +128,7 @@
   .plegado .lateral-cabeza { flex-direction: column; padding: 0.75rem 0.5rem; }
   .plegado .logo { height: 32px; padding: 2px 4px; }
   .plegado .lateral-sector { padding: 0 0.5rem 0.5rem; display: flex; justify-content: center; }
-  .plegado .lateral-sector select, .plegado .lateral-etiqueta { display: none; }
+  .plegado .lateral-etiqueta { display: none; }
   .plegado .sector-plegado { display: grid; }
   .plegado .sector-fijo { padding: 0; min-height: 0; background: none; border: none; }
   .plegado .lateral-nav { padding: 0.25rem 0.5rem 0.75rem; scrollbar-width: none; }
@@ -147,3 +146,15 @@
   .lateral-nav a, .lateral-pie > a { min-height: 40px; padding-top: 0.4rem; padding-bottom: 0.4rem; }
   .lateral-grupo + .lateral-grupo { margin-top: 0.4rem; }
 }
+
+/* Entrada de un sector (administrador): sigla en un círculo en lugar del ícono. */
+.sigla-sector {
+  display: grid; place-items: center; flex-shrink: 0; width: 26px; height: 26px; margin: -2px; border-radius: 50%;
+  background: var(--neutro); color: var(--suave); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.02em;
+}
+.lateral-nav a:hover .sigla-sector { color: var(--texto); }
+.lateral-nav a.active .sigla-sector { background: var(--marca); color: var(--sobre-marca); }
+
+/* Sector a mirar dentro de una pantalla (SelectorSector). */
+.selector-sector { margin-bottom: 0.75rem; }
+.tarjeta .selector-sector { margin-bottom: 0; }

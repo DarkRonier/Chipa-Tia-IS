@@ -1,4 +1,4 @@
-// G03 y F04–F05 para el administrador: limpiezas del sector elegido arriba (o de todos) con el
+// G03 y F04–F05 para el administrador: limpiezas del sector elegido en la pantalla (o de todos) con el
 // "Controlado por" de la planilla en papel, y las lecturas de máquinas con las temperaturas fuera de
 // rango y las fallas en rojo. Filtros por sector y fechas.
 import { useState } from 'react'
@@ -7,7 +7,7 @@ import { ErrorDeApi, post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
 import { invalidar, useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
-import { useSectorActivo } from '../../components/Layout'
+import { SelectorSector, useSectorActivo } from '../../components/Layout'
 import { diaPY, fechaHoraPY, inicioDeMes, sumarDias } from '../../shared/hora'
 import type { Lectura, Limpieza, SectorId } from '../../shared/tipos'
 import { TarjetaLimpieza } from '../sector/Limpieza'
@@ -66,14 +66,7 @@ export default function Controles() {
       <div className="tarjeta ctl-filtros ctl-cuatro">
         <div className="campo ctl-ancho">
           <span>Sector</span>
-          <div className="segmentado chico" role="group" aria-label="Sector">
-            <button type="button" aria-pressed={!todos} className={!todos ? 'activo' : ''} onClick={() => setTodos(false)}>
-              {sector.nombre || 'Sector elegido'}
-            </button>
-            <button type="button" aria-pressed={todos} className={todos ? 'activo' : ''} onClick={() => setTodos(true)}>
-              Todos los sectores
-            </button>
-          </div>
+          <SelectorSector todos={{ activo: todos, cambiar: setTodos }} />
         </div>
         <div className="campo ctl-ancho">
           <span>Período</span>
