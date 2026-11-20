@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { menuDe } from '../cliente/menu'
+import { esVistaDeSector, menuDe, SIGLA_SECTOR } from '../cliente/menu'
 import { useSectores } from '../cliente/catalogo'
 import { useSesion, useUsuario } from '../cliente/sesion'
 import { Icono } from './Iconos'
@@ -11,10 +11,10 @@ import '../styles/lateral.css'
 const SectorActivo = createContext<Sector>({ id: 'chiperia', nombre: 'Chipería', conLotes: true })
 const ElegirSector = createContext<(s: SectorId) => void>(() => undefined)
 
-/** Sector que se está mirando: el propio para un operador; el elegido arriba para el administrador y el supervisor. */
+/** Sector que se está mirando: el propio para un operador; el elegido en el menú o en cada pantalla para el administrador y el supervisor. */
 export const useSector = () => useContext(SectorActivo).id
 export const useSectorActivo = () => useContext(SectorActivo)
-/** Cambia el sector elegido arriba (administrador y supervisor); para un operador no hace nada. */
+/** Cambia el sector elegido (administrador y supervisor); para un operador no hace nada. */
 export const useElegirSector = () => useContext(ElegirSector)
 
 const CLAVE_ELEGIDO = 'chipa-tia-sector'
@@ -38,8 +38,6 @@ function leerPlegado(): boolean {
 }
 
 const NOMBRE_ROL: Record<string, string> = { ...NOMBRE_ROL_GENERAL }
-/** Sigla del sector en la barra plegada: Chipería y Chipitas empiezan igual, así que cada uno tiene la suya. */
-const SIGLA_SECTOR: Record<string, string> = { chiperia: 'CP', chipitas: 'CT', panaderia: 'PA', cocina: 'CO' }
 
 export default function Layout() {
   const usuario = useUsuario()
@@ -52,7 +50,8 @@ export default function Layout() {
   const [elegido, setElegido] = useState<SectorId>(leerElegido)
   const id: SectorId = propio ?? elegido
   const sector: Sector = sectores.lista.find((s) => s.id === id) ?? { id, nombre: '', conLotes: id === 'chiperia' }
-  const grupos = menuDe(usuario.rol, sector.conLotes)
+  const grupos = menuDe(usuario.rol, sector.conLotes, sectores.lista)
+  const enVistaDeSector = esVistaDeSector(pathname)
 
   // Escritorio: la barra se pliega a solo íconos y lo recuerda. Celular: el menú se abre como una página entera.
   const [plegado, setPlegado] = useState(leerPlegado)
@@ -132,8 +131,8 @@ export default function Layout() {
             <Icono nombre="menu" />
           </button>
           <Link to="/" className="marca">{logo}</Link>
-          <button type="button" className="sector-movil" onClick={() => setAbierto(true)} title={general ? 'Cambiar de sector' : undefined}>
-            {general ? sector.nombre : nombreRol}
+          <button type="button" className="sector-movil" onClick={() => setAbierto(true)} >
+            {general && enVistaDeSector ? sector.nombre : nombreRol}
           </button>
         </header>
 
@@ -155,27 +154,15 @@ export default function Layout() {
             </button>
           </div>
 
-          <div className="lateral-sector">
-            {general ? (
-              <>
-                <label className="lateral-etiqueta" htmlFor="sector-a-ver">Sector</label>
-                <select id="sector-a-ver" value={elegido} onChange={(e) => elegir(e.target.value as SectorId)}>
-                  {sectores.lista.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-                </select>
-                <button type="button" className="sector-plegado" onClick={plegar} title={`Sector: ${sector.nombre}. Desplegar para cambiarlo`} aria-label={`Sector: ${sector.nombre}. Desplegar menú para cambiarlo`}>
-                  {SIGLA_SECTOR[sector.id] ?? iniciales(sector.nombre)}
-                </button>
-              </>
-            ) : (
-              <>
+          {!general && (
+            <div className="lateral-sector">
               <span className="lateral-etiqueta" aria-hidden="true">{propio ? 'Sector' : 'Rol'}</span>
               <span className="sector-fijo" title={nombreRol}>
                 <span className="sector-plegado" aria-hidden="true">{(propio && SIGLA_SECTOR[propio]) || iniciales(nombreRol)}</span>
                 <span className="lateral-texto">{nombreRol}</span>
               </span>
-              </>
-            )}
-          </div>
+            </div>
+          )}
 
           <nav className="lateral-nav" aria-label="Secciones">
             {grupos.map((g) => (
@@ -184,15 +171,24 @@ export default function Layout() {
                 <ul aria-labelledby={`grupo-${g.titulo}`}>
                   {g.opciones.map((o) => (
                     <li key={o.a + o.texto}>
-                      <NavLink
-                        to={o.a}
-                        end={o.exacta}
-                        title={plegado ? o.texto : undefined}
-                        className={({ isActive }) => (isActive && !o.noEn?.some((r) => pathname.startsWith(r)) ? 'active' : '')}
-                      >
-                        <Icono nombre={o.icono} />
-                        <span className="lateral-texto">{o.texto}</span>
-                      </NavLink>
+                      {o.sector ? (
+                        // Un sector (administrador): lo elige y abre su vista; se marca mientras se mira ese sector.
+                        <Link
+                          to={o.a}
+                          onClick={() => elegir(o.sector!)}
+                          title={plegado ? o.texto : undefined}
+                          className={enVistaDeSector && sector.id === o.sector ? 'active' : ''}
+                          aria-current={enVistaDeSector && sector.id === o.sector ? 'page' : undefined}
+                        >
+                          <span className="sigla-sector" aria-hidden="true">{SIGLA_SECTOR[o.sector]}</span>
+                          <span className="lateral-texto">{o.texto}</span>
+                        </Link>
+                      ) : (
+                        <NavLink to={o.a} end={o.exacta} title={plegado ? o.texto : undefined}>
+                          <Icono nombre={o.icono} />
+                          <span className="lateral-texto">{o.texto}</span>
+                        </NavLink>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -224,5 +220,37 @@ export default function Layout() {
       </div>
     </ElegirSector.Provider>
     </SectorActivo.Provider>
+  )
+}
+
+/**
+ * Elegir el sector dentro de una pantalla (administrador y supervisor): Producción, Stock, Salidas, Máquinas…
+ * Para un operador no muestra nada, porque solo ve su sector. Con `todos`, suma la opción «Todos los sectores».
+ */
+export function SelectorSector({ todos }: { todos?: { activo: boolean; cambiar: (v: boolean) => void } }) {
+  const usuario = useUsuario()
+  const sectores = useSectores()
+  const actual = useSector()
+  const elegir = useElegirSector()
+  if (!veTodosLosSectores(usuario.rol) || !sectores.lista.length) return null
+  return (
+    <div className="segmentado chico selector-sector" role="group" aria-label="Sector">
+      {sectores.lista.map((s) => {
+        const activo = !todos?.activo && s.id === actual
+        return (
+          <button
+            key={s.id} type="button" aria-pressed={activo} className={activo ? 'activo' : ''}
+            onClick={() => { todos?.cambiar(false); elegir(s.id) }}
+          >
+            {s.nombre}
+          </button>
+        )
+      })}
+      {todos && (
+        <button type="button" aria-pressed={todos.activo} className={todos.activo ? 'activo' : ''} onClick={() => todos.cambiar(true)}>
+          Todos los sectores
+        </button>
+      )}
+    </div>
   )
 }

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useConsulta } from '../../cliente/consultas'
 import { ConDatos } from '../../components/Estado'
-import { useSectorActivo } from '../../components/Layout'
+import { SelectorSector, useSectorActivo } from '../../components/Layout'
 import { IconoHistorial } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { useUsuario } from '../../cliente/sesion'
@@ -109,6 +109,7 @@ function Pantalla() {
   return (
     <>
       <Volver titulo={esAdmin ? `Historial de salidas · ${nombreSector}` : 'Historial de salidas'} a={inicioDe(usuario.rol)} icono={<IconoHistorial />} />
+      <SelectorSector />
       <div className="tarjeta filtros stk-filtros">
         <label className="campo"><span>Desde</span><input type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} /></label>
         <label className="campo"><span>Hasta</span><input type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} /></label>

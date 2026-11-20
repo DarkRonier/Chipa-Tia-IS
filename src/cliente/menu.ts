@@ -2,7 +2,7 @@
 // (src/shared/permisos.ts), así el menú nunca ofrece una pantalla que el rol no puede abrir.
 import type { NombreIcono } from '../components/Iconos'
 import { puede as puedeRol, sectorDeRol, veTodosLosSectores } from '../shared/permisos'
-import type { Rol } from '../shared/tipos'
+import type { Rol, SectorId } from '../shared/tipos'
 
 export type OpcionMenu = {
   a: string
@@ -10,14 +10,25 @@ export type OpcionMenu = {
   icono: NombreIcono
   /** Solo se marca en la ruta exacta (no en las de abajo). */
   exacta?: boolean
-  /** «Vista del sector» no se marca en Lotes ni Máquinas, que tienen su propia opción. */
-  noEn?: string[]
+  /** Entrada de un sector (administrador): al tocarla se elige ese sector y se abre su vista. */
+  sector?: SectorId
+}
+
+/** Sigla de cada sector (Chipería y Chipitas empiezan igual, así que cada uno tiene la suya). */
+export const SIGLA_SECTOR: Record<SectorId, string> = { chiperia: 'CP', chipitas: 'CT', panaderia: 'PA', cocina: 'CO' }
+
+/** Rutas de la vista de un sector que no son de una opción propia del menú (Lotes y Máquinas tienen la suya). */
+export function esVistaDeSector(ruta: string) {
+  return (ruta === '/sector' || ruta.startsWith('/sector/')) && !ruta.startsWith('/sector/lotes') && !ruta.startsWith('/sector/maquinas')
 }
 
 export type GrupoMenu = { titulo: string; opciones: OpcionMenu[] }
 
-/** Grupos del menú de un rol, sin los grupos vacíos. `conLotes`: el sector que se mira trabaja con lotes (Chipería). */
-export function menuDe(rol: Rol, conLotes: boolean): GrupoMenu[] {
+/**
+ * Grupos del menú de un rol, sin los grupos vacíos. `conLotes`: el sector que se mira trabaja con lotes (Chipería).
+ * `sectores`: los del sistema; el administrador tiene una entrada por cada uno que lleva a su vista.
+ */
+export function menuDe(rol: Rol, conLotes: boolean, sectores: { id: SectorId; nombre: string }[] = []): GrupoMenu[] {
   const p = (permiso: Parameters<typeof puedeRol>[1]) => puedeRol(rol, permiso)
   const grupos: GrupoMenu[] = []
   const agregar = (titulo: string, opciones: (OpcionMenu | false)[]) => {
@@ -28,6 +39,7 @@ export function menuDe(rol: Rol, conLotes: boolean): GrupoMenu[] {
   if (veTodosLosSectores(rol)) {
     // Administrador y supervisor: todo lo de todos los sectores, más la gestión.
     agregar('General', [p('reportes.ver') && { a: '/admin', texto: 'Resumen', icono: 'resumen', exacta: true }])
+    agregar('Sectores', p('produccion.cargar') ? sectores.map((s) => ({ a: '/sector', texto: s.nombre, icono: 'inicio' as const, sector: s.id })) : [])
     agregar('Producción', [
       p('produccion.ver') && { a: '/admin/registros', texto: 'Producción', icono: 'produccion' },
       p('stock.ver') && { a: '/admin/stock', texto: 'Stock', icono: 'stock' },
@@ -36,9 +48,6 @@ export function menuDe(rol: Rol, conLotes: boolean): GrupoMenu[] {
       p('limpieza.ver') && { a: '/admin/controles', texto: 'Limpieza y temperatura', icono: 'limpieza' },
       p('lotes.ver') && { a: '/sector/lotes', texto: 'Lotes', icono: 'lotes' },
       p('trazabilidad.ver') && { a: '/trazabilidad', texto: 'Trazabilidad', icono: 'trazabilidad' },
-      p('produccion.cargar') && {
-        a: '/sector', texto: 'Vista del sector', icono: 'inicio', noEn: ['/sector/lotes', '/sector/maquinas'],
-      },
     ])
     agregar('Ventas y compras', [
       p('caja.operar') && { a: '/caja', texto: 'Caja', icono: 'caja' },

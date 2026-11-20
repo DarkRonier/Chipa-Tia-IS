@@ -32,15 +32,20 @@ const RUTAS: Record<string, Permiso[][]> = {
   '/finanzas': [['ie.completo'], ['ie.egresos_proveedores']],
 }
 
-const rutas = (rol: Rol, conLotes = true) => menuDe(rol, conLotes).flatMap((g) => g.opciones.map((o) => o.a))
-const textos = (rol: Rol, conLotes = true) => menuDe(rol, conLotes).flatMap((g) => g.opciones.map((o) => o.texto))
+const SECTORES = [
+  { id: 'chiperia', nombre: 'Chipería' }, { id: 'chipitas', nombre: 'Chipitas' },
+  { id: 'panaderia', nombre: 'Panadería' }, { id: 'cocina', nombre: 'Cocina y buffet' },
+] as const
+const rutas = (rol: Rol, conLotes = true) => [...new Set(menuDe(rol, conLotes, [...SECTORES]).flatMap((g) => g.opciones.map((o) => o.a)))]
+const textos = (rol: Rol, conLotes = true) => menuDe(rol, conLotes, [...SECTORES]).flatMap((g) => g.opciones.map((o) => o.texto))
 
 describe('menú lateral', () => {
   it('cada rol ve solo pantallas que puede abrir, sin repetidas y con su inicio', () => {
     for (const rol of ROLES) {
       const lista = rutas(rol)
+      const sinSectores = menuDe(rol, true, [...SECTORES]).flatMap((g) => g.opciones.filter((o) => !o.sector).map((o) => o.a))
       expect(lista.length).toBeGreaterThan(0)
-      expect(new Set(lista).size).toBe(lista.length)
+      expect(new Set(sinSectores).size).toBe(sinSectores.length)
       expect(lista).toContain(inicioDe(rol))
       for (const a of lista) {
         const opciones = RUTAS[a]
@@ -53,16 +58,22 @@ describe('menú lateral', () => {
 
   it('el administrador ve todo: gestión, finanzas completas y la vista del sector', () => {
     const t = textos('admin')
-    for (const x of ['Resumen', 'Producción', 'Stock', 'Caja', 'Compras', 'Proveedores', 'Finanzas', 'Reportes', 'Catálogos', 'Usuarios', 'Datos', 'Vista del sector']) {
+    for (const x of ['Resumen', 'Producción', 'Stock', 'Caja', 'Compras', 'Proveedores', 'Finanzas', 'Reportes', 'Catálogos', 'Usuarios', 'Datos']) {
       expect(t).toContain(x)
     }
+  })
+
+  it('el administrador tiene una entrada por cada sector, que lleva a su vista; ya no hay «Vista del sector»', () => {
+    const grupo = menuDe('admin', true, [...SECTORES]).find((g) => g.titulo === 'Sectores')!
+    expect(grupo.opciones.map((o) => [o.texto, o.a, o.sector])).toEqual(SECTORES.map((s) => [s.nombre, '/sector', s.id]))
+    expect(textos('admin')).not.toContain('Vista del sector')
   })
 
   it('el supervisor no ve gestión ni caja; de ingresos y egresos solo «Egresos»', () => {
     const t = textos('supervisor')
     expect(t).toContain('Egresos')
     expect(t).toContain('Compras')
-    for (const x of ['Finanzas', 'Caja', 'Usuarios', 'Catálogos', 'Datos', 'Vista del sector']) expect(t).not.toContain(x)
+    for (const x of ['Finanzas', 'Caja', 'Usuarios', 'Catálogos', 'Datos', 'Chipería']) expect(t).not.toContain(x)
   })
 
   it('el cajero ve solo la caja', () => {

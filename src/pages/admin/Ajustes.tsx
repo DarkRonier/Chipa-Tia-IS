@@ -1,4 +1,4 @@
-// D06, D07: el administrador ve el stock en frío del sector elegido arriba y registra mermas,
+// D06, D07: el administrador ve el stock en frío del sector elegido en la pantalla y registra mermas,
 // vencimientos, ajustes (+/−) y el stock inicial, siempre con motivo y diciendo de cuál stock (C05: «Reponer venta»
 // o «Sucursales»). Quedan en el historial y en la auditoría.
 import { useState } from 'react'
@@ -7,7 +7,7 @@ import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { usePuede } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
-import { useSector, useSectorActivo } from '../../components/Layout'
+import { SelectorSector, useSector, useSectorActivo } from '../../components/Layout'
 import Numero from '../../components/Numero'
 import { NOMBRE_FINALIDAD, NOMBRE_TIPO_MOVIMIENTO, type Finalidad, type Movimiento, type PedidoAjuste, type TipoAjuste } from '../../shared/tipos'
 import { conSigno, TablaMovimientos } from '../sector/Historial'
@@ -34,7 +34,7 @@ const EJEMPLO_MOTIVO: Record<TipoAjuste, string> = {
 }
 
 export default function Ajustes() {
-  // Al cambiar de sector en la barra de arriba, el formulario empieza de cero.
+  // Al cambiar de sector, el formulario empieza de cero.
   const sector = useSector()
   return <Pantalla key={sector} />
 }
@@ -105,6 +105,7 @@ function Pantalla() {
   return (
     <>
       <h1>Stock en frío · {nombre}</h1>
+      <SelectorSector />
       <AlertasStock sector={sector} />
       <ConDatos consulta={stock}>
         {(datos) => (

@@ -1,11 +1,11 @@
-// C03–C04: el administrador revisa los registros de producción del sector elegido arriba y corrige
+// C03–C04: el administrador revisa los registros de producción del sector elegido en la pantalla y corrige
 // cantidades. La diferencia de lo guardado ajusta el stock y queda anotado quién corrigió y cuándo.
 import { useState } from 'react'
 import { patch } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { usePuede } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
-import { useSectorActivo } from '../../components/Layout'
+import { SelectorSector, useSectorActivo } from '../../components/Layout'
 import { diaPY, fechaHoraPY, inicioDeMes, sumarDias } from '../../shared/hora'
 import { textoUsoMP, type Produccion, type Producto, type Turno } from '../../shared/tipos'
 import '../../styles/produccion.css'
@@ -41,6 +41,7 @@ export default function Registros() {
   return (
     <>
       <h1>Registros de producción{sector.nombre && <span className="suave"> · {sector.nombre}</span>}</h1>
+      <SelectorSector />
       <div className="tarjeta">
         <div className="segmentado chico" role="group" aria-label="Período">
           {([['hoy', 'Hoy'], ['semana', 'Últimos 7 días'], ['mes', 'Este mes']] as [Rango, string][]).map(([r, t]) => (
