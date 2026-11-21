@@ -252,7 +252,7 @@ export function NuevaCompra() {
         </label>
       </section>
       {puede('proveedores.gestionar') && !proveedores.cargando && !opcionesProveedor.length && (
-        <p className="suave chico">Todavía no hay proveedores: la compra queda «Sin nombre», o crealos en <Link to="/proveedores">Proveedores</Link>.</p>
+        <p className="suave chico">Todavía no hay proveedores: la compra queda «Sin nombre», o crealos en <Link className="btn-discreto chico" to="/proveedores">Proveedores</Link>.</p>
       )}
 
       <section className="tarjeta renglones" aria-label="Productos comprados">

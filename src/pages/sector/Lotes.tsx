@@ -280,7 +280,7 @@ function ListaLotesMP({ lotes, esAdmin }: { lotes: LoteMP[]; esAdmin: boolean })
                       {l.numeroLote ? `lote ${l.numeroLote} · ` : ''}{cantidadMP(l)} · ingresó {diaLegible(l.fechaIngreso)}
                     </div>
                     <div className="lot-sub lot-uso">{usoLoteMP(l)}</div>
-                    <Link className="chico" to={enlaceTrazaMP(l.id)}>Ver trazabilidad</Link>
+                    <Link className="btn-discreto chico" to={enlaceTrazaMP(l.id)}>Ver trazabilidad</Link>
                   </td>
                   <td className={l.disponible ? '' : 'apagado'}>
                     {diaLegible(l.vencimiento)}
@@ -364,7 +364,7 @@ function ListaLotesChipa() {
                 {lista.slice(0, cuantos).flatMap((l) => [
                   <tr key={l.id} className={`lot-fila-lote${l.stock === 0 ? ' apagado' : ''}`}>
                     <td>
-                      <Link className="lot-codigo" to={enlaceTrazaLote(l.codigo)}>{l.codigo}</Link>
+                      <Link className="lot-codigo btn-discreto chico" to={enlaceTrazaLote(l.codigo)}>{l.codigo}</Link>
                       <div className="lot-sub">{diaLegible(l.dia)} · amasada {l.amasada}</div>
                     </td>
                     <td className="num">{l.horno}</td>

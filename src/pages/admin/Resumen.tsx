@@ -77,7 +77,7 @@ export default function Resumen() {
                 })}
               </tbody>
             </table>
-            <p className="chico"><Link to={`/admin/reportes?desde=${hoy}&hasta=${hoy}`}>Ver el reporte completo de hoy</Link></p>
+            <p className="chico"><Link className="btn-discreto" to={`/admin/reportes?desde=${hoy}&hasta=${hoy}`}>Ver el reporte completo de hoy</Link></p>
           </>
         )}
       </ConDatos>

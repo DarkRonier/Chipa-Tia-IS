@@ -52,7 +52,6 @@
 .ctl-areas .chip { min-height: 44px; }
 .ctl-progreso { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.25rem 0 0.5rem; }
 .ctl-todo { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
-.ctl-todo .btn-texto { min-height: 40px; }
 .fila-limpieza.ctl-falta { border-color: var(--error); box-shadow: 0 0 0 1px var(--error); }
 .fila-limpieza .ctl-tarea { font-weight: 600; }
 .ctl-marcas button { display: grid; justify-items: center; line-height: 1.1; padding: 0.35rem 0.25rem; }

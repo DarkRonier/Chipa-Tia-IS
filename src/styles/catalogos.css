@@ -21,10 +21,8 @@
 }
 
 .acciones-cat { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.25rem; margin-right: -0.4rem; }
-.acciones-cat .btn-texto { min-height: 40px; }
 .acciones-cat.con-botones { gap: 0.4rem; margin-right: 0; }
 .acciones-cat .btn-secundario { width: auto; min-height: 40px; padding: 0.35rem 0.9rem; margin: 0; border-width: 1px; font-size: 0.92rem; }
-@media (max-width: 480px) { .acciones-cat .btn-texto { font-size: 0.92rem; } }
 
 .etiqueta {
   display: inline-block; font-size: 0.75rem; line-height: 1.4; padding: 0.1rem 0.55rem; border-radius: 999px;
@@ -38,7 +36,6 @@
 .editor .ancho { grid-column: 1 / -1; }
 .botones-cat { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; grid-column: 1 / -1; }
 .botones-cat .btn-primario { width: auto; min-height: 48px; }
-.botones-cat .btn-texto { min-height: 44px; }
 .botones-cat .btn-secundario { width: auto; min-height: 48px; margin: 0; }
 .pista-campo { font-size: 0.8rem; color: var(--suave); }
 .pista-campo.ancho { grid-column: 1 / -1; margin: 0; }

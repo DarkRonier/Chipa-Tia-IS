@@ -23,7 +23,6 @@
 .lot-tabla td { vertical-align: top; }
 .lot-tabla .lot-col-estado { width: 7.5rem; }
 .lot-tabla .lot-sub { color: var(--suave); font-size: 0.82rem; margin-top: 0.15rem; }
-.lot-tabla .btn-texto { padding: 0.5rem 0.2rem; min-height: 40px; }
 .lot-tabla tr.lot-con-confirmacion td { border-bottom: none; }
 .lot-confirmar td { background: var(--aviso); }
 .lot-confirmar p { margin: 0 0 0.5rem; }
@@ -34,9 +33,7 @@
 .lot-mp-usados li { background: var(--fondo); border: 1px solid var(--borde); border-radius: 6px; padding: 0.1rem 0.4rem; }
 .lot-tabla tr.lot-fila-lote td { border-bottom: none; padding-bottom: 0.3rem; }
 .lot-tabla tr.lot-fila-mp td { padding-top: 0; }
-.lot-tabla a, .lot-cadena a { color: var(--marca-texto); }
 .lot-codigo { font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
-a.lot-codigo { color: var(--marca-texto); display: inline-block; padding: 0.15rem 0; }
 .lot-fechas { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem; }
 .lot-mas { margin-top: 0.5rem; }
 
@@ -74,7 +71,6 @@ a.lot-codigo { color: var(--marca-texto); display: inline-block; padding: 0.15re
 .lot-vacio { padding: 0.75rem; background: var(--superficie); border: 1px dashed var(--borde); border-radius: 10px; color: var(--suave); }
 .lot-lista-mp { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
 .lot-lista-mp li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.25rem 0.5rem; }
-.lot-lista-mp a { color: var(--marca-texto); font-weight: 600; }
 .lot-modos button { font-size: 0.9rem; line-height: 1.15; padding: 0.3rem 0.2rem; }
 
 /* E03/E10: saldo de cada lote y avisos de vencimiento. */

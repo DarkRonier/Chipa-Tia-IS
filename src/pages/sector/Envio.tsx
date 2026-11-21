@@ -140,7 +140,7 @@ function Formulario() {
         {() => !hayParaEnviar ? (
           <p className="suave">
             No hay nada en «{nombreSucursales}», que es de donde salen los envíos.
-            {enOtros.length > 0 && <> Hay en {enOtros.map((d) => `«${d.nombre}»`).join(' y ')}: pasalo con «Transferir» en <Link to="/sector/stock">Stock</Link>.</>}
+            {enOtros.length > 0 && <> Hay en {enOtros.map((d) => `«${d.nombre}»`).join(' y ')}: pasalo con «Transferir» en <Link className="btn-discreto chico" to="/sector/stock">Stock</Link>.</>}
           </p>
         ) : (
           <>

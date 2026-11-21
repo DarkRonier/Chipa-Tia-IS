@@ -203,7 +203,7 @@ function Pantalla() {
             <TablaMovimientos movimientos={lista.slice(0, RECIENTES)} />
             {lista.length > RECIENTES && (
               <p className="suave chico">
-                Se muestran los últimos {RECIENTES}. <Link to="/admin/historial">Ver todo en el historial</Link>.
+                Se muestran los últimos {RECIENTES}. <Link className="btn-discreto chico" to="/admin/historial">Ver todo en el historial</Link>.
               </p>
             )}
           </>

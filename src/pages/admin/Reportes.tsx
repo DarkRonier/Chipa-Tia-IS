@@ -308,7 +308,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
             ]}>
               {r.lotesChipa.map((l) => (
                 <tr key={l.id}>
-                  <td className="rep-nowrap"><Link to={`/trazabilidad?lote=${encodeURIComponent(l.codigo)}`}>{l.codigo}</Link></td>
+                  <td className="rep-nowrap"><Link className="btn-discreto chico" to={`/trazabilidad?lote=${encodeURIComponent(l.codigo)}`}>{l.codigo}</Link></td>
                   <td data-etiqueta="Día" className="rep-medio rep-nowrap">{diaLegible(l.dia)}</td>
                   <td data-etiqueta="Horno" className="num rep-medio">{num(l.horno)}</td>
                   <td data-etiqueta="Congelador" className="num rep-medio">{num(l.congelador)}</td>
@@ -351,7 +351,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
                 )),
               ])}
             </Tabla>
-            <p className="chico"><Link to="/admin/controles">Ver las limpiezas y dar el visto bueno</Link></p>
+            <p className="chico"><Link className="btn-discreto" to="/admin/controles">Ver las limpiezas y dar el visto bueno</Link></p>
           </>
         )}
       </Seccion>
@@ -517,8 +517,8 @@ function ResumenPorCorreo({ verPeriodo }: { verPeriodo: (desde: string, hasta: s
         </p>
         <p className="rep-nota">
           {config.datos === undefined ? 'Buscando el correo configurado…'
-            : destino ? <>Se envía a <strong>{destino}</strong>. <Link to="/admin/datos">Cambiar</Link></>
-              : <>Todavía no hay un correo para los resúmenes. <Link to="/admin/datos">Cargalo en Datos</Link>.</>}
+            : destino ? <>Se envía a <strong>{destino}</strong>. <Link className="btn-discreto chico" to="/admin/datos">Cambiar</Link></>
+              : <>Todavía no hay un correo para los resúmenes. <Link className="btn-discreto chico" to="/admin/datos">Cargalo en Datos</Link>.</>}
         </p>
         <button type="button" className="btn-secundario" onClick={() => void mandar()} disabled={enviar.enviando}>
           {enviar.enviando ? 'Armando el resumen…' : 'Enviar resumen de prueba'}
