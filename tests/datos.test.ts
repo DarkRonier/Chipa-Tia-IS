@@ -110,7 +110,7 @@ describe('descargar todos los datos (I03)', () => {
     expect(tablas.movimientos).toHaveLength(1)
     expect(tablas.productos.length).toBeGreaterThan(40)
     // Usuarios sin el hash de la contraseña.
-    expect(tablas.usuarios).toHaveLength(7)
+    expect(tablas.usuarios).toHaveLength(8)
     expect(tablas.usuarios[0]).toEqual(expect.objectContaining({ usuario: 'chiperia', rol: 'chiperia' }))
     for (const u of tablas.usuarios) expect(Object.keys(u)).not.toContain('clave_hash')
     expect(JSON.stringify(r.body)).not.toMatch(/pbkdf2/)

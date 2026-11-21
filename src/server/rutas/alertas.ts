@@ -24,7 +24,7 @@ export async function todasLasAlertas(db: BaseD1, sector: SectorId | null, rol: 
   const nada = Promise.resolve<Alerta[]>([])
   const conLotes = (sector === null || sector === 'chiperia') && ve('lotes.ver')
   const [caja, fijos, compras, lotes, limpieza, incidencias] = await Promise.all([
-    ve('caja.operar') ? alertasCaja(db) : nada,
+    ve('caja.operar') ? alertasCaja(db, rol) : nada,
     ve('ie.completo') ? alertasGastosFijos(db) : nada,
     ve('compras.pagar') ? alertasCompras(db) : nada,
     conLotes ? alertasLotes(db) : nada,

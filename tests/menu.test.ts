@@ -97,6 +97,7 @@ describe('menú lateral', () => {
 
   it('el cajero ve la caja y los depósitos (cuánto hay y cuánto se vendió)', () => {
     expect(rutas('cajero')).toEqual(['/caja', '/depositos'])
+    expect(rutas('caja_comedor')).toEqual(['/caja', '/depositos'])
   })
 
   it('Depósitos está en los accesos de Producción', () => {

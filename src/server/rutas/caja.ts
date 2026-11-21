@@ -1,21 +1,22 @@
 // M11–M13: caja, ventas y factura preimpresa. Lo usan el cajero y el administrador (que no vende).
-// - Caja: una sola caja operativa, como mucho una abierta (índice único). Se abre con un fondo inicial en efectivo;
+// - Caja: dos cajas, la del frente (cajero) y la del comedor (Caja Comedor, Mati 2026-11-21); como mucho una abierta
+//   de cada una (índice único por punto). El administrador elige cuál mira con ?punto=frente|comedor. Se abre con un fondo inicial en efectivo;
 //   cada venta, ingreso y retiro suma o resta en su medio de pago; el arqueo compara el efectivo contado con el
 //   esperado; el cierre guarda esperado, contado y diferencia.
 // - Ventas: al contado, con productos, cantidades, precios del catálogo, descuento, medio de pago (o varias
 //   partes de distintos medios: pago híbrido) y cliente opcional.
 //   Solo con la caja abierta. Las registra solo el cajero (Mati, 2026-11-21: el administrador y el supervisor no
-//   venden). Todo lo vendido descuenta del depósito Venta frente (en Chipería, de los lotes más viejos primero). La
+//   venden). Todo lo vendido descuenta del depósito Venta frente (en la caja del comedor, de Venta comedor) (en Chipería, de los lotes más viejos primero). La
 //   venta nunca se frena por stock: si no estaba cargado, el depósito queda en negativo a la vista.
 // - Factura preimpresa: numeración propia (prefijo y número), una por venta; se puede reimprimir con el mismo número.
-import { Hono, type MiddlewareHandler } from 'hono'
+import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import type { Alerta } from '../../shared/alertas'
 import { diaLegible } from '../../shared/hora'
 import { puede } from '../../shared/permisos'
 import {
-  DEPOSITO, MEDIO_CON_BANCO, MEDIOS_PAGO,
+  DEPOSITO, MEDIO_CON_BANCO, MEDIOS_PAGO, NOMBRE_PUNTO_CAJA, PUNTOS_CAJA,
   type Arqueo, type Caja, type ConfigFactura, type Factura, type Iva, type MedioPago, type MovimientoCaja, type PartePago, type ProductoVenta,
-  type SectorId, type TotalesMedio, type Venta, type VentaItem,
+  type PuntoCaja, type Rol, type SectorId, type TotalesMedio, type Venta, type VentaItem,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
@@ -77,9 +78,28 @@ export const medioPrincipal = (partes: PartePago[]): MedioPago =>
 export const esCajaCerrada = (e: unknown) => e instanceof Error && e.message.includes('CAJA_CERRADA')
 export const cajaCerradaError = () => conflicto('caja_cerrada', 'La caja está cerrada. Abrila para seguir.')
 
-/** La caja abierta, o null. */
-export async function cajaAbierta(db: BaseD1): Promise<{ id: string; dia: string } | null> {
-  return una<{ id: string; dia: string }>(db, 'SELECT id, dia FROM cajas WHERE cerrada_en IS NULL LIMIT 1')
+/**
+ * Caja de quien pide: el cajero maneja la del frente y Caja Comedor la del comedor. El administrador (que no vende)
+ * elige cuál mira con ?punto=; si no dice, la del frente.
+ */
+export function puntoDe(rol: Rol, pedido?: unknown): PuntoCaja {
+  if (rol === 'caja_comedor') return 'comedor'
+  if (rol === 'cajero') return 'frente'
+  return pedido === 'comedor' ? 'comedor' : 'frente'
+}
+
+const puntoDelPedido = (c: Context<Entorno>) => puntoDe(c.get('usuario').rol, c.req.query('punto'))
+
+/** Si quien pide es una de las cajas, solo toca lo de su propia caja. */
+function soloSuCaja(rol: Rol, punto: PuntoCaja) {
+  if ((rol === 'cajero' || rol === 'caja_comedor') && puntoDe(rol) !== punto) {
+    throw prohibido(`Eso es de la ${NOMBRE_PUNTO_CAJA[punto].toLowerCase()}.`)
+  }
+}
+
+/** La caja abierta de un punto (la del frente si no se dice), o null. Pagos a proveedores e I/E usan la del frente. */
+export async function cajaAbierta(db: BaseD1, punto: PuntoCaja = 'frente'): Promise<{ id: string; dia: string } | null> {
+  return una<{ id: string; dia: string }>(db, 'SELECT id, dia FROM cajas WHERE cerrada_en IS NULL AND punto = ? LIMIT 1', punto)
 }
 
 /** Movimiento de caja automático o manual (va en el mismo batch que lo que lo origina). */
@@ -112,6 +132,7 @@ export async function sentenciasAnularMovimientoCaja(db: BaseD1, id: string | nu
 
 interface FilaCaja {
   id: string
+  punto: PuntoCaja
   abierta_por_nombre: string
   abierta_en: string
   dia: string
@@ -124,7 +145,7 @@ interface FilaCaja {
   nota_cierre: string
 }
 
-const SQL_CAJA = `SELECT c.id, a.nombre AS abierta_por_nombre, c.abierta_en, c.dia, c.fondo_inicial, z.nombre AS cerrada_por_nombre,
+const SQL_CAJA = `SELECT c.id, c.punto, a.nombre AS abierta_por_nombre, c.abierta_en, c.dia, c.fondo_inicial, z.nombre AS cerrada_por_nombre,
     c.cerrada_en, c.contado_efectivo, c.esperado_efectivo, c.diferencia, c.nota_cierre
   FROM cajas c JOIN usuarios a ON a.id = c.abierta_por LEFT JOIN usuarios z ON z.id = c.cerrada_por`
 
@@ -172,6 +193,7 @@ export async function leerCajas(db: BaseD1, where = '', ...params: ValorSQL[]): 
     const esperado = t.totales.find((x) => x.medio === 'efectivo')!.esperado
     return {
       id: f.id,
+      punto: f.punto,
       abierta: f.cerrada_en === null,
       abiertaPorNombre: f.abierta_por_nombre,
       abiertaEn: f.abierta_en,
@@ -218,17 +240,17 @@ async function detalleCaja(db: BaseD1, id: string): Promise<Caja> {
   return caja
 }
 
-async function cajaAbiertaObligatoria(db: BaseD1) {
-  const c = await cajaAbierta(db)
+async function cajaAbiertaObligatoria(db: BaseD1, punto: PuntoCaja) {
+  const c = await cajaAbierta(db, punto)
   if (!c) throw cajaCerradaError()
   return c
 }
 
-const SOLO_CAJA = 'La caja la manejan el cajero y el administrador.'
+const SOLO_CAJA = 'La caja la manejan el cajero, la caja del comedor y el administrador.'
 
 /** La caja abierta con sus movimientos y arqueos, o null si está cerrada. */
 rutasCaja.get('/caja', requiere('caja.operar', SOLO_CAJA), async (c) => {
-  const abierta = await cajaAbierta(c.env.DB)
+  const abierta = await cajaAbierta(c.env.DB, puntoDelPedido(c))
   return c.json<Caja | null>(abierta ? await detalleCaja(c.env.DB, abierta.id) : null)
 })
 
@@ -237,12 +259,13 @@ rutasCaja.post('/caja/abrir', requiere('caja.operar', SOLO_CAJA), async (c) => {
   const u = c.get('usuario')
   const b = await cuerpo(c)
   const fondo = importeGs(b.fondoInicial ?? 0, 'el fondo inicial', 0)
-  if (await cajaAbierta(db)) throw conflicto('caja_abierta', 'La caja ya está abierta.')
+  const punto = puntoDelPedido(c)
+  if (await cajaAbierta(db, punto)) throw conflicto('caja_abierta', 'La caja ya está abierta.')
   const id = nuevoId()
   const { fecha, dia } = ahora()
   try {
     await db.batch([
-      sentencia(db, 'INSERT INTO cajas (id, abierta_por, abierta_en, dia, fondo_inicial) VALUES (?, ?, ?, ?, ?)', id, u.id, fecha, dia, fondo),
+      sentencia(db, 'INSERT INTO cajas (id, punto, abierta_por, abierta_en, dia, fondo_inicial) VALUES (?, ?, ?, ?, ?, ?)', id, punto, u.id, fecha, dia, fondo),
     ])
   } catch (e) {
     if (e instanceof Error && /UNIQUE/i.test(e.message)) throw conflicto('caja_abierta', 'La caja ya está abierta.')
@@ -255,7 +278,7 @@ rutasCaja.post('/caja/movimientos', requiere('caja.operar', SOLO_CAJA), async (c
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
-  const caja = await cajaAbiertaObligatoria(db)
+  const caja = await cajaAbiertaObligatoria(db, puntoDelPedido(c))
   if (b.tipo !== 'ingreso' && b.tipo !== 'retiro') throw invalido('Elegí si es un ingreso o un retiro.')
   const importe = importeGs(b.importe, 'el importe')
   const medio = vacio(b.medio) ? 'efectivo' : medioPago(b.medio)
@@ -275,10 +298,11 @@ rutasCaja.post('/caja/movimientos', requiere('caja.operar', SOLO_CAJA), async (c
 rutasCaja.post('/caja/movimientos/:id/anular', requiere('caja.operar', SOLO_CAJA), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
-  const m = await una<{ caja_id: string; origen: string; anulado_en: string | null; cerrada_en: string | null }>(
-    db, 'SELECT m.caja_id, m.origen, m.anulado_en, c.cerrada_en FROM caja_movimientos m JOIN cajas c ON c.id = m.caja_id WHERE m.id = ?', c.req.param('id'),
+  const m = await una<{ caja_id: string; origen: string; anulado_en: string | null; cerrada_en: string | null; punto: PuntoCaja }>(
+    db, 'SELECT m.caja_id, m.origen, m.anulado_en, c.cerrada_en, c.punto FROM caja_movimientos m JOIN cajas c ON c.id = m.caja_id WHERE m.id = ?', c.req.param('id'),
   )
   if (!m) throw noEncontrado('No se encontró ese movimiento.')
+  soloSuCaja(u.rol, m.punto)
   if (m.origen !== 'manual') throw conflicto('movimiento_automatico', 'Ese movimiento viene de otro módulo: anulalo desde ahí (pago a proveedor o Ingresos y egresos).')
   if (m.cerrada_en) throw cajaCerradaError()
   if (m.anulado_en) throw conflicto('ya_anulado', 'Ese movimiento ya está anulado.')
@@ -287,8 +311,8 @@ rutasCaja.post('/caja/movimientos/:id/anular', requiere('caja.operar', SOLO_CAJA
 })
 
 /** Arqueo (o cierre): compara el efectivo contado con el esperado. */
-async function arquear(db: BaseD1, usuarioId: string, b: Record<string, unknown>, esCierre: boolean) {
-  const caja = await cajaAbiertaObligatoria(db)
+async function arquear(db: BaseD1, punto: PuntoCaja, usuarioId: string, b: Record<string, unknown>, esCierre: boolean) {
+  const caja = await cajaAbiertaObligatoria(db, punto)
   const contado = importeGs(b.contado, 'el efectivo contado', 0)
   const nota = textoOpcional(b.nota, 'La nota', 300) ?? ''
   const [actual] = await leerCajas(db, 'WHERE c.id = ?', caja.id)
@@ -318,11 +342,11 @@ async function arquear(db: BaseD1, usuarioId: string, b: Record<string, unknown>
 }
 
 rutasCaja.post('/caja/arqueos', requiere('caja.operar', SOLO_CAJA), async (c) => {
-  return c.json<Caja>(await arquear(c.env.DB, c.get('usuario').id, await cuerpo(c), false))
+  return c.json<Caja>(await arquear(c.env.DB, puntoDelPedido(c), c.get('usuario').id, await cuerpo(c), false))
 })
 
 rutasCaja.post('/caja/cerrar', requiere('caja.operar', SOLO_CAJA), async (c) => {
-  return c.json<Caja>(await arquear(c.env.DB, c.get('usuario').id, await cuerpo(c), true))
+  return c.json<Caja>(await arquear(c.env.DB, puntoDelPedido(c), c.get('usuario').id, await cuerpo(c), true))
 })
 
 /** Historial de cajas (administrador). */
@@ -341,11 +365,21 @@ rutasCaja.get('/cajas/:id', requiere('caja.operar', SOLO_CAJA), async (c) => {
   return c.json<Caja>(await detalleCaja(c.env.DB, c.req.param('id')))
 })
 
-/** Caja abierta desde un día anterior: aviso para quien maneja la caja. */
-export async function alertasCaja(db: BaseD1): Promise<Alerta[]> {
-  const c = await cajaAbierta(db)
-  if (!c || c.dia >= ahora().dia) return []
-  return [{ tipo: 'caja_sin_cerrar', sector: null, texto: `La caja está abierta desde el ${diaLegible(c.dia)}: arqueala y cerrala.`, enlace: '/caja' }]
+/** Caja abierta desde un día anterior: aviso para quien la maneja (el administrador ve las dos). */
+export async function alertasCaja(db: BaseD1, rol: Rol): Promise<Alerta[]> {
+  const puntos = rol === 'cajero' || rol === 'caja_comedor' ? [puntoDe(rol)] : PUNTOS_CAJA
+  const hoy = ahora().dia
+  const r: Alerta[] = []
+  for (const punto of puntos) {
+    const c = await cajaAbierta(db, punto)
+    if (!c || c.dia >= hoy) continue
+    const cual = rol === 'admin' ? NOMBRE_PUNTO_CAJA[punto] : 'La caja'
+    r.push({
+      tipo: 'caja_sin_cerrar', sector: null, texto: `${cual} está abierta desde el ${diaLegible(c.dia)}: arqueala y cerrala.`,
+      enlace: punto === 'comedor' && rol === 'admin' ? '/caja?punto=comedor' : '/caja',
+    })
+  }
+  return r
 }
 
 // ---------- Ventas (M11) ----------
@@ -360,17 +394,29 @@ interface FilaProductoVenta {
   activo: number
   con_lotes: number
   sin_stock: number
-  /** Depósito del que sale al venderlo: Venta frente, o Materia prima para la materia prima que se vende (la leche). */
+  /** Depósito del que sale al venderlo: Venta frente (o Venta comedor), o Materia prima para la materia prima que se vende (la leche). */
   deposito_id: string
+  /** La caja del comedor vende solo las categorías de Venta comedor. */
+  en_esta_caja: number
+  categoria: string | null
   stock: number
 }
 
 // Cualquier producto con precio de venta se vende (Mati, 2026-11-21): también la materia prima, como la leche. La
 // materia prima se compra al depósito Materia prima, así que al venderla sale de ahí; lo demás sale de Venta frente.
-const DEPOSITO_DE_VENTA = `CASE p.tipo WHEN 'materia_prima' THEN '${DEPOSITO.materiaPrima}' ELSE '${DEPOSITO.venta}' END`
-const SQL_PRODUCTO_VENTA = `SELECT p.id, p.nombre, p.sector, s.nombre AS sector_nombre, p.precio_venta, p.iva, p.activo, s.con_lotes, p.sin_stock,
-    ${DEPOSITO_DE_VENTA} AS deposito_id,
-    COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.deposito_id = ${DEPOSITO_DE_VENTA}), 0) AS stock
+// En la caja del comedor, lo que no es materia prima sale de Venta comedor.
+const depositoDeVenta = (punto: PuntoCaja) =>
+  `CASE p.tipo WHEN 'materia_prima' THEN '${DEPOSITO.materiaPrima}' ELSE '${punto === 'comedor' ? DEPOSITO.comedor : DEPOSITO.venta}' END`
+// La caja del comedor vende solo lo de las categorías que recibe Venta comedor (buffet, bebidas…); sin categoría
+// cuenta como «Otros». La del frente vende todo lo que tiene precio, como siempre.
+const sqlProductoVenta = (punto: PuntoCaja) => `SELECT p.id, p.nombre, p.sector, s.nombre AS sector_nombre, p.precio_venta, p.iva, p.activo, s.con_lotes, p.sin_stock,
+    ${depositoDeVenta(punto)} AS deposito_id,
+    ${punto === 'comedor'
+      ? `EXISTS (SELECT 1 FROM deposito_categorias dc WHERE dc.deposito_id = '${DEPOSITO.comedor}'
+           AND dc.categoria_id = COALESCE(p.categoria_id, (SELECT id FROM categorias WHERE sistema = 1 ORDER BY orden LIMIT 1)))`
+      : '1'} AS en_esta_caja,
+    (SELECT nombre FROM categorias WHERE id = p.categoria_id) AS categoria,
+    COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.deposito_id = ${depositoDeVenta(punto)}), 0) AS stock
   FROM productos p JOIN sectores s ON s.id = p.sector`
 
 /** Ver las ventas: el cajero (las de la caja abierta) y quien ve los reportes detallados (el administrador). */
@@ -382,7 +428,7 @@ const verVentas: MiddlewareHandler<Entorno> = async (c, next) => {
 
 rutasCaja.get('/ventas/productos', requiere('ventas.registrar'), async (c) => {
   const filas = await todas<FilaProductoVenta>(
-    c.env.DB, `${SQL_PRODUCTO_VENTA} WHERE p.activo = 1 AND p.precio_venta IS NOT NULL ORDER BY s.orden, p.orden, p.nombre`,
+    c.env.DB, `${sqlProductoVenta(puntoDelPedido(c))} WHERE p.activo = 1 AND p.precio_venta IS NOT NULL AND en_esta_caja ORDER BY s.orden, p.orden, p.nombre`,
   )
   return c.json<ProductoVenta[]>(filas.map((f) => ({
     id: f.id, nombre: f.nombre, sector: f.sector, sectorNombre: f.sector_nombre, precio: f.precio_venta!, iva: f.iva,
@@ -486,8 +532,8 @@ rutasCaja.get('/ventas', verVentas, async (c) => {
     partes.push('v.caja_id = ?')
     params.push(texto(q.caja, 'la caja', { max: 100 }))
   } else if (!puede(c.get('usuario').rol, 'reportes.detallados')) {
-    // El cajero ve las ventas de la caja abierta.
-    const abierta = await cajaAbierta(db)
+    // El cajero (o la caja del comedor) ve las ventas de su caja abierta.
+    const abierta = await cajaAbierta(db, puntoDelPedido(c))
     if (!abierta) return c.json<Venta[]>([])
     partes.push('v.caja_id = ?')
     params.push(abierta.id)
@@ -505,12 +551,13 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
-  const caja = await cajaAbiertaObligatoria(db)
+  const punto = puntoDe(u.rol)
+  const caja = await cajaAbiertaObligatoria(db, punto)
   if (!Array.isArray(b.items) || b.items.length === 0) throw invalido('Agregá al menos un producto a la venta.')
   if (b.items.length > MAX_RENGLONES) throw invalido('Son demasiados productos en una sola venta.')
   const crudos = (b.items as unknown[]).map((x) => (x && typeof x === 'object' ? x : {}) as Record<string, unknown>)
   const ids = crudos.map((x) => texto(x.productoId, 'el producto', { max: 100 }))
-  const productos = new Map((await todasPorTrozos<FilaProductoVenta>(db, ids, (m) => `${SQL_PRODUCTO_VENTA} WHERE p.id IN (${m})`)).map((p) => [p.id, p]))
+  const productos = new Map((await todasPorTrozos<FilaProductoVenta>(db, ids, (m) => `${sqlProductoVenta(punto)} WHERE p.id IN (${m})`)).map((p) => [p.id, p]))
   // Un mismo producto en varias líneas se junta.
   const juntas = new Map<string, number>()
   crudos.forEach((x, i) => {
@@ -518,6 +565,10 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
     if (!p) throw invalido('Ese producto no existe. Recargá la página y probá de nuevo.')
     if (!p.activo) throw invalido(`${p.nombre} está desactivado.`)
     if (p.precio_venta === null) throw invalido(`${p.nombre} no tiene precio de venta. Pedile al administrador que lo cargue.`)
+    if (!p.en_esta_caja) {
+      throw invalido(`La caja del comedor no vende ${p.categoria ?? 'Otros'}, así que ${p.nombre} no va acá. ` +
+        'Lo vende la caja del frente, o el administrador suma esa categoría a «Venta comedor» en Depósitos.')
+    }
     const n = x.cantidad
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 100_000) throw invalido(`La cantidad de ${p.nombre} tiene que ser un número entero mayor que cero.`)
     juntas.set(p.id, (juntas.get(p.id) ?? 0) + n)
@@ -599,7 +650,8 @@ rutasCaja.post('/ventas/:id/anular', requiere('ventas.anular'), async (c) => {
   const motivo = texto(b.motivo, 'el motivo', { max: 300 })
   const venta = await unaVenta(db, c.req.param('id'))
   if (venta.anulada) throw conflicto('venta_anulada', 'Esa venta ya está anulada.')
-  const caja = await una<{ cerrada_en: string | null }>(db, 'SELECT cerrada_en FROM cajas WHERE id = ?', venta.cajaId)
+  const caja = await una<{ cerrada_en: string | null; punto: PuntoCaja }>(db, 'SELECT cerrada_en, punto FROM cajas WHERE id = ?', venta.cajaId)
+  if (caja) soloSuCaja(u.rol, caja.punto)
   if (caja?.cerrada_en) throw conflicto('caja_cerrada', 'Esa venta es de una caja que ya se cerró: no se puede anular.')
   const movs = await todas<{ sector: SectorId; producto_id: string; deposito_id: string; lote: string | null; cantidad: number }>(
     db, `SELECT sector, producto_id, deposito_id, lote, cantidad FROM movimientos WHERE venta_id = ? AND tipo = 'venta'`, venta.id,

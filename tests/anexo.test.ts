@@ -136,11 +136,11 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     expect((await pedir(null, 'GET', '/producciones')).status).toBe(401)
   })
 
-  it('A02 · hay 7 roles: los 4 sectores, supervisor, cajero y el administrador', async () => {
+  it('A02 · hay 8 roles: los 4 sectores, supervisor, cajero, caja comedor y el administrador', async () => {
     const r = await pedir<Usuario[]>(tk.admin, 'GET', '/usuarios')
     expect(r.status).toBe(200)
     expect([...new Set(r.body.map((u) => u.rol))].sort()).toEqual([...ROLES].sort())
-    expect(ROLES).toEqual([...SECTOR_IDS, 'supervisor', 'cajero', 'admin'])
+    expect(ROLES).toEqual([...SECTOR_IDS, 'supervisor', 'cajero', 'caja_comedor', 'admin'])
     const sectores = await pedir<Sector[]>(tk.admin, 'GET', '/sectores')
     expect(sectores.body.map((s) => s.id)).toEqual(SECTOR_IDS)
     expect((await pedir(tk.cocina, 'GET', '/usuarios')).status).toBe(403)
