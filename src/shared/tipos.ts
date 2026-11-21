@@ -26,8 +26,25 @@ export type TipoMovimiento =
  */
 export const DEPOSITO = { venta: 'venta', comedor: 'comedor', frio: 'frio', materiaPrima: 'materia_prima' } as const
 
-/** Venta directa (frente, comedor) o almacén (en frío, materia prima). */
+/**
+ * Tipo de depósito (Mati, 2026-11-21): venta directa (Venta frente, Venta comedor) o depósito frío ('almacen' en la
+ * base: cámaras, freezers, Materia prima…). Las sucursales son el tercer tipo, pero no tienen stock: viven en su tabla.
+ */
 export type TipoDeposito = 'venta' | 'almacen'
+export const NOMBRE_TIPO_DEPOSITO: Record<TipoDeposito | 'sucursal', string> = {
+  venta: 'Venta directa',
+  almacen: 'Depósito frío',
+  sucursal: 'Sucursal',
+}
+
+/** Última medición de la máquina vinculada a un depósito frío. */
+export interface MedicionDeposito {
+  fecha: string
+  temperatura: number | null
+  estado: EstadoMaquina
+  fueraDeRango: boolean
+  usuarioNombre: string
+}
 
 export interface Deposito {
   id: string
@@ -37,6 +54,10 @@ export interface Deposito {
   sistema: boolean
   activo: boolean
   tipo: TipoDeposito
+  /** Depósito frío: máquina vinculada (opcional), con su rango y su última medición. */
+  maquina: { id: string; nombre: string; tempMin: number | null; tempMax: number | null; ultima: MedicionDeposito | null } | null
+  /** Venta directa: categorías de producto que admite. Vacío en los fríos (admiten cualquiera). */
+  categorias: string[]
 }
 export type TipoAjuste = 'merma' | 'vencimiento' | 'ajuste' | 'stock_inicial'
 export type Marca = 'X' | 'XX' | '-'

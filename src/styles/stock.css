@@ -77,14 +77,11 @@
 }
 
 /* Stock por depósito */
-.segmentado.stk-depositos { flex-wrap: wrap; margin-bottom: 0.75rem; }
-.segmentado.stk-depositos button { flex: 1 1 auto; white-space: nowrap; padding-inline: 0.75rem; }
 .stk-de-a { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.5rem; align-items: end; }
 .stk-de-a select { min-width: 0; }
 .stk-flecha { padding-bottom: 0.65rem; color: var(--suave); font-size: 1.2rem; }
 
 /* Pantalla Depósitos */
-.segmentado.stk-depositos .stk-nuevo { border-style: dashed; color: var(--marca-texto); }
 .stk-cabeza { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 0.5rem 1rem; margin: 0.25rem 0 0.75rem; }
 .stk-cabeza h2 { margin: 0 0 0.15rem; }
 .stk-cabeza p { margin: 0; }
@@ -98,3 +95,51 @@
 .stk-unidad { display: block; font-size: 0.75rem; font-weight: 400; color: var(--suave); }
 .stk-ver-lotes summary { cursor: pointer; font-size: 0.82rem; color: var(--marca-texto); margin-top: 0.2rem; width: fit-content; }
 .stk-cabeza-acciones a { text-decoration: none; }
+
+/* Depósitos por tipo (2026-11-21): pestañas de tipo, lista de depósitos y temperatura de los fríos */
+.segmentado.stk-tipos-deposito button { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+.stk-cuenta {
+  display: inline-block; min-width: 1.5rem; padding: 0 0.4rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600;
+  background: var(--fondo); color: var(--suave);
+}
+.stk-alerta-punto { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--error); }
+.stk-explica { margin: 0 0 0.75rem; }
+.stk-lista { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.stk-lista .tarjeta { margin: 0; }
+button.stk-item {
+  width: 100%; height: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; gap: 0.3rem; align-content: start;
+  transition: border-color 0.15s, transform 0.15s;
+}
+button.stk-item:hover { border-color: var(--acento); }
+button.stk-item:focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; }
+.stk-item-cabeza { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-size: 1.05rem; }
+.stk-item-cabeza .flecha { color: var(--suave); flex: none; }
+button.stk-item-nuevo { border-style: dashed; color: var(--marca-texto); font-weight: 600; place-content: center; min-height: 96px; text-align: center; box-shadow: none; }
+.stk-temp-chip {
+  justify-self: start; font-size: 0.82rem; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--fondo); border: 1px solid var(--borde);
+}
+.stk-temp-chip.stk-temp-bien { background: var(--ok-fondo); color: var(--ok); border-color: transparent; }
+.stk-temp-chip.stk-temp-mal { background: var(--error-fondo); color: var(--error); border-color: var(--error); font-weight: 600; }
+.stk-temp-chip.stk-temp-vieja, .stk-temp-chip.stk-temp-sin_medir { background: var(--aviso); border-color: transparent; }
+.btn-discreto.stk-volver { display: inline-flex; align-items: center; gap: 0.25rem; margin: 0 0 0.5rem; padding-left: 0.25rem; }
+.stk-volver .flecha { width: 18px; height: 18px; }
+.stk-tipo-etiqueta { vertical-align: middle; font-weight: 600; margin-left: 0.3rem; }
+.stk-recibe { margin: 0.3rem 0 0; }
+.tarjeta.stk-temp { gap: 0.5rem; }
+.tarjeta.stk-temp.stk-temp-mal { border: 2px solid var(--error); background: var(--error-fondo); }
+.tarjeta.stk-temp.stk-temp-bien { border-left: 4px solid var(--ok); }
+.tarjeta.stk-temp.stk-temp-vieja, .tarjeta.stk-temp.stk-temp-sin_medir { border-left: 4px solid var(--acento); }
+.stk-temp-fila { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.stk-temp-valor { text-align: right; }
+.stk-temp-valor strong { font-size: 1.8rem; line-height: 1.1; }
+.stk-temp-mal .stk-temp-valor strong { color: var(--error); }
+.stk-temp-aviso { margin: 0; color: var(--error); }
+.stk-temp-aviso strong { color: var(--error); }
+.stk-temp-nota { margin: 0; }
+.stk-temp .btn-discreto { justify-self: start; }
+.stk-categorias { border: none; padding: 0; margin: 0 0 0.75rem; display: grid; gap: 0.35rem; }
+.stk-categorias legend { font-weight: 600; padding: 0; margin-bottom: 0.2rem; }
+@media (max-width: 639px) {
+  .segmentado.stk-tipos-deposito button { font-size: 0.85rem; padding-inline: 0.3rem; flex-direction: column; gap: 0.1rem; }
+  .stk-temp-valor { text-align: left; }
+}

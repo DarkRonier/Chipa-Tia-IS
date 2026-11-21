@@ -123,7 +123,7 @@ describe('registrar producción (C01–C03)', () => {
     const aVenta = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: EMPANADA, cocinado: 0, guardado: 1, depositoId: 'venta' }] })
     expect(aVenta.body.error.mensaje).toBe('Lo guardado va a un almacén, no a «Venta frente».')
     const hornoAFrio = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', depositoVentaId: 'frio', items: [{ productoId: EMPANADA, cocinado: 1, guardado: 0 }] })
-    expect(hornoAFrio.body.error.mensaje).toBe('«Frío» no es un depósito de venta. Elegí Venta frente o Venta comedor.')
+    expect(hornoAFrio.body.error.mensaje).toBe('«Cámara 1» no es un depósito de venta. Elegí Venta frente o Venta comedor.')
     const malo = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: EMPANADA, cocinado: 0, guardado: 1, depositoId: 'nada' }] })
     expect(malo.status).toBe(400)
     expect(malo.body.error.mensaje).toBe('Ese depósito no existe. Recargá la página y probá de nuevo.')

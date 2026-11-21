@@ -1,5 +1,5 @@
 // Configuración de este aparato: tema claro / oscuro y, para el administrador, el acceso a cambiar su contraseña y los
-// ajustes avanzados (modo super-administrador: por un rato, con la contraseña, para crear y borrar almacenes).
+// ajustes avanzados (modo super-administrador: por un rato, con la contraseña, para crear y borrar depósitos fríos y sucursales).
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import Volver from '../components/Volver'
@@ -119,14 +119,14 @@ function AjustesAvanzados() {
       <summary>Ajustes avanzados</summary>
       {esSuper ? (
         <>
-          <p><strong>Modo super-administrador activo</strong> hasta las {hasta}. Ahora podés crear y borrar almacenes en Depósitos.</p>
+          <p><strong>Modo super-administrador activo</strong> hasta las {hasta}. Ahora podés crear y borrar depósitos fríos y sucursales en Depósitos.</p>
           <Aviso>{error}</Aviso>
           <button className="btn-secundario" disabled={enviando} onClick={() => void correr(salirSuper)}>Salir del modo super-administrador</button>
         </>
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); if (clave) void correr(() => activarSuper(clave)) }}>
           <p className="suave chico">
-            El modo super-administrador habilita cambios que se hacen cada tanto, como crear o borrar almacenes en frío.
+            El modo super-administrador habilita cambios que se hacen cada tanto, como crear o borrar depósitos fríos y sucursales.
             Dura 30 minutos y solo en este aparato.
           </p>
           <label className="campo">

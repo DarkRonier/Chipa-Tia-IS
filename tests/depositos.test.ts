@@ -37,9 +37,17 @@ describe('catálogo de depósitos', () => {
     expect(r.body.map((d) => [d.id, d.nombre, d.tipo, d.sistema])).toEqual([
       ['venta', 'Venta frente', 'venta', true],
       ['comedor', 'Venta comedor', 'venta', true],
-      ['frio', 'Frío', 'almacen', false],
+      ['frio', 'Cámara 1', 'almacen', false],
       ['materia_prima', 'Materia prima', 'almacen', true],
     ])
+    // Cada depósito de venta admite sus categorías; los fríos, cualquiera.
+    expect(r.body.map((d) => d.categorias)).toEqual([
+      ['cat-bocaditos', 'cat-sticks', 'cat-panificados', 'cat-bebidas', 'cat-amandau', 'cat-otros'],
+      ['cat-buffet', 'cat-bebidas'],
+      [],
+      [],
+    ])
+    expect(r.body.every((d) => d.maquina === null)).toBe(true)
     // El cajero también los ve (cuánto hay y cuánto se vendió).
     expect((await p.pedir(await p.entrar('cajero'), 'GET', '/stock?todos=1')).status).toBe(200)
     expect((await p.pedir(cocina, 'POST', '/depositos', { nombre: 'Cámara 2' })).status).toBe(403)
@@ -112,14 +120,14 @@ describe('transferencias', () => {
     const admin = await p.entrar('admin')
     const cocina = await p.entrar('cocina')
     await cargar(p, admin, EMPANADA, 10, 'frio')
-    const r = await p.pedir<Movimiento[]>(cocina, 'POST', '/transferencias', { productoId: EMPANADA, cantidad: 4, desde: 'frio', hacia: 'comedor' })
+    const r = await p.pedir<Movimiento[]>(cocina, 'POST', '/transferencias', { productoId: EMPANADA, cantidad: 4, desde: 'frio', hacia: 'venta' })
     expect(r.status).toBe(200)
-    expect(r.body.map((m) => [m.tipo, m.depositoId, m.cantidad])).toEqual([['transferencia', 'frio', -4], ['transferencia', 'comedor', 4]])
-    expect(await fila(p, cocina, 'cocina', EMPANADA)).toMatchObject({ total: 10, porDeposito: { frio: 6, comedor: 4 } })
+    expect(r.body.map((m) => [m.tipo, m.depositoId, m.cantidad])).toEqual([['transferencia', 'frio', -4], ['transferencia', 'venta', 4]])
+    expect(await fila(p, cocina, 'cocina', EMPANADA)).toMatchObject({ total: 10, porDeposito: { frio: 6, venta: 4 } })
     const historial = (await p.pedir<Movimiento[]>(cocina, 'GET', `/movimientos?producto=${EMPANADA}&tipo=transferencia`)).body
-    expect(historial.map((m) => [m.depositoId, m.cantidad, m.motivo])).toEqual([['frio', -4, 'De «Frío» a «Venta comedor»']])
+    expect(historial.map((m) => [m.depositoId, m.cantidad, m.motivo])).toEqual([['frio', -4, 'De «Cámara 1» a «Venta frente»']])
     // Filtrar por depósito.
-    expect((await p.pedir<Movimiento[]>(cocina, 'GET', `/movimientos?producto=${EMPANADA}&deposito=comedor`)).body).toEqual([])
+    expect((await p.pedir<Movimiento[]>(cocina, 'GET', `/movimientos?producto=${EMPANADA}&deposito=venta`)).body).toEqual([])
     expect((await p.pedir<Movimiento[]>(cocina, 'GET', `/movimientos?producto=${EMPANADA}&deposito=frio`)).body.map((m) => m.tipo))
       .toEqual(['transferencia', 'stock_inicial'])
   })
@@ -135,9 +143,9 @@ describe('transferencias', () => {
     expect((await pedir({ hacia: 'frio', desde: 'nada' })).status).toBe(400)
     const poco = await pedir({ desde: 'frio', hacia: 'venta', cantidad: 5 })
     expect(poco.status).toBe(409)
-    expect(poco.body.error.mensaje).toBe('No hay stock suficiente en «Frío»: de Empanada frita (carne) hay 3 y querés sacar 5.')
-    const otro = await pedir({ desde: 'comedor', hacia: 'venta' })
-    expect(otro.body.error.mensaje).toBe('No hay stock de Empanada frita (carne) en «Venta comedor». En «Frío» hay 3: pasalo con «Transferir» en Depósitos si querés usarlo.')
+    expect(poco.body.error.mensaje).toBe('No hay stock suficiente en «Cámara 1»: de Empanada frita (carne) hay 3 y querés sacar 5.')
+    const otro = await pedir({ desde: 'materia_prima', hacia: 'venta' })
+    expect(otro.body.error.mensaje).toBe('No hay stock de Empanada frita (carne) en «Materia prima». En «Cámara 1» hay 3: pasalo con «Transferir» en Depósitos si querés usarlo.')
     // Un sector no mueve lo de otro, ni diciendo otro sector.
     expect((await pedir({ sector: 'chiperia', desde: 'frio', hacia: 'venta' })).status).toBe(403)
     expect((await pedir({ desde: 'frio', hacia: 'venta' }, await p.entrar('panaderia'))).status).toBe(403)
@@ -194,15 +202,21 @@ describe('sacar para la venta y envíos', () => {
     await cargar(p, admin, EMPANADA, 10, 'frio')
     await cargar(p, admin, EMPANADA, 5, 'materia_prima')
     const r = await p.pedir<Movimiento>(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 3 })
-    expect(r.body).toMatchObject({ tipo: 'salida_venta', depositoId: 'frio', cantidad: -3, motivo: 'De «Frío» a «Venta frente»' })
+    expect(r.body).toMatchObject({ tipo: 'salida_venta', depositoId: 'frio', cantidad: -3, motivo: 'De «Cámara 1» a «Venta frente»' })
+    // Venta comedor no recibe «Chipas y bocaditos» hasta que el administrador suma esa categoría.
+    const noVa = await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 2, hacia: 'comedor' })
+    expect(noVa.status).toBe(400)
+    expect(noVa.body.error.mensaje).toContain('«Venta comedor» no recibe productos de la categoría Chipas y bocaditos')
+    const sumada = await p.pedir<Deposito>(admin, 'PATCH', '/depositos/comedor', { categorias: ['cat-buffet', 'cat-bebidas', 'cat-bocaditos'] })
+    expect(sumada.body.categorias).toEqual(['cat-bocaditos', 'cat-buffet', 'cat-bebidas'])
     const comedor = await p.pedir<Movimiento>(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 2, hacia: 'comedor' })
-    expect(comedor.body.motivo).toBe('De «Frío» a «Venta comedor»')
+    expect(comedor.body.motivo).toBe('De «Cámara 1» a «Venta comedor»')
     expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 2, desde: 'materia_prima' })).status).toBe(200)
     // Desde un depósito de venta, o hacia un almacén, no.
     expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 1, desde: 'venta' })).status).toBe(400)
     const aFrio = await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 1, hacia: 'frio' })
     expect(aFrio.status).toBe(400)
-    expect(aFrio.body.error.mensaje).toBe('«Frío» no es un depósito de venta. Elegí Venta frente o Venta comedor.')
+    expect(aFrio.body.error.mensaje).toBe('«Cámara 1» no es un depósito de venta. Elegí Venta frente o Venta comedor.')
     expect(await fila(p, cocina, 'cocina', EMPANADA)).toMatchObject({ total: 15, porDeposito: { frio: 5, materia_prima: 3, venta: 5, comedor: 2 } })
   })
 
@@ -335,5 +349,82 @@ describe('migración a depósitos de venta y almacenes (0015)', () => {
     const sinCategoria = db.exec('SELECT COUNT(*) FROM productos WHERE categoria_id IS NULL')[0].values[0][0]
     expect(sinCategoria).toBe(0)
     expect(db.exec("SELECT categoria_id FROM productos WHERE id = '" + CHIPA + "'")[0].values[0][0]).toBe('cat-chiperia')
+  })
+})
+
+describe('tipos de depósito (0019)', () => {
+  it('un depósito frío puede tener una máquina: muestra su última medición y si está fuera de rango', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    // A un depósito de venta no se le vincula máquina; a uno frío no se le eligen categorías.
+    expect((await p.pedir(admin, 'PATCH', '/depositos/venta', { maquinaId: 'maq-cocina-2' })).status).toBe(400)
+    expect((await p.pedir(admin, 'PATCH', '/depositos/frio', { categorias: ['cat-bebidas'] })).status).toBe(400)
+    expect((await p.pedir(admin, 'PATCH', '/depositos/frio', { maquinaId: 'nada' })).status).toBe(400)
+    expect((await p.pedir(admin, 'PATCH', '/depositos/venta', { categorias: ['nada'] })).status).toBe(400)
+    // Freezer 1 de Cocina: hasta −18 °C.
+    const r = await p.pedir<Deposito>(admin, 'PATCH', '/depositos/frio', { maquinaId: 'maq-cocina-2' })
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(r.body.maquina).toEqual({ id: 'maq-cocina-2', nombre: 'Freezer 1', tempMin: null, tempMax: -18, ultima: null })
+    const cocina = await p.entrar('cocina')
+    expect((await p.pedir(cocina, 'POST', '/lecturas', { maquinaId: 'maq-cocina-2', momento: 'inicio', estado: 'funciona', temperatura: -20 })).status).toBe(200)
+    const bien = (await p.pedir<Deposito[]>(cocina, 'GET', '/depositos')).body.find((d) => d.id === 'frio')!
+    expect(bien.maquina!.ultima).toMatchObject({ temperatura: -20, estado: 'funciona', fueraDeRango: false, usuarioNombre: 'Encargado Cocina' })
+    expect((await p.pedir(cocina, 'POST', '/lecturas', { maquinaId: 'maq-cocina-2', momento: 'fin', estado: 'funciona', temperatura: -5 })).status).toBe(200)
+    // El cajero también lo ve (mira Depósitos).
+    const mal = (await p.pedir<Deposito[]>(await p.entrar('cajero'), 'GET', '/depositos')).body.find((d) => d.id === 'frio')!
+    expect(mal.maquina!.ultima).toMatchObject({ temperatura: -5, fueraDeRango: true })
+    // Se desvincula con null; un depósito frío nuevo puede nacer con máquina.
+    expect((await p.pedir<Deposito>(admin, 'PATCH', '/depositos/frio', { maquinaId: null })).body.maquina).toBeNull()
+    await superAdmin(p, admin)
+    const nuevo = await p.pedir<Deposito>(admin, 'POST', '/depositos', { nombre: 'Cámara 2', maquinaId: 'maq-cocina-3' })
+    expect(nuevo.body).toMatchObject({ tipo: 'almacen', maquina: { id: 'maq-cocina-3', nombre: 'Freezer 2' }, categorias: [] })
+  })
+
+  it('una categoría nueva entra en Venta frente', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const cat = (await p.pedir(admin, 'POST', '/categorias', { nombre: 'Regalería', sectores: [] })).body
+    const deps = (await p.pedir<Deposito[]>(admin, 'GET', '/depositos')).body
+    expect(deps.find((d) => d.id === 'venta')!.categorias).toContain(cat.id)
+    expect(deps.find((d) => d.id === 'comedor')!.categorias).not.toContain(cat.id)
+  })
+
+  it('solo el super-administrador crea y borra sucursales; con envíos quedan dadas de baja', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    expect((await p.pedir(admin, 'DELETE', '/sucursales/suc-centro')).status).toBe(403)
+    await superAdmin(p, admin)
+    const nueva = (await p.pedir(admin, 'POST', '/sucursales', { nombre: 'Sucursal Luque' })).body
+    expect((await p.pedir(admin, 'DELETE', `/sucursales/${nueva.id}`)).status).toBe(200)
+    expect(await p.sql(`SELECT id FROM sucursales WHERE id = '${nueva.id}'`)).toEqual([])
+    await cargar(p, admin, EMPANADA, 5, 'frio')
+    const cocina = await p.entrar('cocina')
+    expect((await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: EMPANADA, cantidad: 2 }] })).status).toBe(200)
+    expect((await p.pedir(admin, 'DELETE', '/sucursales/suc-centro')).status).toBe(200)
+    expect(await p.sql("SELECT activo FROM sucursales WHERE id = 'suc-centro'")).toEqual([{ activo: 0 }])
+    // Lo que se le envió sigue en el historial.
+    expect((await p.pedir(admin, 'GET', '/envios')).body.map((e: any) => e.sucursalId)).toEqual(['suc-centro'])
+    expect((await p.pedir(admin, 'DELETE', '/sucursales/nada')).status).toBe(404)
+  })
+
+  it('migración: «Frío» pasa a «Cámara 1», Materia prima queda como depósito frío y el stock no se mueve', async () => {
+    const SQL = await initSqlJs()
+    const db = new SQL.Database()
+    const nombres = Object.keys(MIGRACIONES).sort()
+    const i = nombres.findIndex((n) => n.includes('0019_'))
+    for (const n of nombres.slice(0, i)) db.exec(MIGRACIONES[n])
+    db.exec(`
+      INSERT INTO usuarios (id, nombre, usuario, clave_hash, rol, activo, debe_cambiar_clave, creado_en) VALUES ('u', 'U', 'u', 'x', 'admin', 1, 0, '2026-11-01');
+      INSERT INTO movimientos (id, sector, producto_id, deposito_id, tipo, cantidad, usuario_id, fecha, dia) VALUES
+        ('m1', 'cocina', '${EMPANADA}', 'frio', 'stock_inicial', 7, 'u', '2026-11-01', '2026-11-01'),
+        ('m2', 'cocina', '${COCIDO}', 'materia_prima', 'stock_inicial', 3, 'u', '2026-11-01', '2026-11-01');
+    `)
+    const antes = db.exec('SELECT deposito_id, SUM(cantidad) FROM movimientos GROUP BY deposito_id ORDER BY deposito_id')[0].values
+    db.exec(MIGRACIONES[nombres[i]])
+    expect(db.exec('SELECT deposito_id, SUM(cantidad) FROM movimientos GROUP BY deposito_id ORDER BY deposito_id')[0].values).toEqual(antes)
+    expect(db.exec("SELECT id, nombre, tipo, sistema FROM depositos WHERE borrado_en IS NULL ORDER BY orden")[0].values).toEqual([
+      ['venta', 'Venta frente', 'venta', 1], ['comedor', 'Venta comedor', 'venta', 1], ['frio', 'Cámara 1', 'almacen', 0],
+      ['materia_prima', 'Materia prima', 'almacen', 1],
+    ])
   })
 })

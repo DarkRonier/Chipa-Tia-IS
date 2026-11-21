@@ -28,8 +28,9 @@ export default function Catalogos() {
     <>
       <h1>Catálogos</h1>
       <p className="suave">
-        Los depósitos (Venta frente, Venta comedor, almacenes en frío y Materia prima) se ven y se renombran en{' '}
-        <Link className="btn-discreto chico" to="/depositos">Depósitos</Link>.
+        Los depósitos (de venta directa, fríos y sucursales) se ven y se editan en{' '}
+        <Link className="btn-discreto chico" to="/depositos">Depósitos</Link>. Ahí también se elige qué categorías recibe
+        Venta frente y cuáles Venta comedor.
       </p>
       <h2>Categorías de productos</h2>
       <Categorias sectores={sectores.lista} />

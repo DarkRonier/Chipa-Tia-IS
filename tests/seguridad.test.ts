@@ -352,6 +352,7 @@ describe('validación de entradas', () => {
   it('rechaza textos larguísimos', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     const t = await p.entrar('cocina')
     const largo = 'x'.repeat(5000)
     const casos: [string, string, string, unknown][] = [
@@ -564,6 +565,7 @@ describe('correo del resumen (H04)', () => {
     const malo = (s: string) => `<script>alert("${s}")</script>`
     expect((await p.pedir(admin, 'PATCH', '/sectores/cocina', { nombre: '<i>Cocina</i>' })).status).toBe(200)
     const producto = await p.pedir(admin, 'POST', '/productos', { sector: 'cocina', nombre: malo('producto') })
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     const sucursal = await p.pedir(admin, 'POST', '/sucursales', { nombre: '<img src=x onerror=alert(1)>' })
     const area = await p.pedir(admin, 'POST', '/areas', { nombre: '<svg onload=alert(2)>', sectores: ['cocina'] })
     expect((await p.pedir(admin, 'POST', `/areas/${area.body.id}/tareas`, { nombre: '<b>Piso</b>' })).status).toBe(200)

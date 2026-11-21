@@ -59,6 +59,11 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
 
   const sql = (consulta: string, ...params: (string | number | null)[]) => d1.db.run(consulta, params)
 
+  // Depósitos fríos con máquina vinculada: Cámara 1 con el Freezer 1 de Cocina y uno de Chipería con su freezer.
+  sql("UPDATE depositos SET maquina_id = 'maq-cocina-2' WHERE id = 'frio'")
+  sql(`INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo, maquina_id)
+       VALUES ('dep-demo-chiperia', 'Freezer de Chipería', 'Masa y chipas congeladas.', 0, 1, 11, 'almacen', 'maq-chiperia-1')`)
+
   /**
    * Corre una acción de la API y lleva al día y hora indicados todo lo que creó.
    * Lo nuevo se reconoce porque su fecha es posterior a la marca tomada antes de la acción.
