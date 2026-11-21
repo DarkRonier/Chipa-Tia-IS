@@ -437,6 +437,7 @@ describe('validación de entradas', () => {
   it('valores desconocidos en las opciones', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     const t = await p.entrar('cocina')
     const casos: [string, string, string, unknown][] = [
       [t, 'POST', '/producciones', { turno: 'tarde', items: [{ productoId: EMPANADA, cocinado: 1 }] }],

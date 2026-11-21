@@ -2,6 +2,8 @@
 // Reemplaza la planilla de control de temperatura de equipos fríos (RE-TE.01: lectura al inicio y al fin
 // de la jornada; en el buffet T° inicial e intermedia) y la de mantenimiento de equipos (RE-04.01).
 import { Hono } from 'hono'
+import type { Alerta } from '../../shared/alertas'
+import { diaPY, fechaHoraPY } from '../../shared/hora'
 import type { EstadoMaquina, Lectura, Momento, SectorId, TipoMaquina } from '../../shared/tipos'
 import { aDataUrl, fotoDelPedido, guardarArchivo, leerArchivo } from '../almacen'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
@@ -106,6 +108,55 @@ export async function leerLecturas(db: BaseD1, filtro: FiltroLecturas = {}): Pro
     db, `${COLUMNAS} ${where} ORDER BY l.fecha DESC, l.id LIMIT ?`, ...params, filtro.limite ?? 2000,
   )
   return filas.map(aLectura)
+}
+
+interface FilaFueraDeRango {
+  id: string
+  numero: number
+  nombre: string
+  sector: SectorId
+  temp_min: number | null
+  temp_max: number | null
+  temperatura: number
+  desde: string
+}
+
+const grados = (n: number) => `${String(n).replace('-', '−').replace('.', ',')} °C`
+
+function rangoLegible(min: number | null, max: number | null): string {
+  if (min !== null && max !== null) return `${grados(min).replace(' °C', '')} a ${grados(max)}`
+  return min !== null ? `≥ ${grados(min)}` : `≤ ${grados(max!)}`
+}
+
+/**
+ * Un aviso por cada máquina activa cuya ÚLTIMA lectura quedó fuera de rango (Mati, 2026-11-21). No se va al día
+ * siguiente: sigue en el inicio del sector, en el Resumen del administrador y del supervisor y en el correo de cada
+ * mañana (así se vuelve a avisar cada 24 horas) hasta que alguien revise la máquina y cargue una lectura nueva que
+ * no esté fuera de rango. `desde` es la primera lectura mala de la racha, para decir hace cuánto está así.
+ */
+export async function alertasTemperatura(db: BaseD1, sector: SectorId | null, hoy = diaPY()): Promise<Alerta[]> {
+  const filas = await todas<FilaFueraDeRango>(
+    db,
+    `SELECT m.id, m.numero, m.nombre, m.sector, m.temp_min, m.temp_max, l.temperatura,
+        (SELECT MIN(x.fecha) FROM lecturas x WHERE x.maquina_id = m.id AND x.fuera_de_rango = 1
+           AND x.fecha > COALESCE((SELECT MAX(y.fecha) FROM lecturas y WHERE y.maquina_id = m.id AND y.fuera_de_rango = 0), '')) AS desde
+      FROM maquinas m
+      JOIN sectores s ON s.id = m.sector
+      JOIN lecturas l ON l.id = (SELECT u.id FROM lecturas u WHERE u.maquina_id = m.id ORDER BY u.fecha DESC, u.id LIMIT 1)
+      WHERE m.activo = 1 AND l.fuera_de_rango = 1 ${sector ? 'AND m.sector = ?' : ''}
+      ORDER BY s.orden, m.numero`,
+    ...(sector ? [sector] : []),
+  )
+  return filas.map((f) => {
+    const dias = Math.round((Date.parse(hoy) - Date.parse(diaPY(f.desde))) / 86_400_000)
+    const hace = dias <= 0 ? '' : dias === 1 ? ' Lleva 1 día así.' : ` Lleva ${dias} días así.`
+    return {
+      tipo: 'temperatura_fuera_de_rango' as const,
+      sector: f.sector,
+      texto: `N° ${f.numero} · ${f.nombre}: ${grados(f.temperatura)}, fuera de rango (${rangoLegible(f.temp_min, f.temp_max)}) desde el ${fechaHoraPY(f.desde)}.${hace} Revisá la máquina y cargá una lectura nueva.`,
+      enlace: `/maquinas?maquina=${f.id}`,
+    }
+  })
 }
 
 const siONo = (v: string | undefined) => v === '1' || v === 'true'

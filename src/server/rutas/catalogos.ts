@@ -310,7 +310,8 @@ rutasCatalogos.get('/maquinas', async (c) => {
   return c.json<Maquina[]>(filas.map(aMaquina))
 })
 
-rutasCatalogos.post('/maquinas', soloAdmin, async (c) => {
+// Agregar una máquina es del super-administrador (Mati, 2026-11-21), igual que desactivarla o reactivarla.
+rutasCatalogos.post('/maquinas', soloAdmin, soloSuper, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
   const sector = sectorPara(c.get('usuario'), b.sector, true)
@@ -344,6 +345,9 @@ rutasCatalogos.patch('/maquinas/:id', soloAdmin, async (c) => {
   if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre de la máquina', { max: 80 })
   if (b.tipo !== undefined) despues.tipo = tipoMaquina(b.tipo)
   if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
+  if (despues.activo !== antes.activo && !c.get('usuario').superHasta) {
+    throw prohibido('Desactivar o reactivar una máquina lo hace solo el super-administrador.')
+  }
   // El rango se valida completo con lo que llega y lo que ya tenía.
   Object.assign(despues, rango(
     despues.tipo,

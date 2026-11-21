@@ -9,6 +9,7 @@ const TITULO: Record<TipoAlerta, string> = {
   lote_por_vencer: 'Por vencer',
   lote_vencido: 'Vencido',
   limpieza_atrasada: 'Limpieza atrasada',
+  temperatura_fuera_de_rango: 'Temperatura fuera de rango',
   incidencia_maquina: 'Máquina',
   compra_por_vencer: 'Pago por vencer',
   compra_vencida: 'Pago vencido',
@@ -22,7 +23,7 @@ function destino(a: Alerta, admin: boolean): string {
   if (a.tipo === 'caja_sin_cerrar' || a.tipo === 'gasto_fijo_pendiente') return a.enlace
   if (!admin) return `/sector${a.enlace}`
   // La máquina puede ser de otro sector que el elegido arriba: el enlace lo lleva para cambiarlo.
-  if (a.tipo === 'incidencia_maquina') return `/sector${a.enlace}${a.sector ? `&sector=${a.sector}` : ''}`
+  if (a.tipo === 'incidencia_maquina' || a.tipo === 'temperatura_fuera_de_rango') return `/sector${a.enlace}${a.sector ? `&sector=${a.sector}` : ''}`
   if (a.tipo === 'limpieza_atrasada') return '/admin/controles'
   return `/sector${a.enlace}`
 }
@@ -36,7 +37,7 @@ export default function Avisos({ sector, nombreSector, tipos }: { sector?: Secto
   return (
     <section className="avisos" aria-label="Avisos">
       {lista.map((a) => (
-        <Link key={`${a.tipo}-${a.texto}`} to={destino(a, admin)} className={`aviso-item ${a.tipo === 'lote_vencido' || a.tipo === 'incidencia_maquina' || a.tipo === 'compra_vencida' ? 'grave' : ''}`}>
+        <Link key={`${a.tipo}-${a.texto}`} to={destino(a, admin)} className={`aviso-item ${a.tipo === 'lote_vencido' || a.tipo === 'incidencia_maquina' || a.tipo === 'temperatura_fuera_de_rango' || a.tipo === 'compra_vencida' ? 'grave' : ''}`}>
           <strong>{TITULO[a.tipo]}{admin && a.sector && nombreSector ? ` · ${nombreSector(a.sector)}` : ''}</strong>
           <span>{a.texto}</span>
         </Link>

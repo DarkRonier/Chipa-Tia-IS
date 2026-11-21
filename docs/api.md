@@ -120,8 +120,8 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | POST | `/productos` | `{ sector, nombre, unidad? }` (más lo de compras y venta: `tipo`, `categoriaId`, `codigo`, `precioVenta`, `iva`) | `Producto` (`unidad` por defecto `unidades`; queda al final de su sector) |
 | PATCH | `/productos/:id` | `{ nombre?, unidad?, activo? }` (y los mismos campos opcionales) | `Producto` |
 | GET | `/maquinas` | `?sector&todos` | `Maquina[]` (por sector y N°) |
-| POST | `/maquinas` | `{ sector, numero?, nombre, tipo, tempMin?, tempMax? }` | `Maquina` |
-| PATCH | `/maquinas/:id` | `{ numero?, nombre?, tipo?, tempMin?, tempMax?, activo? }` | `Maquina` |
+| POST | `/maquinas` | `{ sector, numero?, nombre, tipo, tempMin?, tempMax? }` · super-administrador | `Maquina` |
+| PATCH | `/maquinas/:id` | `{ numero?, nombre?, tipo?, tempMin?, tempMax?, activo? }` · admin (cambiar `activo`: super-administrador) | `Maquina` |
 | GET | `/areas` | `?sector&todos` | `AreaLimpieza[]` con sus tareas (sin `todos`, solo las activas) |
 | POST | `/areas` | `{ nombre, codigo?, sectores }` | `AreaLimpieza` |
 | PATCH | `/areas/:id` | `{ nombre?, codigo?, sectores?, activo? }` | `AreaLimpieza` (`sectores` reemplaza la lista) |
@@ -289,6 +289,9 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | POST | `/incidencias` | `{ maquinaId, tipo: 'falla' \| 'incidencia', descripcion }` | `Incidencia` |
 | POST | `/incidencias/:id/resolver` | `{ resolucion? }` | `Incidencia` (`409 ya_resuelta`) |
 
+- Temperatura fuera de rango: mientras la **última** lectura de una máquina activa esté fuera de rango, `/alertas` devuelve un
+  aviso `temperatura_fuera_de_rango` para el sector, el supervisor y el administrador (y va en el correo de cada mañana). Se
+  cierra solo cuando se carga una lectura nueva que no esté fuera de rango.
 - No es una lectura: no lleva estado ni temperatura. Queda abierta (aviso `incidencia_maquina` en `/alertas`) hasta
   que el supervisor o el administrador la marca como resuelta. Los sectores ven las de sus máquinas.
 

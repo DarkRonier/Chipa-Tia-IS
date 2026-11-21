@@ -28,6 +28,46 @@ describe('avisos juntos', () => {
     expect((await p.pedir(null, 'GET', '/alertas')).status).toBe(401)
   })
 
+  it('una temperatura fuera de rango avisa al sector, al supervisor y al administrador hasta que haya una lectura buena', async () => {
+    const p = await nuevaPrueba()
+    const cocina = await p.entrar('cocina')
+    const admin = await p.entrar('admin')
+    const supervisor = await p.entrar('supervisor')
+    const leer = (temperatura: number) => p.pedir(cocina, 'POST', '/lecturas', { maquinaId: 'maq-cocina-1', momento: 'otro', estado: 'funciona', temperatura })
+    const avisos = async (token: string, ruta = '/alertas') =>
+      (await p.pedir(token, 'GET', ruta)).body.filter((a: any) => a.tipo === 'temperatura_fuera_de_rango')
+
+    expect((await leer(3)).status).toBe(200)
+    expect(await avisos(cocina)).toEqual([])
+    expect((await leer(25)).body.fueraDeRango).toBe(true)
+    for (const token of [cocina, admin, supervisor]) {
+      const lista = await avisos(token)
+      expect(lista).toHaveLength(1)
+      expect(lista[0]).toMatchObject({ sector: 'cocina', enlace: '/maquinas?maquina=maq-cocina-1' })
+      expect(lista[0].texto).toContain('25 °C')
+      expect(lista[0].texto).toContain('fuera de rango')
+    }
+    // Otro sector, el cajero y el propio sector de otra máquina no lo ven.
+    expect(await avisos(await p.entrar('chiperia'))).toEqual([])
+    expect(await avisos(await p.entrar('cajero'))).toEqual([])
+
+    // No se va con los días: sigue y dice hace cuánto está así, y entra en el correo de cada mañana.
+    await p.sql("UPDATE lecturas SET fecha = '2020-01-01T12:00:00.000Z', dia = '2020-01-01' WHERE fuera_de_rango = 1")
+    await p.sql("UPDATE lecturas SET fecha = '2019-12-31T12:00:00.000Z', dia = '2019-12-31' WHERE fuera_de_rango = 0")
+    const viejo = await avisos(admin)
+    expect(viejo).toHaveLength(1)
+    expect(viejo[0].texto).toMatch(/Lleva \d+ días así/)
+    const correo = await prepararResumen(p.env, 'diario', diaPY())
+    expect(correo.html).toContain('fuera de rango (')
+
+    // Una segunda lectura mala no duplica el aviso; una buena lo cierra.
+    expect((await leer(12)).status).toBe(200)
+    expect(await avisos(cocina)).toHaveLength(1)
+    expect((await avisos(cocina))[0].texto).toContain('12 °C')
+    expect((await leer(4)).status).toBe(200)
+    for (const token of [cocina, admin, supervisor]) expect(await avisos(token)).toEqual([])
+  })
+
   it('el correo de resumen trae los avisos vigentes', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
