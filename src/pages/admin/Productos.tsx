@@ -21,7 +21,7 @@ import { useSector } from '../../components/Layout'
 import { gs, miles } from '../../shared/dinero'
 import { diaPY } from '../../shared/hora'
 import {
-  IVAS, NOMBRE_IVA, NOMBRE_TIPO_PRODUCTO, TIPOS_PRODUCTO, type Categoria, type Iva, type Producto, type SectorId, type TipoProducto,
+  CATEGORIA_MATERIA_PRIMA, IVAS, NOMBRE_IVA, NOMBRE_TIPO_PRODUCTO, TIPOS_PRODUCTO, type Categoria, type Iva, type Producto, type SectorId, type TipoProducto,
 } from '../../shared/tipos'
 import '../../styles/compras.css'
 import '../../styles/productos.css'
@@ -364,6 +364,16 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
     subcategoria: '', unidad: 'unidades', sinStock: false, precioVenta: '', iva: 10,
   })
   const set = (c: Partial<Datos>) => setD((x) => ({ ...x, ...c }))
+  // En un producto nuevo, la categoría acompaña al tipo: materia prima va a «Materia prima»; si deja de serlo, vuelve a
+  // «Otros». Si ya se eligió otra categoría a mano, no se toca.
+  const otros = categorias.find((k) => k.sistema)?.id ?? ''
+  const materiaPrima = categorias.find((k) => k.id === CATEGORIA_MATERIA_PRIMA && k.activo)?.id
+  const cambiarTipo = (tipo: TipoProducto) => setD((x) => {
+    if (original || !materiaPrima) return { ...x, tipo }
+    if (tipo === 'materia_prima' && (x.categoriaId === otros || !x.categoriaId)) return { ...x, tipo, categoriaId: materiaPrima }
+    if (tipo !== 'materia_prima' && x.categoriaId === materiaPrima) return { ...x, tipo, categoriaId: otros }
+    return { ...x, tipo }
+  })
   const nombreSector = sectores.find((s) => s.id === d.sector)?.nombre ?? d.sector
 
   const guardar = useAccion(async () => {
@@ -413,7 +423,7 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
           </label>
           <label className="campo">
             <span>Tipo</span>
-            <select value={d.tipo} onChange={(e) => set({ tipo: e.target.value as TipoProducto })}>
+            <select value={d.tipo} onChange={(e) => cambiarTipo(e.target.value as TipoProducto)}>
               {TIPOS_PRODUCTO.map((t) => <option key={t} value={t}>{NOMBRE_TIPO_PRODUCTO[t]}</option>)}
             </select>
           </label>

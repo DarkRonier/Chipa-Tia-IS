@@ -3,7 +3,7 @@
 //     solo muestran lo vendido.
 //   - Almacenes en frío (varios) y Materia prima: cuánto hay, por lote en los sectores con lotes.
 //   - Sucursales: no tienen stock en el sistema; se muestra solo lo que se les envió.
-// Los productos se agrupan por categoría (Chipería, Chipitas, Bebidas, Heladería, Otros…), no por sector.
+// Los productos se agrupan por categoría (Chipas y bocaditos, Chipa Sticks, Buffet, Panificados, Materia prima, Bebidas, Amandau, Otros), no por sector.
 // Abajo: «Transferir» (pasar de un depósito a otro) y, para el administrador, mermas, vencimientos y ajustes.
 // El super-administrador crea y borra almacenes.
 import { useMemo, useState } from 'react'

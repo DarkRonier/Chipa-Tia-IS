@@ -85,7 +85,7 @@ describe('materia prima de Chipería comprada', () => {
 
   it('Chipería compra su materia prima si tiene la categoría habilitada, y los lotes cargados a mano siguen igual', async () => {
     const { p, admin, queso, vence } = await escenario()
-    await p.pedir(admin, 'PATCH', '/categorias/cat-otros', { sectores: ['chiperia'] })
+    await p.pedir(admin, 'PATCH', '/categorias/cat-materia-prima', { sectores: ['chiperia'] })
     const chiperia = await p.entrar('chiperia')
     const r = await comprar(p, chiperia, [{ productoId: queso.id, cantidad: 12, precioUnitario: 30000, vencimiento: vence }])
     expect(r.status).toBe(200)

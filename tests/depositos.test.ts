@@ -173,8 +173,8 @@ describe('stock por depósito, sin separar por sector', () => {
       expect(r.status).toBe(200)
       const sectores = new Set(r.body.map((f) => f.sector))
       expect(sectores).toEqual(new Set(['chiperia', 'chipitas', 'panaderia', 'cocina']))
-      expect(r.body.find((f) => f.productoId === CHIPA)).toMatchObject({ sector: 'chiperia', categoriaId: 'cat-chiperia', total: 6, porDeposito: { frio: 6 } })
-      expect(r.body.find((f) => f.productoId === EMPANADA)).toMatchObject({ sector: 'cocina', categoriaId: 'cat-otros', unidad: 'unidades', total: 4 })
+      expect(r.body.find((f) => f.productoId === CHIPA)).toMatchObject({ sector: 'chiperia', categoriaId: 'cat-bocaditos', total: 6, porDeposito: { frio: 6 } })
+      expect(r.body.find((f) => f.productoId === EMPANADA)).toMatchObject({ sector: 'cocina', categoriaId: 'cat-bocaditos', unidad: 'unidades', total: 4 })
       expect(r.body.some((f) => f.productoId === buffet.id)).toBe(false)
     }
     // A un producto con stock no se le puede poner «sin stock».

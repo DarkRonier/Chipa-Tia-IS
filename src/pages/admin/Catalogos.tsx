@@ -1,4 +1,4 @@
-// Catálogos: las categorías de productos (Chipería, Chipitas, Bebidas, Heladería, Otros…), que también dicen qué
+// Catálogos: las categorías de productos (Chipas y bocaditos, Chipa Sticks, Buffet, Panificados, Materia prima, Bebidas, Amandau, Otros), que también dicen qué
 // sectores pueden comprar cada una (M10). Los depósitos tienen su pantalla (Depósitos). Productos y Mantenimiento (máquinas y limpieza) tienen su propia
 // pantalla (pedido de Mati, 2026-11-21); sucursales y sectores ya no se editan desde acá (sus datos siguen en la base).
 // Nada se borra: se desactiva y el historial lo sigue mostrando.
