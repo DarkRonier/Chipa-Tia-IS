@@ -205,7 +205,8 @@ Los `PATCH` sin ningún campo editable dan `400`.
 
 - **Depósitos.** Cada movimiento lleva `depositoId` (y `depositoNombre` al leerlo). `StockFila` trae `total` (todos
   los depósitos), `porDeposito` (`{ venta: 3, frio: 8 }`, sin los que están en 0) y, en Chipería, `lotes` con
-  `cantidad` y `porDeposito`. Las ventas de caja descuentan de «Venta frente»; las compras de venta directa
+  `cantidad` y `porDeposito`. Las ventas de caja descuentan de «Venta frente» (la materia prima
+  con precio, como la leche, de «Materia prima»); las compras de venta directa
   (`tipo: reventa`) entran ahí y las de materia prima en «Materia prima»; lo cocinado entra en el depósito de venta
   elegido. El sector de cada movimiento sale del producto: un operador solo mueve los de su sector (`403`); el
   administrador no necesita indicar el sector.
@@ -343,8 +344,9 @@ admin): `compra_por_vencer` (vence en 3 días o menos) y `compra_vencida`.
 
 Hay una sola caja abierta a la vez. Sin caja abierta no se vende. Al cerrar se cuenta el efectivo: esperado = fondo
 inicial + ventas en efectivo + ingresos − retiros; la diferencia queda guardada. Una caja cerrada no se toca (trigger
-`CAJA_CERRADA`). Cada producto tiene `precioVenta` (sin precio no se vende) e `iva` (0, 5 o 10). Toda venta descuenta
-del depósito «Venta frente» (movimiento `venta`), sin frenarse nunca; en Chipería, por lote, el más viejo primero
+`CAJA_CERRADA`). Cada producto tiene `precioVenta` (sin precio no se vende; cualquier tipo con precio se vende, también la materia
+prima como la leche) e `iva` (0, 5 o 10). Toda venta descuenta del depósito «Venta frente» (la materia prima, de
+«Materia prima»; movimiento `venta`), sin frenarse nunca; en Chipería, por lote, el más viejo primero
 (lo que no alcanza sale sin lote). Solo el **cajero** registra ventas (`ventas.registrar`); el administrador opera la
 caja, ve las ventas, las anula (`ventas.anular`) y factura, pero no vende. El supervisor no entra.
 
