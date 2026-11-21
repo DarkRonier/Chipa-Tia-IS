@@ -1,13 +1,14 @@
-// Catálogos: los depósitos del stock y las categorías de compras (M10). Productos y Mantenimiento (máquinas y limpieza) tienen su propia
+// Catálogos: las categorías de productos (Chipería, Chipitas, Bebidas, Heladería, Otros…), que también dicen qué
+// sectores pueden comprar cada una (M10). Los depósitos tienen su pantalla (Depósitos). Productos y Mantenimiento (máquinas y limpieza) tienen su propia
 // pantalla (pedido de Mati, 2026-11-21); sucursales y sectores ya no se editan desde acá (sus datos siguen en la base).
 // Nada se borra: se desactiva y el historial lo sigue mostrando.
 import { useState } from 'react'
-import { Navigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { patch, post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
-import type { Categoria, Deposito, Sector, SectorId } from '../../shared/tipos'
+import type { Categoria, Sector, SectorId } from '../../shared/tipos'
 import { FilaEditable, FormAlta, ListaConInactivos, SectoresCheck } from './piezasCatalogo'
 import '../../styles/catalogos.css'
 
@@ -26,72 +27,12 @@ export default function Catalogos() {
   return (
     <>
       <h1>Catálogos</h1>
-      <h2>Depósitos</h2>
-      <Depositos />
-      <h2>Categorías de compras</h2>
-      <Categorias sectores={sectores.lista} />
-    </>
-  )
-}
-
-// ---------- Depósitos ----------
-
-function Depositos() {
-  const c = useConsulta<Deposito[]>('/depositos', { todos: true })
-  const [nombre, setNombre] = useState('')
-  const [descripcion, setDescripcion] = useState('')
-  const [ok, setOk] = useState<string | null>(null)
-  const crear = useAccion(() => post<Deposito>('/depositos', { nombre, descripcion }))
-  const agregar = async () => {
-    setOk(null)
-    const d = await crear.ejecutar()
-    if (d) {
-      setOk(`«${d.nombre}» agregado. Ya aparece en Stock para transferir y en Producción para guardar.`)
-      setNombre('')
-      setDescripcion('')
-    }
-  }
-  return (
-    <>
       <p className="suave">
-        El stock de cada producto está repartido en depósitos. Las ventas de caja descuentan de «Directo a Venta»; lo
-        cocinado entra ahí y lo guardado va a «Frío» (o al depósito que se elija). Los envíos salen de «Para sucursales» y
-        las compras de materia prima entran en «Materia prima». Esos cuatro se pueden renombrar pero no desactivar.
+        Los depósitos (Venta frente, Venta comedor, almacenes en frío y Materia prima) se ven y se renombran en{' '}
+        <Link className="btn-discreto chico" to="/depositos">Depósitos</Link>.
       </p>
-      <ConDatos consulta={c}>
-        {(lista) => (
-          <ListaConInactivos
-            items={lista}
-            vacio="Todavía no hay depósitos."
-            textoInactivos="Depósitos desactivados"
-            render={(d) => (
-              <FilaEditable
-                key={d.id}
-                titulo={d.nombre}
-                detalle={<>{d.descripcion}{d.sistema && <span className="etiqueta">Del sistema</span>}</>}
-                activo={d.activo}
-                campos={[
-                  { clave: 'nombre', etiqueta: 'Nombre', valor: d.nombre, max: 60 },
-                  { clave: 'descripcion', etiqueta: 'Descripción', valor: d.descripcion, max: 200 },
-                ]}
-                textoEditar="Editar"
-                guardar={(cambios) => patch(`/depositos/${d.id}`, cambios)}
-                cambiarActivo={d.sistema ? undefined : (activo) => patch(`/depositos/${d.id}`, { activo })}
-              />
-            )}
-          />
-        )}
-      </ConDatos>
-      <FormAlta titulo="Nuevo depósito" enviando={crear.enviando} error={crear.error} ok={ok} alEnviar={() => void agregar()}>
-        <label className="campo">
-          <span>Nombre</span>
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={60} placeholder="Cámara 2" />
-        </label>
-        <label className="campo">
-          <span>Descripción <span className="opcional">opcional</span></span>
-          <input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={200} placeholder="Freezer del fondo" />
-        </label>
-      </FormAlta>
+      <h2>Categorías de productos</h2>
+      <Categorias sectores={sectores.lista} />
     </>
   )
 }
@@ -131,11 +72,11 @@ function Categorias({ sectores }: { sectores: Sector[] }) {
               <FilaEditable
                 key={k.id}
                 titulo={k.nombre}
-                detalle={k.sectores.length ? `Compran: ${nombres(k.sectores)}` : 'Ningún sector la compra (solo supervisor y admin)'}
+                detalle={<>{k.sectores.length ? `Compran: ${nombres(k.sectores)}` : 'Ningún sector la compra (solo supervisor y admin)'}{k.sistema && <span className="etiqueta">Para los que no entran en otra</span>}</>}
                 activo={k.activo}
                 campos={[{ clave: 'nombre', etiqueta: 'Nombre', valor: k.nombre, max: 60 }]}
                 guardar={(cambios) => patch(`/categorias/${k.id}`, cambios)}
-                cambiarActivo={(activo) => patch(`/categorias/${k.id}`, { activo })}
+                cambiarActivo={k.sistema ? undefined : (activo) => patch(`/categorias/${k.id}`, { activo })}
                 debajo={k.activo && <SectoresCategoria k={k} sectores={sectores} />}
               />
             )}

@@ -3,7 +3,7 @@
 // Escritura solo del administrador, con una fila de auditoría por cambio. Nada se borra: se desactiva.
 import { Hono, type Context } from 'hono'
 import type {
-  AreaLimpieza, Categoria, Deposito, Maquina, Producto, Sector, SectorId, Sucursal, TareaLimpieza, TipoMaquina,
+  AreaLimpieza, Categoria, Deposito, Maquina, Producto, Sector, SectorId, Sucursal, TareaLimpieza, TipoDeposito, TipoMaquina,
 } from '../../shared/tipos'
 import { IVAS, NOMBRE_TIPO_MAQUINA, SECTOR_IDS, TIPOS_PRODUCTO, type Iva, type TipoProducto } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
@@ -11,7 +11,7 @@ import { leerDepositos } from '../consultas'
 import { nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, ValorSQL } from '../entorno'
 import { conflicto, invalido, noEncontrado } from '../errores'
-import { esSector, requiere, sectorPara } from '../sesion'
+import { esSector, requiere, sectorPara, soloSuper } from '../sesion'
 
 const soloAdmin = requiere('catalogos.editar', 'Solo el administrador puede hacer esto.')
 import { booleano, cuerpo, entero, texto, textoOpcional } from '../validar'
@@ -101,12 +101,14 @@ interface FilaProducto {
   iva: Iva
   codigo: string
   tipo: TipoProducto
+  subcategoria: string
+  sin_stock: number
 }
 const aProducto = (f: FilaProducto): Producto => ({
   id: f.id, sector: f.sector, nombre: f.nombre, unidad: f.unidad, activo: !!f.activo, categoriaId: f.categoria_id,
-  precioVenta: f.precio_venta, iva: f.iva, codigo: f.codigo, tipo: f.tipo,
+  subcategoria: f.subcategoria, sinStock: !!f.sin_stock, precioVenta: f.precio_venta, iva: f.iva, codigo: f.codigo, tipo: f.tipo,
 })
-const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo, p.categoria_id, p.precio_venta, p.iva, p.codigo, p.tipo'
+const COLUMNAS_PRODUCTO = 'p.id, p.sector, p.nombre, p.unidad, p.activo, p.categoria_id, p.precio_venta, p.iva, p.codigo, p.tipo, p.subcategoria, p.sin_stock'
 
 /** Precio de venta (M11): entero ≥ 0 en guaraníes, o vacío / null = no se vende. Acepta "12.000". */
 function precioOpcional(v: unknown): number | null {
@@ -121,9 +123,11 @@ function ivaDe(v: unknown): Iva {
   return n as Iva
 }
 
-/** Categoría (M10) opcional: id de una categoría existente, o vacío / null para dejarlo sin categoría. */
+/** Categoría del producto: id de una existente; vacío o null = «Otros» (la de los que no entran en ninguna). */
 async function categoriaOpcional(db: BaseD1, v: unknown): Promise<string | null> {
-  if (v === null || v === undefined || v === '') return null
+  if (v === null || v === undefined || v === '') {
+    return (await una<{ id: string }>(db, 'SELECT id FROM categorias WHERE sistema = 1 ORDER BY orden LIMIT 1'))?.id ?? null
+  }
   const id = texto(v, 'la categoría', { max: 100 })
   const f = await una<{ id: string; nombre: string; activo: number }>(db, 'SELECT id, nombre, activo FROM categorias WHERE id = ?', id)
   if (!f) throw invalido('Esa categoría no existe. Recargá la página y probá de nuevo.')
@@ -170,15 +174,17 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
   const iva = b.iva === undefined ? 10 : ivaDe(b.iva)
   const codigo = textoOpcional(b.codigo, 'El código', 30) ?? ''
   const tipo = b.tipo === undefined ? 'elaborado' : tipoProducto(b.tipo)
+  const subcategoria = textoOpcional(b.subcategoria, 'La subcategoría', 60) ?? ''
+  const sinStock = b.sinStock === undefined ? false : booleano(b.sinStock, 'sin stock')
   const nuevo: Producto = {
-    id: nuevoId(), sector, nombre, unidad, activo: true, categoriaId, precioVenta, iva, codigo, tipo,
+    id: nuevoId(), sector, nombre, unidad, activo: true, categoriaId, subcategoria, sinStock, precioVenta, iva, codigo, tipo,
   }
   await db.batch([
     sentencia(
       db,
-      `INSERT INTO productos (id, sector, nombre, unidad, activo, categoria_id, precio_venta, iva, codigo, tipo, orden)
-       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
-      nuevo.id, sector, nombre, unidad, categoriaId, precioVenta, iva, codigo, tipo, sector,
+      `INSERT INTO productos (id, sector, nombre, unidad, activo, categoria_id, subcategoria, sin_stock, precio_venta, iva, codigo, tipo, orden)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(orden), -1) + 1 FROM productos WHERE sector = ?))`,
+      nuevo.id, sector, nombre, unidad, categoriaId, subcategoria, sinStock ? 1 : 0, precioVenta, iva, codigo, tipo, sector,
     ),
     sentenciaAuditoria(db, { tabla: 'productos', registroId: nuevo.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nuevo }),
   ])
@@ -188,7 +194,7 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
 rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  algoParaCambiar(b, ['nombre', 'unidad', 'activo', 'categoriaId', 'precioVenta', 'iva', 'codigo', 'tipo'])
+  algoParaCambiar(b, ['nombre', 'unidad', 'activo', 'categoriaId', 'subcategoria', 'sinStock', 'precioVenta', 'iva', 'codigo', 'tipo'])
   const antes = aProducto(await leerProducto(db, c.req.param('id')))
   const despues: Producto = { ...antes }
   if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre del producto', { max: 100 })
@@ -199,10 +205,21 @@ rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
   if (b.iva !== undefined) despues.iva = ivaDe(b.iva)
   if (b.codigo !== undefined) despues.codigo = textoOpcional(b.codigo, 'El código', 30) ?? ''
   if (b.tipo !== undefined) despues.tipo = tipoProducto(b.tipo)
+  if (b.subcategoria !== undefined) despues.subcategoria = textoOpcional(b.subcategoria, 'La subcategoría', 60) ?? ''
+  if (b.sinStock !== undefined) despues.sinStock = booleano(b.sinStock, 'sin stock')
+  if (despues.sinStock && !antes.sinStock) {
+    const f = await una<{ n: number }>(
+      db, 'SELECT COUNT(*) AS n FROM (SELECT deposito_id FROM movimientos WHERE producto_id = ? GROUP BY deposito_id HAVING SUM(cantidad) <> 0)', antes.id,
+    )
+    if (f?.n) throw conflicto('producto_con_stock', `${antes.nombre} todavía tiene stock en algún depósito. Dejalo en 0 antes de marcarlo «sin stock».`)
+  }
   if (despues.nombre !== antes.nombre) await productoSinRepetir(db, antes.sector, despues.nombre, antes.id)
   await db.batch([
-    sentencia(db, 'UPDATE productos SET nombre = ?, unidad = ?, activo = ?, categoria_id = ?, precio_venta = ?, iva = ?, codigo = ?, tipo = ? WHERE id = ?',
-      despues.nombre, despues.unidad, despues.activo, despues.categoriaId, despues.precioVenta, despues.iva, despues.codigo, despues.tipo, antes.id),
+    sentencia(db,
+      `UPDATE productos SET nombre = ?, unidad = ?, activo = ?, categoria_id = ?, subcategoria = ?, sin_stock = ?, precio_venta = ?, iva = ?,
+              codigo = ?, tipo = ? WHERE id = ?`,
+      despues.nombre, despues.unidad, despues.activo, despues.categoriaId, despues.subcategoria, despues.sinStock ? 1 : 0, despues.precioVenta,
+      despues.iva, despues.codigo, despues.tipo, antes.id),
     sentenciaAuditoria(db, {
       tabla: 'productos', registroId: antes.id, accion: accionDe(antes.activo, despues.activo), usuarioId: c.get('usuario').id, antes, despues,
     }),
@@ -554,76 +571,109 @@ rutasCatalogos.patch('/sucursales/:id', soloAdmin, async (c) => {
   return c.json<Sucursal>(despues)
 })
 
-// ---------- Depósitos (stock por depósito, 2026-11-21) ----------
-// Los cuatro del sistema (Directo a Venta, Frío, Para sucursales, Materia prima) se pueden renombrar pero no desactivar.
-// El administrador puede agregar otros. Todos los ven (las pantallas de stock los nombran).
+// ---------- Depósitos (Mati, 2026-11-21) ----------
+// Venta frente, Venta comedor y Materia prima son fijos: el administrador les cambia el nombre. Los almacenes en frío
+// los crea y los borra solo el super-administrador. Todos los ven (las pantallas de stock los nombran).
 
-interface FilaDeposito { id: string; nombre: string; descripcion: string; sistema: number; activo: number }
-const aDeposito = (f: FilaDeposito): Deposito => ({ id: f.id, nombre: f.nombre, descripcion: f.descripcion, sistema: !!f.sistema, activo: !!f.activo })
+interface FilaDeposito { id: string; nombre: string; descripcion: string; sistema: number; activo: number; tipo: TipoDeposito }
+const aDeposito = (f: FilaDeposito): Deposito => ({
+  id: f.id, nombre: f.nombre, descripcion: f.descripcion, sistema: !!f.sistema, activo: !!f.activo, tipo: f.tipo,
+})
+const COLUMNAS_DEPOSITO = 'id, nombre, descripcion, sistema, activo, tipo'
 
 async function depositoSinRepetir(db: BaseD1, nombre: string, propio: string | null) {
-  sinRepetir(await todas<FilaDeposito>(db, 'SELECT id, nombre, descripcion, sistema, activo FROM depositos'), nombre, propio, 'un depósito')
+  sinRepetir(await todas<FilaDeposito>(db, `SELECT ${COLUMNAS_DEPOSITO} FROM depositos WHERE borrado_en IS NULL`), nombre, propio, 'un depósito')
 }
 
-rutasCatalogos.get('/depositos', async (c) => c.json<Deposito[]>(await leerDepositos(c.env.DB, verTodos(c))))
+async function depositoVigente(db: BaseD1, id: string): Promise<FilaDeposito> {
+  const f = await una<FilaDeposito>(db, `SELECT ${COLUMNAS_DEPOSITO} FROM depositos WHERE id = ? AND borrado_en IS NULL`, id)
+  if (!f) throw noEncontrado('No se encontró ese depósito.')
+  return f
+}
 
-rutasCatalogos.post('/depositos', soloAdmin, async (c) => {
+// Todos los ven (para elegir de dónde sale o adónde va algo).
+rutasCatalogos.get('/depositos', async (c) => c.json<Deposito[]>(await leerDepositos(c.env.DB)))
+
+// Almacenes nuevos (ej.: «Cámara 2»): solo el super-administrador. Los depósitos de venta son dos y fijos.
+rutasCatalogos.post('/depositos', soloAdmin, soloSuper, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  const nombre = texto(b.nombre, 'el nombre del depósito', { max: 60 })
+  const nombre = texto(b.nombre, 'el nombre del almacén', { max: 60 })
   const descripcion = textoOpcional(b.descripcion, 'La descripción', 200) ?? ''
   await depositoSinRepetir(db, nombre, null)
-  const nuevo: Deposito = { id: nuevoId(), nombre, descripcion, sistema: false, activo: true }
+  const nuevo: Deposito = { id: nuevoId(), nombre, descripcion, sistema: false, activo: true, tipo: 'almacen' }
   await db.batch([
-    sentencia(db, 'INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden) VALUES (?, ?, ?, 0, 1, (SELECT COALESCE(MAX(orden), -1) + 1 FROM depositos))',
+    sentencia(db,
+      `INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo)
+       VALUES (?, ?, ?, 0, 1, (SELECT COALESCE(MAX(orden), 0) + 1 FROM depositos WHERE tipo = 'almacen' AND id <> 'materia_prima'), 'almacen')`,
       nuevo.id, nombre, descripcion),
     sentenciaAuditoria(db, { tabla: 'depositos', registroId: nuevo.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nuevo }),
   ])
   return c.json<Deposito>(nuevo)
 })
 
+// El administrador les cambia el nombre o la descripción a todos.
 rutasCatalogos.patch('/depositos/:id', soloAdmin, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  algoParaCambiar(b, ['nombre', 'descripcion', 'activo'])
-  const fila = await una<FilaDeposito>(db, 'SELECT id, nombre, descripcion, sistema, activo FROM depositos WHERE id = ?', c.req.param('id'))
-  if (!fila) throw noEncontrado('No se encontró ese depósito.')
-  const antes = aDeposito(fila)
+  algoParaCambiar(b, ['nombre', 'descripcion'])
+  const antes = aDeposito(await depositoVigente(db, c.req.param('id')))
   const despues: Deposito = { ...antes }
   if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre del depósito', { max: 60 })
   if (b.descripcion !== undefined) despues.descripcion = textoOpcional(b.descripcion, 'La descripción', 200) ?? ''
-  if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
-  if (!despues.activo && antes.sistema) throw conflicto('deposito_del_sistema', `«${antes.nombre}» es un depósito del sistema: se puede renombrar, pero no desactivar.`)
-  if (!despues.activo && antes.activo) {
-    const f = await una<{ n: number }>(
-      db, 'SELECT COUNT(*) AS n FROM (SELECT producto_id FROM movimientos WHERE deposito_id = ? GROUP BY producto_id HAVING SUM(cantidad) <> 0)', antes.id,
-    )
-    if (f?.n) throw conflicto('deposito_con_stock', `«${antes.nombre}» todavía tiene stock de ${f.n} producto${f.n === 1 ? '' : 's'}. Pasalo a otro depósito antes de desactivarlo.`)
-  }
   if (despues.nombre !== antes.nombre) await depositoSinRepetir(db, despues.nombre, antes.id)
   await db.batch([
-    sentencia(db, 'UPDATE depositos SET nombre = ?, descripcion = ?, activo = ? WHERE id = ?', despues.nombre, despues.descripcion, despues.activo, antes.id),
-    sentenciaAuditoria(db, {
-      tabla: 'depositos', registroId: antes.id, accion: accionDe(antes.activo, despues.activo), usuarioId: c.get('usuario').id, antes, despues,
-    }),
+    sentencia(db, 'UPDATE depositos SET nombre = ?, descripcion = ? WHERE id = ?', despues.nombre, despues.descripcion, antes.id),
+    sentenciaAuditoria(db, { tabla: 'depositos', registroId: antes.id, accion: 'editar', usuarioId: c.get('usuario').id, antes, despues }),
   ])
   return c.json<Deposito>(despues)
+})
+
+// Borrar un almacén: solo el super-administrador, vacío y quedando al menos otro almacén en frío. Si tuvo movimientos
+// queda guardado (oculto) para el historial; si no, se borra del todo.
+rutasCatalogos.delete('/depositos/:id', soloAdmin, soloSuper, async (c) => {
+  const db = c.env.DB
+  const f = await depositoVigente(db, c.req.param('id'))
+  if (f.sistema || f.tipo !== 'almacen') {
+    throw conflicto('deposito_del_sistema', `«${f.nombre}» es un depósito fijo: se le puede cambiar el nombre, pero no se borra.`)
+  }
+  const otros = await una<{ n: number }>(
+    db, "SELECT COUNT(*) AS n FROM depositos WHERE tipo = 'almacen' AND sistema = 0 AND borrado_en IS NULL AND id <> ?", f.id,
+  )
+  if (!otros?.n) throw conflicto('ultimo_almacen', `«${f.nombre}» es el único almacén en frío: creá otro antes de borrarlo.`)
+  const conStock = await una<{ n: number }>(
+    db, 'SELECT COUNT(*) AS n FROM (SELECT producto_id FROM movimientos WHERE deposito_id = ? GROUP BY producto_id, lote HAVING SUM(cantidad) <> 0)', f.id,
+  )
+  if (conStock?.n) {
+    throw conflicto('deposito_con_stock', `«${f.nombre}» todavía tiene stock. Pasalo a otro depósito con «Transferir» antes de borrarlo.`)
+  }
+  const usado = await una<{ n: number }>(
+    db, 'SELECT (SELECT COUNT(*) FROM movimientos WHERE deposito_id = ?) + (SELECT COUNT(*) FROM produccion_items WHERE deposito_id = ?) AS n', f.id, f.id,
+  )
+  const antes = aDeposito(f)
+  await db.batch([
+    usado?.n
+      ? sentencia(db, 'UPDATE depositos SET activo = 0, borrado_en = ? WHERE id = ?', new Date().toISOString(), f.id)
+      : sentencia(db, 'DELETE FROM depositos WHERE id = ?', f.id),
+    sentenciaAuditoria(db, { tabla: 'depositos', registroId: f.id, accion: 'borrar', usuarioId: c.get('usuario').id, antes }),
+  ])
+  return c.json({ ok: true })
 })
 
 // ---------- Categorías de productos (M10) ----------
 // Agrupan productos para las compras: el administrador elige qué sectores pueden comprar cada categoría.
 
-interface FilaCategoria { id: string; nombre: string; activo: number }
+interface FilaCategoria { id: string; nombre: string; activo: number; sistema: number }
 
 async function leerCategorias(db: BaseD1, todos: boolean): Promise<Categoria[]> {
   const filas = await todas<FilaCategoria>(
-    db, `SELECT id, nombre, activo FROM categorias ${todos ? '' : 'WHERE activo = 1'} ORDER BY orden, nombre`,
+    db, `SELECT id, nombre, activo, sistema FROM categorias ${todos ? '' : 'WHERE activo = 1'} ORDER BY orden, nombre`,
   )
   const sectores = await todas<{ categoria_id: string; sector: SectorId }>(
     db, 'SELECT x.categoria_id, x.sector FROM categorias_sectores x JOIN sectores s ON s.id = x.sector ORDER BY s.orden',
   )
   return filas.map((f) => ({
-    id: f.id, nombre: f.nombre, activo: !!f.activo,
+    id: f.id, nombre: f.nombre, activo: !!f.activo, sistema: !!f.sistema,
     sectores: sectores.filter((x) => x.categoria_id === f.id).map((x) => x.sector),
   }))
 }
@@ -642,7 +692,7 @@ const sentenciasCategoriaSectores = (db: BaseD1, id: string, sectores: SectorId[
 ]
 
 async function categoriaSinRepetir(db: BaseD1, nombre: string, propio: string | null) {
-  sinRepetir(await todas<FilaCategoria>(db, 'SELECT id, nombre, activo FROM categorias'), nombre, propio, 'una categoría')
+  sinRepetir(await todas<FilaCategoria>(db, 'SELECT id, nombre, activo, sistema FROM categorias'), nombre, propio, 'una categoría')
 }
 
 rutasCatalogos.get('/categorias', async (c) => {
@@ -655,9 +705,9 @@ rutasCatalogos.post('/categorias', soloAdmin, async (c) => {
   const nombre = texto(b.nombre, 'el nombre de la categoría', { max: 60 })
   await categoriaSinRepetir(db, nombre, null)
   const sectores = sectoresCategoria(b.sectores)
-  const nueva: Categoria = { id: nuevoId(), nombre, activo: true, sectores }
+  const nueva: Categoria = { id: nuevoId(), nombre, activo: true, sectores, sistema: false }
   await db.batch([
-    sentencia(db, 'INSERT INTO categorias (id, nombre, activo, orden) VALUES (?, ?, 1, (SELECT COALESCE(MAX(orden), -1) + 1 FROM categorias))', nueva.id, nombre),
+    sentencia(db, 'INSERT INTO categorias (id, nombre, activo, orden) VALUES (?, ?, 1, (SELECT COALESCE(MAX(orden), -1) + 1 FROM categorias WHERE sistema = 0))', nueva.id, nombre),
     ...sentenciasCategoriaSectores(db, nueva.id, sectores),
     sentenciaAuditoria(db, { tabla: 'categorias', registroId: nueva.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nueva }),
   ])
@@ -673,6 +723,9 @@ rutasCatalogos.patch('/categorias/:id', soloAdmin, async (c) => {
   const despues: Categoria = { ...antes }
   if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre de la categoría', { max: 60 })
   if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
+  if (antes.sistema && !despues.activo) {
+    throw conflicto('categoria_del_sistema', `«${antes.nombre}» es la categoría de los productos que no entran en ninguna otra: no se desactiva.`)
+  }
   if (b.sectores !== undefined) despues.sectores = sectoresCategoria(b.sectores)
   if (despues.nombre !== antes.nombre) await categoriaSinRepetir(db, despues.nombre, antes.id)
   await db.batch([

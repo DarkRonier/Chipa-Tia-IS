@@ -48,45 +48,46 @@ describe('planilla de comprobación D01–D07', () => {
     const cocina = await p.entrar('cocina')
     const admin = await p.entrar('admin')
 
-    // D01: lo guardado (8 de 38 empanadas) suma al stock del sector: 5 en «Frío» y 3 en «Para sucursales».
+    // D01: lo guardado (8 de 38 empanadas) suma al stock: 5 en «Frío» y 3 en «Cámara 2» (otro almacén).
+    await p.sql("INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo) VALUES ('camara2', 'Cámara 2', '', 0, 1, 11, 'almacen')")
     await mov(p, { cantidad: 5 })
-    await mov(p, { cantidad: 3, deposito: 'sucursales' })
+    await mov(p, { cantidad: 3, deposito: 'camara2' })
     expect((await stockDe(p, cocina, EMPANADA))?.total).toBe(8)
 
-    // D02: sacar 3 para la venta: salen de «Frío» y pasan a «Directo a Venta» (de ahí las descuenta la caja). En frío
-    // y para sucursales quedan 5.
+    // D02: sacar 3 para la venta: salen de «Frío» y pasan a «Venta frente» (de ahí las descuenta la caja). En los
+    // almacenes quedan 5.
     const salida = await p.pedir<Movimiento>(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 3 })
     expect(salida.status).toBe(200)
     expect(salida.body).toMatchObject({
       tipo: 'salida_venta', cantidad: -3, sector: 'cocina', productoId: EMPANADA, productoNombre: 'Empanada frita (carne)',
       usuarioId: 'usr-cocina', usuarioNombre: 'Encargado Cocina', dia: diaPY(), sucursalId: null, lote: null,
-      depositoId: 'frio', depositoNombre: 'Frío', motivo: 'De «Frío» a «Directo a Venta»',
+      depositoId: 'frio', depositoNombre: 'Frío', motivo: 'De «Frío» a «Venta frente»',
     })
     expect(Date.parse(salida.body.fecha)).toBeGreaterThan(Date.now() - 60_000)
-    expect((await stockDe(p, cocina, EMPANADA))?.porDeposito).toEqual({ frio: 2, sucursales: 3, venta: 3 })
+    expect((await stockDe(p, cocina, EMPANADA))?.porDeposito).toEqual({ frio: 2, camara2: 3, venta: 3 })
     const fueraDeVenta = async () => {
       const f = await stockDe(p, cocina, EMPANADA)
       return (f?.total ?? 0) - (f?.porDeposito.venta ?? 0)
     }
     expect(await fueraDeVenta()).toBe(5)
 
-    // D03: envío de 2 a una sucursal, con sucursal, fecha, producto y cantidad.
-    const envio = await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: EMPANADA, cantidad: 2 }] })
+    // D03: envío de 2 a una sucursal, con sucursal, fecha, producto y cantidad. Sale del almacén elegido.
+    const envio = await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', desde: 'camara2', items: [{ productoId: EMPANADA, cantidad: 2 }] })
     expect(envio.status).toBe(200)
     expect(envio.body.envioId).toBeTruthy()
     expect(envio.body.movimientos).toHaveLength(1)
     expect(envio.body.movimientos[0]).toMatchObject({
-      tipo: 'envio', cantidad: -2, sucursalId: 'suc-centro', sucursalNombre: 'Sucursal Centro', depositoId: 'sucursales',
+      tipo: 'envio', cantidad: -2, sucursalId: 'suc-centro', sucursalNombre: 'Sucursal Centro', depositoId: 'camara2',
       envioId: envio.body.envioId, productoNombre: 'Empanada frita (carne)', usuarioNombre: 'Encargado Cocina', dia: diaPY(),
     })
     expect(await fueraDeVenta()).toBe(3)
 
     // D04: no deja enviar 10.
-    const diez = await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: EMPANADA, cantidad: 10 }] })
+    const diez = await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', desde: 'camara2', items: [{ productoId: EMPANADA, cantidad: 10 }] })
     expect(diez.status).toBe(409)
     expect(diez.body.error.codigo).toBe('stock_insuficiente')
     expect(diez.body.error.mensaje).toBe(
-      'No hay stock suficiente en «Para sucursales»: de Empanada frita (carne) hay 1 y querés sacar 10. En «Directo a Venta» hay 3 y en «Frío» hay 2: pasalo con «Transferir» en Stock si querés usarlo.',
+      'No hay stock suficiente en «Cámara 2»: de Empanada frita (carne) hay 1 y querés sacar 10. En «Venta frente» hay 3 y en «Frío» hay 2: pasalo con «Transferir» en Depósitos si querés usarlo.',
     )
     expect(await fueraDeVenta()).toBe(3)
 
@@ -118,7 +119,7 @@ describe('GET /stock', () => {
     const t = await p.entrar('cocina')
     await mov(p, { producto: MBEJU, cantidad: 4 })
     await p.sql("UPDATE productos SET activo = 0 WHERE id IN (?, ?)", MBEJU, MARINERA)
-    const r = await p.pedir<StockFila[]>(t, 'GET', '/stock')
+    const r = await p.pedir<StockFila[]>(t, 'GET', '/stock?sector=cocina')
     expect(r.status).toBe(200)
     expect(r.body.every((f) => f.productoId.startsWith('prod-cocina-'))).toBe(true)
     expect(r.body.find((f) => f.productoId === MBEJU)).toMatchObject({ activo: false, total: 4, lotes: [] })
@@ -150,11 +151,16 @@ describe('GET /stock', () => {
     expect((await stockDe(p, t, QUESU))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 8, porDeposito: { frio: 8 } }])
   })
 
-  it('el administrador tiene que indicar el sector; un operador no puede ver otro (A03)', async () => {
+  it('sin sector trae todos; con sector, ese (un operador solo puede pedir el suyo) (A03)', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
     const cocina = await p.entrar('cocina')
-    expect((await p.pedir(admin, 'GET', '/stock')).status).toBe(400)
+    // Los depósitos no se separan por sector: sin sector vienen todos los productos.
+    for (const t of [admin, cocina]) {
+      const todos = await p.pedir<StockFila[]>(t, 'GET', '/stock')
+      expect(todos.status).toBe(200)
+      expect(new Set(todos.body.map((f) => f.sector)).size).toBe(4)
+    }
     expect((await p.pedir(admin, 'GET', '/stock?sector=nada')).status).toBe(400)
     const r = await p.pedir<StockFila[]>(admin, 'GET', '/stock?sector=panaderia')
     expect(r.status).toBe(200)
@@ -180,13 +186,16 @@ describe('POST /salidas (D02, D04)', () => {
       [{ productoId: EMPANADA, cantidad: 1.5 }, 'La cantidad tiene que ser un número entero.'],
       [{ productoId: EMPANADA, cantidad: '2' }, 'La cantidad tiene que ser un número entero.'],
       [{ productoId: 'no-existe', cantidad: 1 }, 'Ese producto no existe. Recargá la página y probá de nuevo.'],
-      [{ productoId: CHIPA, cantidad: 1 }, 'Chipa tradicional no es un producto de este sector.'],
     ]
     for (const [cuerpo, mensaje] of casos) {
       const r = await p.pedir(t, 'POST', '/salidas', cuerpo)
       expect(r.status, JSON.stringify(cuerpo)).toBe(400)
       expect(r.body.error).toEqual({ codigo: 'datos_invalidos', mensaje })
     }
+    // Lo de otro sector no lo mueve.
+    const otro = await p.pedir(t, 'POST', '/salidas', { productoId: CHIPA, cantidad: 1 })
+    expect(otro.status).toBe(403)
+    expect(otro.body.error.mensaje).toBe('Chipa tradicional es de otro sector: lo mueve ese sector o el administrador.')
     expect((await p.sql('SELECT COUNT(*) AS n FROM movimientos'))[0].n).toBe(1)
   })
 
@@ -204,7 +213,7 @@ describe('POST /salidas (D02, D04)', () => {
     expect((await stockDe(p, t, EMPANADA))?.porDeposito).toEqual({ venta: 4 })
   })
 
-  it('un operador solo saca de su sector; el administrador indica el sector (A03)', async () => {
+  it('un operador solo saca de su sector; el administrador saca de cualquiera (A03)', async () => {
     const p = await nuevaPrueba()
     await mov(p, { sector: 'chiperia', producto: CHIPA, lote: 'CH-261009-1', cantidad: 10, usuario: 'usr-chiperia' })
     await mov(p, { cantidad: 10 })
@@ -212,8 +221,9 @@ describe('POST /salidas (D02, D04)', () => {
     const admin = await p.entrar('admin')
     const r = await p.pedir(cocina, 'POST', '/salidas', { sector: 'chiperia', productoId: CHIPA, lote: 'CH-261009-1', cantidad: 1 })
     expect(r.status).toBe(403)
-    expect((await p.pedir(admin, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 1 })).body.error.mensaje).toBe('Indicá el sector.')
-    const a = await p.pedir<Movimiento>(admin, 'POST', '/salidas', { sector: 'cocina', productoId: EMPANADA, cantidad: 1 })
+    // El sector sale del producto; si se dice otro, no coincide.
+    expect((await p.pedir(admin, 'POST', '/salidas', { sector: 'chiperia', productoId: EMPANADA, cantidad: 1 })).status).toBe(403)
+    const a = await p.pedir<Movimiento>(admin, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 1 })
     expect(a.status).toBe(200)
     expect(a.body).toMatchObject({ sector: 'cocina', usuarioId: 'usr-admin', cantidad: -1 })
   })
@@ -233,7 +243,7 @@ describe('POST /salidas (D02, D04)', () => {
     const ok = await p.pedir<Movimiento>(t, 'POST', '/salidas', { productoId: CHIPA, lote: 'CH-261008-1', cantidad: 10 })
     expect(ok.status).toBe(200)
     expect(ok.body.lote).toBe('CH-261008-1')
-    // El lote pasa entero a Directo a Venta, con su código (para la trazabilidad).
+    // El lote pasa entero a Venta frente, con su código (para la trazabilidad).
     expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([
       { lote: 'CH-261008-1', cantidad: 10, porDeposito: { venta: 10 } },
       { lote: 'CH-261009-1', cantidad: 300, porDeposito: { frio: 300 } },
@@ -244,16 +254,15 @@ describe('POST /salidas (D02, D04)', () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('chiperia')
     await loteChipa(p, 'CH-261009-1', '2026-10-09', 1, 6)
-    await mov(p, { sector: 'chiperia', producto: CHIPA, lote: 'CH-261009-1', cantidad: 4, usuario: 'usr-chiperia', deposito: 'sucursales' })
     const salida = await p.pedir<Movimiento>(t, 'POST', '/salidas', { productoId: CHIPA, lote: 'ch-261009-1 ', cantidad: 3 })
     expect(salida.status).toBe(200)
     expect(salida.body).toMatchObject({ lote: 'CH-261009-1', cantidad: -3 })
     const envio = await p.pedir(t, 'POST', '/envios', {
-      sucursalId: 'suc-centro', items: [{ productoId: CHIPA, lote: ' ch-261009-1', cantidad: 4 }],
+      sucursalId: 'suc-centro', items: [{ productoId: CHIPA, lote: ' ch-261009-1', cantidad: 2 }],
     })
     expect(envio.status).toBe(200)
-    expect(envio.body.movimientos[0]).toMatchObject({ lote: 'CH-261009-1', cantidad: -4 })
-    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 6, porDeposito: { frio: 3, venta: 3 } }])
+    expect(envio.body.movimientos[0]).toMatchObject({ lote: 'CH-261009-1', cantidad: -2 })
+    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 4, porDeposito: { frio: 1, venta: 3 } }])
   })
 
   it('en un sector sin lotes ignora el lote', async () => {
@@ -270,8 +279,8 @@ describe('POST /envios (D03, D04, E05)', () => {
   it('registra varias líneas con el mismo envío y sucursal', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('cocina')
-    await mov(p, { cantidad: 10, deposito: 'sucursales' })
-    await mov(p, { producto: MARINERA, cantidad: 6, deposito: 'sucursales' })
+    await mov(p, { cantidad: 10, })
+    await mov(p, { producto: MARINERA, cantidad: 6, })
     const r = await p.pedir(t, 'POST', '/envios', {
       sucursalId: 'suc-ruta1',
       items: [{ productoId: MARINERA, cantidad: 6 }, { productoId: EMPANADA, cantidad: 4 }],
@@ -288,15 +297,15 @@ describe('POST /envios (D03, D04, E05)', () => {
   it('si una línea no alcanza no registra ninguna (todo o nada)', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('cocina')
-    await mov(p, { cantidad: 10, deposito: 'sucursales' })
-    await mov(p, { producto: MARINERA, cantidad: 2, deposito: 'sucursales' })
+    await mov(p, { cantidad: 10, })
+    await mov(p, { producto: MARINERA, cantidad: 2, })
     const r = await p.pedir(t, 'POST', '/envios', {
       sucursalId: 'suc-centro',
       items: [{ productoId: EMPANADA, cantidad: 5 }, { productoId: MARINERA, cantidad: 3 }],
     })
     expect(r.status).toBe(409)
     expect(r.body.error).toEqual({
-      codigo: 'stock_insuficiente', mensaje: 'No hay stock suficiente en «Para sucursales»: de Marinera de carne hay 2 y querés sacar 3.',
+      codigo: 'stock_insuficiente', mensaje: 'No hay stock suficiente en «Frío»: de Marinera de carne hay 2 y querés sacar 3.',
     })
     expect((await p.sql("SELECT COUNT(*) AS n FROM movimientos WHERE tipo = 'envio'"))[0].n).toBe(0)
     expect((await stockDe(p, t, EMPANADA))?.total).toBe(10)
@@ -316,7 +325,6 @@ describe('POST /envios (D03, D04, E05)', () => {
       [{ sucursalId: 'suc-centro', items: [] }, 'Cargá al menos un producto para enviar.'],
       [{ sucursalId: 'suc-centro', items: [{ productoId: EMPANADA, cantidad: 0 }] }, 'Cargá una cantidad mayor que cero.'],
       [{ sucursalId: 'suc-centro', items: [{ cantidad: 1 }] }, 'Elegí el producto.'],
-      [{ sucursalId: 'suc-centro', items: [{ productoId: CHIPA, cantidad: 1 }] }, 'Chipa tradicional no es un producto de este sector.'],
       [
         { sucursalId: 'suc-centro', items: [{ productoId: EMPANADA, cantidad: 1 }, { productoId: EMPANADA, cantidad: 2 }] },
         'Empanada frita (carne) está repetido en el envío: juntá las cantidades en una sola línea.',
@@ -328,13 +336,14 @@ describe('POST /envios (D03, D04, E05)', () => {
       expect(r.body.error).toEqual({ codigo: 'datos_invalidos', mensaje })
     }
     expect((await p.pedir(t, 'POST', '/envios', { sector: 'chipitas', sucursalId: 'suc-centro', items: linea })).status).toBe(403)
+    expect((await p.pedir(t, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: CHIPA, cantidad: 1 }] })).status).toBe(403)
   })
 
   it('en Chipería cada línea indica su lote; 100 de un lote de 300 lo dejan en 200 (E05)', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('chiperia')
-    await loteChipa(p, 'CH-261009-1', '2026-10-09', 1, 300, CHIPA, 'sucursales')
-    await loteChipa(p, 'CH-261009-2', '2026-10-09', 2, 40, CHIPA, 'sucursales')
+    await loteChipa(p, 'CH-261009-1', '2026-10-09', 1, 300, CHIPA)
+    await loteChipa(p, 'CH-261009-2', '2026-10-09', 2, 40, CHIPA)
     const sinLote = await p.pedir(t, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: CHIPA, cantidad: 100 }] })
     expect(sinLote.body.error.mensaje).toBe('Elegí el lote de Chipa tradicional.')
     const r = await p.pedir(t, 'POST', '/envios', {
@@ -343,12 +352,12 @@ describe('POST /envios (D03, D04, E05)', () => {
     })
     expect(r.status).toBe(200)
     expect(r.body.movimientos.map((m: Movimiento) => m.lote)).toEqual(['CH-261009-1', 'CH-261009-2'])
-    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 200, porDeposito: { sucursales: 200 } }])
+    expect((await stockDe(p, t, CHIPA))?.lotes).toEqual([{ lote: 'CH-261009-1', cantidad: 200, porDeposito: { frio: 200 } }])
     const otra = await p.pedir(t, 'POST', '/envios', {
       sucursalId: 'suc-ruta1', items: [{ productoId: CHIPA, lote: 'CH-261009-2', cantidad: 1 }],
     })
     expect(otra.status).toBe(409)
-    expect(otra.body.error.mensaje).toBe('No hay stock de Chipa tradicional del lote CH-261009-2 en «Para sucursales».')
+    expect(otra.body.error.mensaje).toBe('No hay stock de Chipa tradicional del lote CH-261009-2 en «Frío».')
     const historial = await p.pedir<Movimiento[]>(t, 'GET', '/movimientos?lote=CH-261009-1&tipo=envio')
     expect(historial.body.map((m) => [m.sucursalNombre, m.cantidad])).toEqual([['Sucursal Centro', -100]])
   })
@@ -391,7 +400,6 @@ describe('POST /ajustes (D06, D07) · solo admin', () => {
     await mov(p, { cantidad: 2 })
     const base = { sector: 'cocina', productoId: EMPANADA, cantidad: 1, motivo: 'Algo' }
     const casos: [unknown, string][] = [
-      [{ ...base, sector: undefined, tipo: 'merma' }, 'Indicá el sector.'],
       [{ ...base, tipo: undefined }, 'Elegí si es merma, vencimiento, ajuste o stock inicial.'],
       [{ ...base, tipo: 'salida_venta' }, 'El tipo de ajuste no es válido.'],
       [{ ...base, tipo: 'ajuste' }, 'Elegí si el ajuste suma o resta.'],
@@ -400,14 +408,15 @@ describe('POST /ajustes (D06, D07) · solo admin', () => {
       [{ ...base, tipo: 'merma', motivo: '   ' }, 'Escribí el motivo.'],
       [{ ...base, tipo: 'stock_inicial', motivo: undefined }, 'Escribí el motivo.'],
       [{ ...base, tipo: 'merma', cantidad: 0 }, 'Cargá una cantidad mayor que cero.'],
-      [{ ...base, tipo: 'merma', productoId: MBEJU, sector: 'panaderia' }, 'Mbeju no es un producto de este sector.'],
     ]
     for (const [cuerpo, mensaje] of casos) {
       const r = await p.pedir(admin, 'POST', '/ajustes', cuerpo)
       expect(r.status, JSON.stringify(cuerpo)).toBe(400)
       expect(r.body.error.mensaje).toBe(mensaje)
     }
-    const r = await p.pedir(admin, 'POST', '/ajustes', { ...base, tipo: 'merma', cantidad: 3 })
+    // Sin sector vale (sale del producto); con otro sector, no coincide.
+    expect((await p.pedir(admin, 'POST', '/ajustes', { ...base, tipo: 'merma', productoId: MBEJU, sector: 'panaderia' })).status).toBe(403)
+    const r = await p.pedir(admin, 'POST', '/ajustes', { ...base, sector: undefined, tipo: 'merma', cantidad: 3 })
     expect(r.status).toBe(409)
     expect(r.body.error.mensaje).toBe('No hay stock suficiente en «Frío»: de Empanada frita (carne) hay 2 y querés sacar 3.')
     expect((await p.sql('SELECT COUNT(*) AS n FROM auditoria'))[0].n).toBe(0)

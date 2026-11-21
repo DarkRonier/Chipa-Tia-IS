@@ -4,7 +4,7 @@
 //   esperado; el cierre guarda esperado, contado y diferencia.
 // - Ventas: al contado, con productos, cantidades, precios del catálogo, descuento, medio de pago y cliente opcional.
 //   Solo con la caja abierta. Las registra solo el cajero (Mati, 2026-11-21: el administrador y el supervisor no
-//   venden). Todo lo vendido descuenta del depósito Directo a Venta (en Chipería, de los lotes más viejos primero). La
+//   venden). Todo lo vendido descuenta del depósito Venta frente (en Chipería, de los lotes más viejos primero). La
 //   venta nunca se frena por stock: si no estaba cargado, el depósito queda en negativo a la vista.
 // - Factura preimpresa: numeración propia (prefijo y número), una por venta; se puede reimprimir con el mismo número.
 import { Hono, type MiddlewareHandler } from 'hono'
@@ -330,10 +330,11 @@ interface FilaProductoVenta {
   iva: Iva
   activo: number
   con_lotes: number
+  sin_stock: number
   stock: number
 }
 
-const SQL_PRODUCTO_VENTA = `SELECT p.id, p.nombre, p.sector, s.nombre AS sector_nombre, p.precio_venta, p.iva, p.activo, s.con_lotes,
+const SQL_PRODUCTO_VENTA = `SELECT p.id, p.nombre, p.sector, s.nombre AS sector_nombre, p.precio_venta, p.iva, p.activo, s.con_lotes, p.sin_stock,
     COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.deposito_id = '${DEPOSITO.venta}'), 0) AS stock
   FROM productos p JOIN sectores s ON s.id = p.sector`
 
@@ -351,6 +352,7 @@ rutasCaja.get('/ventas/productos', requiere('ventas.registrar'), async (c) => {
   return c.json<ProductoVenta[]>(filas.map((f) => ({
     id: f.id, nombre: f.nombre, sector: f.sector, sectorNombre: f.sector_nombre, precio: f.precio_venta!, iva: f.iva,
     stock: f.stock,
+    sinStock: !!f.sin_stock,
   })))
 })
 
@@ -492,8 +494,9 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
 
   const id = nuevoId()
   const { fecha, dia } = ahora()
-  // Todo lo vendido sale de Directo a Venta; en un sector con lotes, de los más viejos primero.
-  const salidas = (await Promise.all(lineas.map(async (l) => (
+  // Todo lo vendido sale de Venta frente; en un sector con lotes, de los más viejos primero. Lo «sin stock» (el buffet)
+  // solo queda en la venta.
+  const salidas = (await Promise.all(lineas.filter((l) => !l.p.sin_stock).map(async (l) => (
     l.p.con_lotes ? await repartirPorLotes(db, l.p.sector, l.p.id, DEPOSITO.venta, l.cantidad) : [{ lote: null, cantidad: l.cantidad }]
   ).map((parte) => ({ p: l.p, ...parte }))))).flat()
   const sentencias: SentenciaD1[] = [

@@ -1,7 +1,7 @@
 // Lecturas que comparten varios módulos (producción, stock, lotes, trazabilidad, reportes).
 // Cada una arma el objeto de src/shared/tipos.ts listo para devolver por la API.
 import { diaLegible, diaPY } from '../shared/hora'
-import type { Deposito, LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoMovimiento, Turno } from '../shared/tipos'
+import type { Deposito, LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoDeposito, TipoMovimiento, Turno } from '../shared/tipos'
 import { todas, todasPorTrozos } from './db'
 import type { BaseD1, ValorSQL } from './entorno'
 
@@ -126,7 +126,8 @@ export async function leerLotesChipa(db: BaseD1, filtro: {
   const columnas = `SELECT l.id, l.codigo, l.produccion_id, l.amasada, l.dia,
       COALESCE((SELECT SUM(i.cocinado) FROM produccion_items i WHERE i.produccion_id = l.produccion_id), 0) AS horno,
       COALESCE((SELECT SUM(i.guardado) FROM produccion_items i WHERE i.produccion_id = l.produccion_id), 0) AS congelador,
-      COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = 'chiperia' AND m.lote = l.codigo AND m.deposito_id <> 'venta'), 0) AS stock
+      COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = 'chiperia' AND m.lote = l.codigo
+         AND m.deposito_id IN (SELECT id FROM depositos WHERE tipo = 'almacen')), 0) AS stock
     FROM lotes_chipa l`
   const orden = 'ORDER BY l.dia DESC, l.amasada DESC'
   let filas: FilaLoteChipa[]
@@ -176,6 +177,7 @@ interface FilaProduccion {
   corregido_por: string | null
   corregido_por_nombre: string | null
   corregido_en: string | null
+  deposito_venta_id: string
 }
 
 /** Registros de producción con sus productos y, en Chipería, su lote. El más nuevo primero. */
@@ -187,7 +189,7 @@ export async function leerProducciones(db: BaseD1, filtro: {
   limite?: number
 } = {}): Promise<Produccion[]> {
   const columnas = `SELECT p.id, p.sector, p.usuario_id, u.nombre AS usuario_nombre, p.fecha, p.dia, p.turno,
-      p.corregido_por, c.nombre AS corregido_por_nombre, p.corregido_en
+      p.corregido_por, c.nombre AS corregido_por_nombre, p.corregido_en, p.deposito_venta_id
     FROM producciones p JOIN usuarios u ON u.id = p.usuario_id LEFT JOIN usuarios c ON c.id = p.corregido_por`
   let filas: FilaProduccion[]
   if (filtro.ids) {
@@ -227,6 +229,7 @@ export async function leerProducciones(db: BaseD1, filtro: {
     corregidoPor: f.corregido_por,
     corregidoPorNombre: f.corregido_por_nombre,
     corregidoEn: f.corregido_en,
+    depositoVentaId: f.deposito_venta_id,
   }))
 }
 
@@ -328,10 +331,10 @@ export async function leerMovimientos(db: BaseD1, filtro: FiltroMovimientos = {}
   return filas.map(aMovimiento)
 }
 
-/** Depósitos en su orden (Directo a Venta, Frío, Para sucursales, Materia prima y los que agregó el administrador). */
-export async function leerDepositos(db: BaseD1, todos = true): Promise<Deposito[]> {
-  const filas = await todas<{ id: string; nombre: string; descripcion: string; sistema: number; activo: number }>(
-    db, `SELECT id, nombre, descripcion, sistema, activo FROM depositos ${todos ? '' : 'WHERE activo = 1'} ORDER BY orden, nombre`,
+/** Depósitos que existen, en su orden: los de venta (frente, comedor), los almacenes y Materia prima. */
+export async function leerDepositos(db: BaseD1): Promise<Deposito[]> {
+  const filas = await todas<{ id: string; nombre: string; descripcion: string; sistema: number; activo: number; tipo: TipoDeposito }>(
+    db, 'SELECT id, nombre, descripcion, sistema, activo, tipo FROM depositos WHERE borrado_en IS NULL ORDER BY orden, nombre',
   )
-  return filas.map((f) => ({ id: f.id, nombre: f.nombre, descripcion: f.descripcion, sistema: !!f.sistema, activo: !!f.activo }))
+  return filas.map((f) => ({ id: f.id, nombre: f.nombre, descripcion: f.descripcion, sistema: !!f.sistema, activo: !!f.activo, tipo: f.tipo }))
 }

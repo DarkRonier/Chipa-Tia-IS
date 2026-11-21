@@ -8,7 +8,7 @@
 //   producción de todos los sectores. Reporta fallas o incidencias de máquinas (no carga estado ni temperatura) y
 //   da el visto bueno de la limpieza. No carga producción ni mueve stock. Gestiona proveedores, registra compras de
 //   cualquier categoría, marca pagos y ve los reportes simples de compras y pagos.
-// - Cajero: abre, arquea y cierra la caja, registra y anula ventas e imprime facturas. Es el único que vende.
+// - Cajero: abre, arquea y cierra la caja, registra y anula ventas e imprime facturas. Es el único que vende. Ve los depósitos (el stock del frente).
 // - Sectores (Chipería, Chipitas, Panadería, Cocina/Buffet): cargan y ven lo de su sector. Lotes y trazabilidad
 //   son solo de Chipería. Cargan compras solo de productos de su sector en las categorías que el administrador les
 //   habilitó; no marcan pagos.
@@ -112,7 +112,7 @@ const TABLA: Record<Rol, readonly Permiso[]> = {
     'reportes.ver',
     'compras.registrar', 'compras.pagar', 'proveedores.gestionar', 'reportes.compras', 'ie.egresos_proveedores',
   ],
-  cajero: ['caja.operar', 'ventas.registrar', 'ventas.anular', 'facturas.generar'],
+  cajero: ['caja.operar', 'ventas.registrar', 'ventas.anular', 'facturas.generar', 'stock.ver'],
   chiperia: [...DE_SECTOR, 'lotes.ver', 'lotes.cargar', 'trazabilidad.ver'],
   chipitas: DE_SECTOR,
   panaderia: DE_SECTOR,

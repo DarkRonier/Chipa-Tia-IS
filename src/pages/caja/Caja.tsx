@@ -181,14 +181,15 @@ function Vender() {
         {() => (
           <div className="grilla-venta">
             {filtrados.map((p) => {
-              // Lo que queda en Directo a Venta con lo que ya está en el carrito. Sin stock igual se vende (el cliente ya lo
+              // Lo que queda en Venta frente con lo que ya está en el carrito. Sin stock igual se vende (el cliente ya lo
               // tiene en la mano): solo se avisa, para que alguien lo cargue.
               const quedan = p.stock - (carrito.get(p.id) ?? 0)
               return (
-                <button key={p.id} type="button" className={`producto-venta${quedan <= 0 ? ' sin-stock' : ''}`} onClick={() => sumar(p.id, 1)}>
+                <button key={p.id} type="button" className={`producto-venta${quedan <= 0 && !p.sinStock ? ' sin-stock' : ''}`} onClick={() => sumar(p.id, 1)}>
                   <strong>{p.nombre}</strong>
                   <span>{gs(p.precio)}</span>
-                  <span className={quedan <= 0 ? 'chico stk-negativo' : 'suave chico'}>{quedan <= 0 ? 'Sin stock cargado' : `Quedan ${quedan}`}</span>
+                  {/* Los «sin stock» (buffet por kilo) solo registran lo vendido: no hay cantidad que mostrar. */}
+                  {!p.sinStock && <span className={quedan <= 0 ? 'chico stk-negativo' : 'suave chico'}>{quedan <= 0 ? 'Sin stock cargado' : `Quedan ${quedan}`}</span>}
                   {carrito.get(p.id) ? <span className="etq-compra pagada">× {carrito.get(p.id)}</span> : null}
                 </button>
               )

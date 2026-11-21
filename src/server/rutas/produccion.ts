@@ -1,5 +1,5 @@
 // C01–C04, E02–E04: registros de producción. Un registro junta todos los productos de una carga;
-// lo cocinado entra en el depósito Directo a Venta, lo guardado en el depósito elegido (si no, Frío) y, en Chipería, cada registro es una amasada con su lote CH-AAMMDD-N.
+// lo cocinado entra en un depósito de venta (Venta frente si no se elige), lo guardado en el almacén elegido (si no, Frío) y, en Chipería, cada registro es una amasada con su lote CH-AAMMDD-N.
 import { Hono } from 'hono'
 import { DEPOSITO, type Produccion, type ProduccionItem, type SectorId, type Turno } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
@@ -9,6 +9,7 @@ import type { BaseD1, Entorno, SentenciaD1 } from '../entorno'
 import { conflicto, esSaldoLoteInsuficiente, esStockInsuficiente, invalido, noEncontrado } from '../errores'
 import { requiere, sectorPara } from '../sesion'
 import { cuerpo, diaOpcional, entero, numero, opcion, texto } from '../validar'
+import { almacenPorDefecto, leerDeposito } from './stock'
 
 export const rutasProduccion = new Hono<Entorno>()
 
@@ -51,22 +52,26 @@ interface FilaProducto {
   nombre: string
   activo: number
   tipo: string
+  sin_stock: number
 }
 
-/** Cada depósito elegido para lo guardado tiene que existir y estar activo. */
+/** Cada depósito elegido para lo guardado tiene que existir, no estar borrado y ser un almacén. */
 async function controlarDepositos(db: BaseD1, ids: string[]) {
   const unicos = [...new Set(ids)]
   if (!unicos.length) return
-  const filas = await todasPorTrozos<{ id: string; nombre: string; activo: number }>(db, unicos, (m) => `SELECT id, nombre, activo FROM depositos WHERE id IN (${m})`)
+  const filas = await todasPorTrozos<{ id: string; nombre: string; activo: number; tipo: string }>(
+    db, unicos, (m) => `SELECT id, nombre, activo, tipo FROM depositos WHERE id IN (${m})`,
+  )
   for (const id of unicos) {
     const d = filas.find((f) => f.id === id)
     if (!d) throw invalido('Ese depósito no existe. Recargá la página y probá de nuevo.')
-    if (!d.activo) throw invalido(`El depósito ${d.nombre} está desactivado. Elegí otro.`)
+    if (!d.activo) throw invalido(`El depósito ${d.nombre} ya no existe. Elegí otro.`)
+    if (d.tipo !== 'almacen') throw invalido(`Lo guardado va a un almacén, no a «${d.nombre}».`)
   }
 }
 
 async function leerProductos(db: BaseD1, ids: string[]): Promise<Map<string, FilaProducto>> {
-  const filas = await todasPorTrozos<FilaProducto>(db, ids, (m) => `SELECT id, sector, nombre, activo, tipo FROM productos WHERE id IN (${m})`)
+  const filas = await todasPorTrozos<FilaProducto>(db, ids, (m) => `SELECT id, sector, nombre, activo, tipo, sin_stock FROM productos WHERE id IN (${m})`)
   return new Map(filas.map((f) => [f.id, f]))
 }
 
@@ -173,10 +178,12 @@ rutasProduccion.post('/producciones', requiere('produccion.cargar'), async (c) =
   if (b.turno === undefined || b.turno === null || b.turno === '') throw invalido('Elegí el turno.')
   const turno = opcion(b.turno, TURNOS, 'El turno')
   // Lo que viene vacío (0 y 0) no se registra.
+  const almacen = await almacenPorDefecto(db)
   const items = leerItems(b.items)
     .filter((i) => i.cocinado + i.guardado > 0)
-    .map((i) => ({ ...i, depositoId: i.depositoId ?? DEPOSITO.frio }))
+    .map((i) => ({ ...i, depositoId: i.depositoId ?? almacen }))
   if (!items.length) throw invalido('Cargá al menos una cantidad.')
+  const venta = await leerDeposito(db, b.depositoVentaId, DEPOSITO.venta, 'a qué venta va lo del horno', 'venta')
   await controlarDepositos(db, items.filter((i) => i.guardado > 0).map((i) => i.depositoId))
 
   const productos = await leerProductos(db, items.map((i) => i.productoId))
@@ -193,8 +200,8 @@ rutasProduccion.post('/producciones', requiere('produccion.cargar'), async (c) =
   const id = nuevoId()
   const { fecha, dia } = ahora()
   const sentencias: SentenciaD1[] = [
-    sentencia(db, 'INSERT INTO producciones (id, sector, usuario_id, fecha, dia, turno) VALUES (?, ?, ?, ?, ?, ?)',
-      id, sector, u.id, fecha, dia, turno),
+    sentencia(db, 'INSERT INTO producciones (id, sector, usuario_id, fecha, dia, turno, deposito_venta_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      id, sector, u.id, fecha, dia, turno, venta.id),
     ...items.map((i) =>
       sentencia(db, 'INSERT INTO produccion_items (produccion_id, producto_id, cocinado, guardado, deposito_id) VALUES (?, ?, ?, ?, ?)',
         id, i.productoId, i.cocinado, i.guardado, i.depositoId)),
@@ -214,16 +221,18 @@ rutasProduccion.post('/producciones', requiere('produccion.cargar'), async (c) =
     )
   }
 
-  // D01/E05: lo cocinado (en Chipería, lo que va al horno) va directo a la venta: entra en el depósito Directo a Venta,
-  // de donde lo descuenta la caja. Lo guardado entra en el depósito elegido (por defecto, Frío). En Chipería, los dos
-  // con el código de su lote.
+  // D01/E05: lo cocinado (en Chipería, lo que va al horno) va directo a la venta: entra en el depósito de venta elegido
+  // (Venta frente si no se elige; la cocina puede mandarlo a Venta comedor), de donde lo descuenta la caja. Lo guardado
+  // entra en el almacén elegido (por defecto, Frío). En Chipería, los dos con el código de su lote. Los productos «sin
+  // stock» (el buffet por kilo) no tienen movimientos.
   const entrada = (productoId: string, cantidad: number, depositoId: string) =>
     sentencia(db,
       `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, deposito_id, motivo, sucursal_id, envio_id, produccion_id, usuario_id, fecha, dia)
        VALUES (?, ?, ?, ${loteId ? '(SELECT codigo FROM lotes_chipa WHERE id = ?)' : '?'}, 'produccion', ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`,
       nuevoId(), sector, productoId, loteId, cantidad, depositoId, id, u.id, fecha, dia)
   for (const i of items) {
-    if (i.cocinado > 0) sentencias.push(entrada(i.productoId, i.cocinado, DEPOSITO.venta))
+    if (productos.get(i.productoId)!.sin_stock) continue
+    if (i.cocinado > 0) sentencias.push(entrada(i.productoId, i.cocinado, venta.id))
     if (i.guardado > 0) sentencias.push(entrada(i.productoId, i.guardado, i.depositoId))
   }
 
@@ -257,8 +266,9 @@ rutasProduccion.patch('/producciones/:id', requiere('produccion.corregir', 'Solo
   // Solo cuenta el del pedido cuando no había nada guardado todavía.
   const depositoFinal = (i: ItemPedido): string => {
     const a = antes.get(i.productoId)
-    return a && a.guardado > 0 ? a.depositoId : (i.depositoId ?? a?.depositoId ?? DEPOSITO.frio)
+    return a && a.guardado > 0 ? a.depositoId : (i.depositoId ?? a?.depositoId ?? almacen)
   }
+  const almacen = await almacenPorDefecto(db)
   await controlarDepositos(db, pedidos.filter((i) => !(antes.get(i.productoId)?.guardado)).filter((i) => i.guardado > 0).map(depositoFinal))
 
   // Los productos que no vienen en el pedido quedan como estaban.
@@ -291,14 +301,14 @@ rutasProduccion.patch('/producciones/:id', requiere('produccion.corregir', 'Solo
         i.cocinado, i.guardado, depositoFinal(i), id, i.productoId)
       : sentencia(db, 'INSERT INTO produccion_items (produccion_id, producto_id, cocinado, guardado, deposito_id) VALUES (?, ?, ?, ?, ?)',
         id, i.productoId, i.cocinado, i.guardado, depositoFinal(i)))
-    // La diferencia corrige el stock con un movimiento compensatorio: la de lo cocinado en Directo a Venta y la de lo
+    // La diferencia corrige el stock con un movimiento compensatorio: la de lo cocinado en su depósito de venta y la de lo
     // guardado en su depósito.
     const diferencias: [number, string][] = [
-      [i.cocinado - (a?.cocinado ?? 0), DEPOSITO.venta],
+      [i.cocinado - (a?.cocinado ?? 0), original.depositoVentaId],
       [i.guardado - (a?.guardado ?? 0), depositoFinal(i)],
     ]
     for (const [diferencia, depositoId] of diferencias) {
-      if (diferencia === 0) continue
+      if (diferencia === 0 || productos.get(i.productoId)?.sin_stock) continue
       sentencias.push(sentenciaMovimiento(db, {
         sector: original.sector, productoId: i.productoId, lote, tipo: 'ajuste', cantidad: diferencia, depositoId,
         motivo: MOTIVO_CORRECCION, produccionId: id, usuarioId: u.id, fecha, dia,

@@ -55,6 +55,8 @@ export interface UsuarioSesion {
   /** El sector propio del operador; null para administrador, supervisor y cajero. */
   sector: SectorId | null
   debeCambiarClave: boolean
+  /** Hasta cuándo está activo el modo super-administrador en esta sesión (solo administrador); null si no lo está. */
+  superHasta: string | null
 }
 
 export interface Entorno {

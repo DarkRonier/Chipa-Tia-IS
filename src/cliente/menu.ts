@@ -54,7 +54,7 @@ export function menuDe(rol: Rol, conLotes: boolean, sectores: { id: SectorId; no
     agregar('Sectores', p('produccion.cargar') ? sectores.map((s) => ({ a: '/sector', texto: s.nombre, icono: 'inicio' as const, sector: s.id })) : [])
     agregar('Producción', [
       p('produccion.ver') && { a: '/admin/registros', texto: 'Producción', icono: 'produccion' },
-      p('stock.ver') && { a: '/admin/stock', texto: 'Stock', icono: 'stock' },
+      p('stock.ver') && { a: '/depositos', texto: 'Depósitos', icono: 'stock' },
       p('stock.ver') && { a: '/admin/historial', texto: 'Salidas', icono: 'historial' },
       p('maquinas.ver') && { a: '/sector/maquinas', texto: 'Máquinas', icono: 'maquinas' },
       p('limpieza.ver') && { a: '/admin/controles', texto: 'Limpieza y temperatura', icono: 'limpieza' },
@@ -77,7 +77,7 @@ export function menuDe(rol: Rol, conLotes: boolean, sectores: { id: SectorId; no
     agregar('Mi sector', [
       { a: '/sector', texto: 'Inicio', icono: 'inicio', exacta: true },
       p('produccion.cargar') && { a: '/sector/produccion', texto: 'Registrar producción', icono: 'produccion' },
-      p('stock.mover') && { a: '/sector/stock', texto: 'Stock', icono: 'stock' },
+      p('stock.ver') && { a: '/depositos', texto: 'Depósitos', icono: 'stock' },
       p('stock.mover') && { a: '/sector/salida', texto: 'Sacar para la venta', icono: 'venta' },
       p('stock.mover') && { a: '/sector/envio', texto: 'Envío a sucursal', icono: 'envio' },
       p('stock.ver') && { a: '/sector/historial', texto: 'Historial de salidas', icono: 'historial' },
@@ -93,6 +93,9 @@ export function menuDe(rol: Rol, conLotes: boolean, sectores: { id: SectorId; no
   }
 
   // Cajero.
-  agregar('Ventas', [p('caja.operar') && { a: '/caja', texto: 'Caja', icono: 'caja' }])
+  agregar('Ventas', [
+    p('caja.operar') && { a: '/caja', texto: 'Caja', icono: 'caja' },
+    p('stock.ver') && { a: '/depositos', texto: 'Depósitos', icono: 'stock' },
+  ])
   return grupos
 }

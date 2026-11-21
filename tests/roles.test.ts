@@ -175,17 +175,20 @@ describe('incidencias de máquinas', () => {
 })
 
 describe('cajero', () => {
-  it('entra pero todavía no ve producción, stock, máquinas, limpieza, lotes ni reportes', async () => {
+  it('entra y ve los depósitos, pero no producción, máquinas, limpieza, lotes ni reportes', async () => {
     const p = await nuevaPrueba()
     const caja = await p.entrar('cajero')
     expect((await p.pedir<Usuario>(caja, 'GET', '/auth/yo')).body.rol).toBe('cajero')
     for (const ruta of [
-      '/producciones', '/stock?sector=cocina', '/movimientos', '/lecturas', '/incidencias', '/limpiezas', '/lotes-mp',
+      '/producciones', '/lecturas', '/incidencias', '/limpiezas', '/lotes-mp',
       '/trazabilidad/lote/CH-1', '/reportes', '/usuarios',
     ]) {
       expect((await p.pedir(caja, 'GET', ruta)).status, ruta).toBe(403)
     }
     expect((await p.pedir(caja, 'POST', '/salidas', { sector: 'cocina', productoId: EMPANADA, cantidad: 1 })).status).toBe(403)
+    // Depósitos: cuánto hay, cuánto se vendió y lo enviado a sucursales (solo mirar).
+    for (const ruta of ['/stock', '/stock/vendido', '/envios', '/depositos']) expect((await p.pedir(caja, 'GET', ruta)).status, ruta).toBe(200)
+    expect((await p.pedir(caja, 'POST', '/transferencias', { productoId: EMPANADA, cantidad: 1, desde: 'frio', hacia: 'venta' })).status).toBe(403)
     // Sin avisos que no le corresponden; el catálogo sí (lo va a necesitar para vender).
     expect((await p.pedir(caja, 'GET', '/alertas')).body).toEqual([])
     expect((await p.pedir<Producto[]>(caja, 'GET', '/productos')).body.length).toBeGreaterThan(0)
@@ -209,7 +212,7 @@ describe('stock sin campos por producto (depósitos)', () => {
     const cocina = await p.entrar('cocina')
     expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: COCIDO, cantidad: 1 })).status).toBe(409)
     expect((await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: COCIDO, cantidad: 1 }] })).status).toBe(409)
-    expect((await p.pedir(cocina, 'POST', '/transferencias', { productoId: COCIDO, cantidad: 1, desde: 'frio', hacia: 'sucursales' })).status).toBe(409)
+    expect((await p.pedir(cocina, 'POST', '/transferencias', { productoId: COCIDO, cantidad: 1, desde: 'frio', hacia: 'comedor' })).status).toBe(409)
     expect(await p.sql('SELECT id FROM movimientos')).toEqual([])
   })
 })

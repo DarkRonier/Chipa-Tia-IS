@@ -26,7 +26,7 @@ const ATAJOS: [string, NombreIcono, string, Permiso][] = [
   ['/compras', 'compras', 'Compras', 'compras.pagar'],
   ['/proveedores', 'compras', 'Proveedores', 'proveedores.gestionar'],
   ['/admin/registros', 'registros', 'Producción', 'produccion.ver'],
-  ['/admin/stock', 'ajustes', 'Stock', 'stock.ver'],
+  ['/depositos', 'ajustes', 'Depósitos', 'stock.ver'],
   ['/sector/maquinas', 'maquinas', 'Máquinas', 'maquinas.ver'],
   ['/admin/controles', 'controles', 'Limpieza y temperatura', 'limpieza.ver'],
   ['/sector/lotes', 'lotes', 'Lotes', 'lotes.ver'],

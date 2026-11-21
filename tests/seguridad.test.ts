@@ -91,8 +91,11 @@ describe('aislamiento por sector (A03)', () => {
     expect(foto.status).toBe(403)
     expect(JSON.stringify(foto.body)).not.toContain('data:image')
 
-    const stock = await p.pedir(t, 'GET', '/stock')
+    // El stock de su sector, pidiéndolo; sin sector se ven todos los depósitos (Mati, 2026-11-21: no se separan por
+    // sector), pero mover, solo lo suyo (ver la prueba siguiente).
+    const stock = await p.pedir(t, 'GET', '/stock?sector=cocina')
     expect(stock.body.some((f: any) => f.productoId === CHIPA)).toBe(false)
+    expect((await p.pedir(t, 'GET', '/stock?sector=chiperia')).status).toBe(403)
     for (const ruta of ['/productos', '/maquinas']) {
       const r = await p.pedir(t, 'GET', `${ruta}?todos=1`)
       expect(r.body.every((x: any) => x.sector === 'cocina'), ruta).toBe(true)
@@ -117,8 +120,9 @@ describe('aislamiento por sector (A03)', () => {
     const antes = await p.sql('SELECT COUNT(*) AS n FROM movimientos')
 
     const intentos: [string, string, unknown, number][] = [
-      ['POST', '/salidas', { productoId: CHIPA, cantidad: 1, lote: ch.lote }, 400],
-      ['POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: CHIPA, cantidad: 1, lote: ch.lote }] }, 400],
+      ['POST', '/salidas', { productoId: CHIPA, cantidad: 1, lote: ch.lote }, 403],
+      ['POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: CHIPA, cantidad: 1, lote: ch.lote }] }, 403],
+      ['POST', '/transferencias', { productoId: CHIPA, cantidad: 1, lote: ch.lote, desde: 'frio', hacia: 'venta' }, 403],
       ['POST', '/producciones', { turno: 'dia', items: [{ productoId: CHIPA, cocinado: 1, guardado: 1 }] }, 400],
       ['POST', '/producciones', { sector: 'chiperia', turno: 'dia', items: [{ productoId: CHIPA, cocinado: 1 }] }, 403],
       ['POST', '/salidas', { sector: 'chiperia', productoId: CHIPA, cantidad: 1, lote: ch.lote }, 403],
@@ -565,7 +569,7 @@ describe('correo del resumen (H04)', () => {
     expect((await p.pedir(admin, 'POST', `/areas/${area.body.id}/tareas`, { nombre: '<b>Piso</b>' })).status).toBe(200)
 
     const t = await p.entrar('cocina')
-    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: producto.body.id, cocinado: 2, guardado: 10, depositoId: 'sucursales' }] })).status).toBe(200)
+    expect((await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: producto.body.id, cocinado: 2, guardado: 10 }] })).status).toBe(200)
     expect((await p.pedir(t, 'POST', '/envios', { sucursalId: sucursal.body.id, items: [{ productoId: producto.body.id, cantidad: 3 }] })).status).toBe(200)
     expect((await p.pedir(t, 'POST', '/lecturas', {
       maquinaId: 'maq-cocina-1', momento: 'inicio', estado: 'con_fallas', temperatura: 20,

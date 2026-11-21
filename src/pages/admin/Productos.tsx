@@ -144,7 +144,8 @@ export default function Productos() {
 }
 
 /** En el PDF van las columnas que entran en una hoja A4 (el CSV lleva todas). */
-const COLUMNAS_PDF = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+// En el PDF no entran todas: sin «Tipo» ni «Stock», para que quepa en una hoja apaisada.
+const COLUMNAS_PDF = [0, 1, 2, 4, 5, 6, 8, 9, 10]
 const ENCABEZADOS_PDF = COLUMNAS_PDF.map((i) => ENCABEZADOS_EXPORTACION[i])
 
 // ---------- Filtro ----------
@@ -254,9 +255,9 @@ function FilaProducto({ p, nombres, alEditar }: { p: Producto; nombres: Nombres;
         <td data-etiqueta="Producto">
           <strong>{p.nombre}</strong>
           {!p.activo && <span className="etiqueta apagada">Desactivado</span>}
-          {(p.codigo || p.unidad !== 'unidades') && (
+          {(p.codigo || p.subcategoria || p.unidad !== 'unidades' || p.sinStock) && (
             <span className="prod-sub suave chico">
-              {[p.codigo && `Código ${p.codigo}`, p.unidad !== 'unidades' && `en ${p.unidad}`].filter(Boolean).join(' · ')}
+              {[p.subcategoria, p.codigo && `Código ${p.codigo}`, p.unidad !== 'unidades' && `en ${p.unidad}`, p.sinStock && 'solo ventas, sin stock'].filter(Boolean).join(' · ')}
             </span>
           )}
         </td>
@@ -311,10 +312,15 @@ interface Datos {
   codigo: string
   tipo: TipoProducto
   categoriaId: string
+  subcategoria: string
   unidad: string
+  sinStock: boolean
   precioVenta: string
   iva: Iva
 }
+
+/** Unidades de medida para elegir; si el producto tiene otra, también aparece. */
+const UNIDADES = ['unidades', 'kg', 'g', 'litros', 'ml', 'docenas', 'paquetes', 'porciones']
 
 const datosDe = (p: Producto): Datos => ({
   sector: p.sector,
@@ -322,19 +328,23 @@ const datosDe = (p: Producto): Datos => ({
   codigo: p.codigo,
   tipo: p.tipo,
   categoriaId: p.categoriaId ?? '',
+  subcategoria: p.subcategoria,
   unidad: p.unidad,
+  sinStock: p.sinStock,
   precioVenta: p.precioVenta === null ? '' : miles(p.precioVenta),
   iva: p.iva,
 })
 
-/** Lo que se manda a la API: la categoría solo vale para lo que se compra; vacío = sin categoría. */
+/** Lo que se manda a la API. Sin categoría elegida, la API usa «Otros». */
 function cuerpo(d: Datos) {
   return {
     nombre: d.nombre.trim(),
     codigo: d.codigo.trim(),
     tipo: d.tipo,
-    categoriaId: d.tipo === 'elaborado' || !d.categoriaId ? null : d.categoriaId,
+    categoriaId: d.categoriaId || null,
+    subcategoria: d.subcategoria.trim(),
     unidad: d.unidad.trim() || 'unidades',
+    sinStock: d.sinStock,
     precioVenta: d.precioVenta.trim() || null,
     iva: d.iva,
   }
@@ -350,7 +360,8 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
   const sectorArriba = useSector()
   const original = modo.tipo === 'editar' ? modo.producto : null
   const [d, setD] = useState<Datos>(() => original ? datosDe(original) : {
-    sector: sectorArriba, nombre: '', codigo: '', tipo: 'elaborado', categoriaId: '', unidad: '', precioVenta: '', iva: 10,
+    sector: sectorArriba, nombre: '', codigo: '', tipo: 'elaborado', categoriaId: categorias.find((k) => k.sistema)?.id ?? '',
+    subcategoria: '', unidad: 'unidades', sinStock: false, precioVenta: '', iva: 10,
   })
   const set = (c: Partial<Datos>) => setD((x) => ({ ...x, ...c }))
   const nombreSector = sectores.find((s) => s.id === d.sector)?.nombre ?? d.sector
@@ -371,7 +382,7 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
     if (p) alGuardar(original ? `Se guardaron los cambios de «${p.nombre}».` : `«${p.nombre}» agregado a ${nombreSector}.`)
   }
 
-  const seCompra = d.tipo !== 'elaborado'
+  const unidades = UNIDADES.includes(d.unidad) || !d.unidad ? UNIDADES : [...UNIDADES, d.unidad]
   const seVende = d.precioVenta.trim() !== ''
   const visibles = categorias.filter((k) => k.activo || k.id === d.categoriaId)
 
@@ -406,21 +417,26 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
               {TIPOS_PRODUCTO.map((t) => <option key={t} value={t}>{NOMBRE_TIPO_PRODUCTO[t]}</option>)}
             </select>
           </label>
-          {seCompra ? (
-            <label className="campo">
-              <span>Categoría de compras</span>
-              <select value={d.categoriaId} onChange={(e) => set({ categoriaId: e.target.value })}>
-                <option value="">Sin categoría (solo supervisor y admin)</option>
-                {visibles.map((k) => <option key={k.id} value={k.id}>{k.nombre}</option>)}
-              </select>
-            </label>
-          ) : (
-            <p className="pista-campo prod-pista-tipo">Los elaborados se producen, no se compran: no llevan categoría de compras.</p>
-          )}
           <label className="campo">
-            <span>Unidad</span>
-            <input value={d.unidad} onChange={(e) => set({ unidad: e.target.value })} maxLength={30} placeholder="unidades" />
+            <span>Categoría</span>
+            <select value={d.categoriaId} onChange={(e) => set({ categoriaId: e.target.value })}>
+              {!d.categoriaId && <option value="">Otros</option>}
+              {visibles.map((k) => <option key={k.id} value={k.id}>{k.nombre}</option>)}
+            </select>
           </label>
+          <label className="campo">
+            <span>Subcategoría <span className="opcional">opcional</span></span>
+            <input value={d.subcategoria} onChange={(e) => set({ subcategoria: e.target.value })} maxLength={60} placeholder="Ej.: gaseosas, rellenos, tortas" />
+          </label>
+          <label className="campo">
+            <span>Unidad de medida</span>
+            <select value={d.unidad || 'unidades'} onChange={(e) => set({ unidad: e.target.value })}>
+              {unidades.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </label>
+          <p className="pista-campo ancho">
+            La categoría agrupa los productos en Depósitos y dice qué sectores la pueden comprar. «Otros» es para los que no entran en ninguna.
+          </p>
         </div>
 
         <fieldset className="prod-grupo">
@@ -436,7 +452,15 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
                 {IVAS.map((i) => <option key={i} value={i}>{NOMBRE_IVA[i]}</option>)}
               </select>
             </label>
-            <p className="pista-campo ancho">Lo que se vende en caja se descuenta del depósito «Directo a Venta».</p>
+            <label className="check ancho">
+              <input type="checkbox" checked={d.sinStock} onChange={(e) => set({ sinStock: e.target.checked })} />
+              Sin stock: solo se registra lo que se vende (por ejemplo, el buffet por kilo)
+            </label>
+            <p className="pista-campo ancho">
+              {d.sinStock
+                ? 'No se lleva cuánto hay: en Depósitos aparece solo lo vendido.'
+                : 'Lo que se vende en la caja del frente se descuenta del depósito «Venta frente».'}
+            </p>
           </div>
         </fieldset>
 

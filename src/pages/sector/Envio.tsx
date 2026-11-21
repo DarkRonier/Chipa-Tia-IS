@@ -1,6 +1,7 @@
 // D03, D04, E05: un envío a una sucursal con varios productos (y en Chipería, el lote de cada uno).
-// Sale del depósito «Para sucursales». Se confirma una sola vez y se registra todo junto: si una línea no alcanza,
-// no se registra nada.
+// Sale de un almacén (por defecto, el primero con algo). Las sucursales no tienen stock en el sistema: solo queda
+// registrado lo que se les envió. Se confirma una sola vez y se registra todo junto: si una línea no alcanza, no se
+// registra nada.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
@@ -12,15 +13,13 @@ import Numero from '../../components/Numero'
 import { IconoEnvio } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { fechaHoraPY } from '../../shared/hora'
-import { DEPOSITO, type PedidoEnvio, type RespuestaEnvio, type StockFila, type Sucursal } from '../../shared/tipos'
+import { DEPOSITO, type Deposito, type PedidoEnvio, type RespuestaEnvio, type StockFila, type Sucursal } from '../../shared/tipos'
 import { useStock } from './Stock'
 import '../../styles/stock.css'
 import BotonIcono from '../../components/BotonIcono'
 
 interface Linea { clave: number; productoId: string; lote: string; cantidad: number }
 
-/** Lo que hay en «Para sucursales», de donde salen los envíos. */
-const paraEnviar = (f: { porDeposito: Record<string, number> }) => f.porDeposito[DEPOSITO.sucursales] ?? 0
 
 let siguiente = 0
 const lineaVacia = (): Linea => ({ clave: ++siguiente, productoId: '', lote: '', cantidad: 0 })
@@ -42,8 +41,15 @@ function Formulario() {
   const [confirmando, setConfirmando] = useState(false)
   const [listo, setListo] = useState<RespuestaEnvio | null>(null)
   const registrar = useAccion((p: PedidoEnvio) => post<RespuestaEnvio>('/envios', p))
+  const [elegido, setElegido] = useState('')
 
   const filas = stock.datos ?? []
+  const conAlgo = (d: Deposito) => filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0)
+  // Los envíos salen de un almacén; Materia prima no se manda a las sucursales.
+  const origenes = depositos.almacenes.filter((d) => d.id !== DEPOSITO.materiaPrima)
+  const origen = origenes.find((d) => d.id === elegido) ?? origenes.find(conAlgo) ?? origenes[0]
+  /** Lo que hay en el almacén elegido, de donde sale el envío. */
+  const paraEnviar = (f: { porDeposito: Record<string, number> }) => (origen ? f.porDeposito[origen.id] ?? 0 : 0)
   const filaDe = (id: string): StockFila | undefined => filas.find((f) => f.productoId === id)
   const activas = (sucursales.datos ?? []).filter((s) => s.activo)
   const sucursal = activas.find((s) => s.id === sucursalId)
@@ -106,6 +112,7 @@ function Formulario() {
     const r = await registrar.ejecutar({
       sector,
       sucursalId,
+      desde: origen?.id,
       items: conCantidad.map((l) => ({ productoId: l.productoId, lote: conLotes ? l.lote : null, cantidad: l.cantidad })),
     })
     setConfirmando(false)
@@ -118,9 +125,21 @@ function Formulario() {
 
   const error = aviso ?? registrar.error
   const hayParaEnviar = filas.some((f) => paraEnviar(f) > 0)
-  // Depósitos donde sí hay algo, para avisar que se puede pasar a «Para sucursales».
-  const enOtros = depositos.lista.filter((d) => d.id !== DEPOSITO.sucursales && filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0))
-  const nombreSucursales = depositos.nombre(DEPOSITO.sucursales)
+  // Otros almacenes donde sí hay algo, para avisar que se puede elegir otro.
+  const enOtros = origenes.filter((d) => d.id !== origen?.id && conAlgo(d))
+  const elegirOrigen = (id: string) => {
+    limpiarMensajes()
+    setElegido(id)
+    setLineas([lineaVacia()])
+  }
+  const selectorOrigen = origenes.length > 1 && (
+    <label className="campo">
+      <span>Sale de</span>
+      <select value={origen?.id ?? ''} onChange={(e) => elegirOrigen(e.target.value)}>
+        {origenes.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+      </select>
+    </label>
+  )
 
   return (
     <>
@@ -138,13 +157,18 @@ function Formulario() {
       )}
       <ConDatos consulta={stock}>
         {() => !hayParaEnviar ? (
-          <p className="suave">
-            No hay nada en «{nombreSucursales}», que es de donde salen los envíos.
-            {enOtros.length > 0 && <> Hay en {enOtros.map((d) => `«${d.nombre}»`).join(' y ')}: pasalo con «Transferir» en <Link className="btn-discreto chico" to="/sector/stock">Stock</Link>.</>}
-          </p>
+          <div className="tarjeta">
+            {selectorOrigen}
+            <p className="suave">
+              No hay nada para enviar en «{origen?.nombre ?? 'los almacenes'}».
+              {enOtros.length > 0 && <> Hay en {enOtros.map((d) => `«${d.nombre}»`).join(' y ')}: elegilo arriba.</>}
+              {' '}Mirá lo que hay en <Link className="btn-discreto chico" to="/depositos">Depósitos</Link>.
+            </p>
+          </div>
         ) : (
           <>
             <div className="tarjeta">
+              {selectorOrigen}
               <label className="campo">
                 <span>Sucursal</span>
                 <select value={sucursalId} onChange={(e) => { limpiarMensajes(); setSucursalId(e.target.value) }}>

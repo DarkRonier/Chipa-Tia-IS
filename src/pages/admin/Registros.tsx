@@ -129,7 +129,7 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
     setFilas((fs) => fs && fs.map((f, j) => (j === idx ? { ...f, [campo]: v } : f)))
   }
 
-  // Lo que cambió respecto del registro y su efecto en el stock: lo cocinado en Directo a Venta, lo guardado en su depósito.
+  // Lo que cambió respecto del registro y su efecto en el stock: lo cocinado en su depósito de venta, lo guardado en su almacén.
   const cambios = (filas ?? []).flatMap((f) => {
     const cocinado = leer(f.cocinado)
     const guardado = leer(f.guardado)
@@ -229,7 +229,7 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
               <ul>{efecto.map((c) => (
                 <li key={c.productoId}>
                   {c.productoNombre}:{' '}
-                  {[c.difCocinado !== 0 && `${conSigno(c.difCocinado)} en Directo a Venta`, c.diferencia !== 0 && `${conSigno(c.diferencia)} en lo guardado`].filter(Boolean).join(' · ')}
+                  {[c.difCocinado !== 0 && `${conSigno(c.difCocinado)} en ${p.depositoVentaId === 'comedor' ? 'Venta comedor' : 'Venta frente'}`, c.diferencia !== 0 && `${conSigno(c.diferencia)} en lo guardado`].filter(Boolean).join(' · ')}
                 </li>
               ))}</ul>
             </div>

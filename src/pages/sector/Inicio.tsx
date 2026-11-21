@@ -26,7 +26,7 @@ export default function Inicio() {
 
   const botones: Boton[] = [
     { a: '/sector/produccion', i: 'produccion', t: 'Registrar producción', d: cuenta(cargas.datos, 'carga', 'cargas') },
-    { a: '/sector/stock', i: 'stock', t: 'Stock' },
+    { a: '/depositos', i: 'stock', t: 'Depósitos' },
     { a: '/sector/salida', i: 'venta', t: 'Sacar para la venta' },
     { a: '/sector/envio', i: 'envio', t: 'Envío a sucursal' },
     { a: '/sector/maquinas', i: 'maquinas', t: 'Máquinas y temperatura', d: cuenta(lecturas.datos, 'lectura', 'lecturas') },

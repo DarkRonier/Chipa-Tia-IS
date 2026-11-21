@@ -1,10 +1,11 @@
-// D01–D07: stock por depósito y envíos a sucursales (stock por depósitos, Mati 2026-11-21). El stock es la suma del
-// libro `movimientos`, por producto, depósito y (en Chipería) lote. Depósitos del sistema (ver migración 0014):
-// - Directo a Venta: lo que está listo para vender; las ventas de caja descuentan de acá.
-// - Frío: lo guardado para reponer la venta. Lo producido va acá si no se elige otro depósito.
-// - Para sucursales: los envíos salen de acá.
-// - Materia prima: lo comprado para producir.
-// «Sacar para la venta» (`POST /salidas`) pasa unidades de un depósito (Frío) a Directo a Venta, y
+// D01–D07: stock por depósito y envíos a sucursales (Mati, 2026-11-21). El stock es la suma del libro `movimientos`,
+// por producto, depósito y (en Chipería) lote. Los depósitos no se separan por sector: el sector es de quién produce
+// (y quién puede mover) cada producto. Depósitos (migraciones 0014 y 0015):
+// - Venta frente (`venta`) y Venta comedor (`comedor`): lo listo para vender. Las ventas de caja descuentan de acá.
+// - Almacenes (en frío; el super-administrador crea y borra) y Materia prima: lo guardado o comprado.
+// - Las sucursales no son un depósito: un envío sale de un almacén y solo queda registrado lo que se mandó.
+// Los productos «sin stock» (el buffet por kilo) no tienen movimientos: solo se registran sus ventas.
+// «Sacar para la venta» (`POST /salidas`) pasa unidades de un almacén a un depósito de venta, y
 // `POST /transferencias` las pasa entre dos depósitos cualquiera. Los dos son un par de movimientos que no cambia el total.
 // El trigger `movimientos_sin_stock_negativo` (D04) rechaza cualquier salida que deje negativo un producto o un lote en
 // un depósito (menos las ventas de caja), y un envío de varias líneas va en un solo `batch`: si una línea no alcanza,
@@ -12,13 +13,13 @@
 import { Hono } from 'hono'
 import {
   DEPOSITO,
-  type Movimiento, type RespuestaEnvio, type SectorId, type StockFila, type TipoAjuste, type TipoMovimiento,
+  type EnvioResumen, type Movimiento, type VendidoFila, type RespuestaEnvio, type SectorId, type StockFila, type TipoAjuste, type TipoDeposito, type TipoMovimiento,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { leerMovimientos } from '../consultas'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
-import type { BaseD1, Entorno, SentenciaD1 } from '../entorno'
-import { conflicto, esStockInsuficiente, invalido } from '../errores'
+import type { BaseD1, Entorno, SentenciaD1, UsuarioSesion } from '../entorno'
+import { conflicto, esStockInsuficiente, invalido, prohibido } from '../errores'
 import { requiere, sectorPara } from '../sesion'
 import { cuerpo, diaOpcional, texto } from '../validar'
 
@@ -39,16 +40,32 @@ const vacio = (v: unknown) => v === undefined || v === null || v === ''
 export interface DepositoElegido { id: string; nombre: string }
 
 /**
- * Depósito por id (o `porDefecto` si no viene). Tiene que existir y estar activo. `campo`: «el depósito»,
- * «el depósito de origen»…
+ * Depósito por id (o `porDefecto` si no viene). Tiene que existir y no estar borrado; con `tipo`, ser de ese tipo.
+ * `campo`: «el depósito», «de qué depósito sale»…
  */
-export async function leerDeposito(db: BaseD1, v: unknown, porDefecto: string | null, campo = 'el depósito'): Promise<DepositoElegido> {
+export async function leerDeposito(
+  db: BaseD1, v: unknown, porDefecto: string | null, campo = 'el depósito', tipo?: TipoDeposito,
+): Promise<DepositoElegido> {
   if (vacio(v) && !porDefecto) throw invalido(`Elegí ${campo}.`)
   const id = vacio(v) ? porDefecto! : texto(v, campo, { max: 100 })
-  const f = await una<{ id: string; nombre: string; activo: number }>(db, 'SELECT id, nombre, activo FROM depositos WHERE id = ?', id)
+  const f = await una<{ id: string; nombre: string; activo: number; tipo: TipoDeposito }>(
+    db, 'SELECT id, nombre, activo, tipo FROM depositos WHERE id = ?', id,
+  )
   if (!f) throw invalido('Ese depósito no existe. Recargá la página y probá de nuevo.')
-  if (!f.activo) throw invalido(`El depósito ${f.nombre} está desactivado. Elegí otro.`)
+  if (!f.activo) throw invalido(`El depósito ${f.nombre} ya no existe. Elegí otro.`)
+  if (tipo && f.tipo !== tipo) {
+    throw invalido(tipo === 'venta' ? `«${f.nombre}» no es un depósito de venta. Elegí Venta frente o Venta comedor.` : `«${f.nombre}» no es un almacén. Elegí un almacén.`)
+  }
   return { id: f.id, nombre: f.nombre }
+}
+
+/** El almacén que se usa si no se elige otro: Frío, o el primero que quede. */
+export async function almacenPorDefecto(db: BaseD1): Promise<string> {
+  const f = await una<{ id: string }>(
+    db, "SELECT id FROM depositos WHERE tipo = 'almacen' AND activo = 1 AND id <> ? ORDER BY id = ? DESC, orden LIMIT 1",
+    DEPOSITO.materiaPrima, DEPOSITO.frio,
+  )
+  return f?.id ?? DEPOSITO.frio
 }
 
 /** Sector con lotes (Chipería): exige lote en salidas, envíos y ajustes, y muestra el stock por lote. */
@@ -71,21 +88,30 @@ interface FilaProducto {
   sector: SectorId
   nombre: string
   activo: number
+  sin_stock: number
 }
 
 async function leerProductos(db: BaseD1, ids: string[]): Promise<Map<string, FilaProducto>> {
   const unicos = [...new Set(ids)]
-  const filas = await todasPorTrozos<FilaProducto>(db, unicos, (m) => `SELECT id, sector, nombre, activo FROM productos WHERE id IN (${m})`)
+  const filas = await todasPorTrozos<FilaProducto>(db, unicos, (m) => `SELECT id, sector, nombre, activo, sin_stock FROM productos WHERE id IN (${m})`)
   return new Map(filas.map((f) => [f.id, f]))
 }
 
-/** El producto tiene que existir y ser del sector. Se aceptan desactivados: puede quedarles stock. */
-function productoDelSector(productos: Map<string, FilaProducto>, id: string, sector: SectorId): FilaProducto {
+/**
+ * Producto a mover: tiene que existir, llevar stock y ser del sector del operador (o del `sector` pedido). El movimiento
+ * va con el sector del producto. Se aceptan desactivados: puede quedarles stock.
+ */
+function productoParaMover(productos: Map<string, FilaProducto>, id: string, u: UsuarioSesion, sectorPedido: SectorId | null): FilaProducto {
   const p = productos.get(id)
   if (!p) throw invalido('Ese producto no existe. Recargá la página y probá de nuevo.')
-  if (p.sector !== sector) throw invalido(`${p.nombre} no es un producto de este sector.`)
+  const sector = u.sector ?? sectorPedido
+  if (sector && p.sector !== sector) throw prohibido(`${p.nombre} es de otro sector: lo mueve ese sector o el administrador.`)
+  if (p.sin_stock) throw invalido(`${p.nombre} no lleva stock: solo se registran sus ventas.`)
   return p
 }
+
+/** El `sector` del pedido, si vino (un operador solo puede pedir el suyo). */
+const sectorPedidoDe = (u: UsuarioSesion, v: unknown) => (vacio(v) ? null : sectorPara(u, v))
 
 function leerProductoId(v: unknown): string {
   if (vacio(v)) throw invalido('Elegí el producto.')
@@ -145,7 +171,7 @@ async function conControlDeStock(
           l.sector, l.productoId, ...(l.lote === null ? [] : [l.lote]), l.deposito.id,
         )
         const aclaracion = otros.length
-          ? ` En ${otros.map((o) => `«${o.nombre}» hay ${o.total}`).join(' y en ')}: pasalo con «Transferir» en Stock si querés usarlo.`
+          ? ` En ${otros.map((o) => `«${o.nombre}» hay ${o.total}`).join(' y en ')}: pasalo con «Transferir» en Depósitos si querés usarlo.`
           : ''
         throw conflicto(
           'stock_insuficiente',
@@ -268,23 +294,35 @@ export async function repartirPorLotes(db: BaseD1, sector: SectorId, productoId:
   return partes
 }
 
+/**
+ * Stock por producto y depósito. Sin `sector` (o con `todos=1`), el de todos los productos: los depósitos no se separan
+ * por sector. Con `sector`, solo los de ese sector (lo que un operador puede mover). Los productos «sin stock» no van.
+ */
 rutasStock.get('/stock', requiere('stock.ver'), async (c) => {
   const db = c.env.DB
-  const sector = sectorPara(c.get('usuario'), c.req.query('sector'), true)
-  const conLotes = await sectorConLotes(db, sector)
+  const u = c.get('usuario')
+  const q = c.req.query()
+  // Sin sector, todos los productos: los depósitos no se separan por sector (Mati, 2026-11-21).
+  const sector = q.todos === '1' || vacio(q.sector) ? null : sectorPara(u, q.sector)
 
-  const [productos, saldos, lotes] = await Promise.all([
-    todas<{ id: string; nombre: string; activo: number }>(
-      db, 'SELECT p.id, p.nombre, p.activo FROM productos p WHERE p.sector = ? ORDER BY p.orden, p.nombre', sector,
+  const [productos, saldos, sectoresConLotes] = await Promise.all([
+    todas<{ id: string; nombre: string; activo: number; sector: SectorId; categoria_id: string | null; subcategoria: string; unidad: string }>(
+      db,
+      `SELECT p.id, p.nombre, p.activo, p.sector, p.categoria_id, p.subcategoria, p.unidad
+         FROM productos p JOIN sectores s ON s.id = p.sector
+        WHERE p.sin_stock = 0 ${sector ? 'AND p.sector = ?' : ''}
+        ORDER BY s.orden, p.orden, p.nombre`,
+      ...(sector ? [sector] : []),
     ),
     todas<{ producto_id: string; deposito_id: string; total: number }>(
       db,
-      `SELECT producto_id, deposito_id, SUM(cantidad) AS total FROM movimientos WHERE sector = ?
+      `SELECT producto_id, deposito_id, SUM(cantidad) AS total FROM movimientos ${sector ? 'WHERE sector = ?' : ''}
         GROUP BY producto_id, deposito_id HAVING SUM(cantidad) <> 0`,
-      sector,
+      ...(sector ? [sector] : []),
     ),
-    conLotes ? lotesConStock(db, sector) : Promise.resolve([]),
+    todas<{ id: SectorId }>(db, `SELECT id FROM sectores WHERE con_lotes = 1 ${sector ? 'AND id = ?' : ''}`, ...(sector ? [sector] : [])),
   ])
+  const lotes = (await Promise.all(sectoresConLotes.map((x) => lotesConStock(db, x.id)))).flat()
 
   const filas: StockFila[] = productos
     .map((p) => {
@@ -296,6 +334,10 @@ rutasStock.get('/stock', requiere('stock.ver'), async (c) => {
     .map(({ p, porDeposito, total }) => ({
       productoId: p.id,
       productoNombre: p.nombre,
+      sector: p.sector,
+      categoriaId: p.categoria_id,
+      subcategoria: p.subcategoria,
+      unidad: p.unidad,
       activo: !!p.activo,
       total,
       porDeposito,
@@ -304,21 +346,66 @@ rutasStock.get('/stock', requiere('stock.ver'), async (c) => {
   return c.json<StockFila[]>(filas)
 })
 
-// ---------- Sacar para la venta (D02, D04): de un depósito (Frío) a Directo a Venta ----------
+/**
+ * Lo vendido por producto y depósito de venta en un período (por defecto, hoy). Por ahora todas las ventas son de la
+ * caja del frente (Venta frente). Incluye los productos «sin stock» (el buffet), que solo registran ventas.
+ */
+rutasStock.get('/stock/vendido', requiere('stock.ver'), async (c) => {
+  const q = c.req.query()
+  const hoy = ahora().dia
+  const desde = diaOpcional(q.desde, 'La fecha desde') ?? hoy
+  const hasta = diaOpcional(q.hasta, 'La fecha hasta') ?? hoy
+  if (desde > hasta) throw invalido('La fecha desde no puede ser posterior a la fecha hasta.')
+  const filas = await todas<{ producto_id: string; producto_nombre: string; cantidad: number }>(
+    c.env.DB,
+    `SELECT i.producto_id, p.nombre AS producto_nombre, SUM(i.cantidad) AS cantidad
+       FROM venta_items i JOIN ventas v ON v.id = i.venta_id JOIN productos p ON p.id = i.producto_id
+      WHERE v.anulada_en IS NULL AND v.dia >= ? AND v.dia <= ?
+      GROUP BY i.producto_id`,
+    desde, hasta,
+  )
+  return c.json<VendidoFila[]>(filas.map((f) => ({
+    productoId: f.producto_id, productoNombre: f.producto_nombre, depositoId: DEPOSITO.venta, cantidad: f.cantidad,
+  })))
+})
+
+/** Sucursales: no tienen stock en el sistema; solo se registra lo que se les envió (por sucursal y producto). */
+rutasStock.get('/envios', requiere('stock.ver'), async (c) => {
+  const q = c.req.query()
+  const desde = diaOpcional(q.desde, 'La fecha desde')
+  const hasta = diaOpcional(q.hasta, 'La fecha hasta')
+  if (desde && hasta && desde > hasta) throw invalido('La fecha desde no puede ser posterior a la fecha hasta.')
+  const filas = await todas<{ sucursal_id: string; sucursal_nombre: string; producto_id: string; producto_nombre: string; cantidad: number; envios: number; ultimo: string }>(
+    c.env.DB,
+    `SELECT m.sucursal_id, su.nombre AS sucursal_nombre, m.producto_id, p.nombre AS producto_nombre, -SUM(m.cantidad) AS cantidad,
+            COUNT(DISTINCT m.envio_id) AS envios, MAX(m.dia) AS ultimo
+       FROM movimientos m JOIN sucursales su ON su.id = m.sucursal_id JOIN productos p ON p.id = m.producto_id
+      WHERE m.tipo = 'envio' ${desde ? 'AND m.dia >= ?' : ''} ${hasta ? 'AND m.dia <= ?' : ''}
+      GROUP BY m.sucursal_id, m.producto_id
+      ORDER BY su.nombre, p.nombre`,
+    ...(desde ? [desde] : []), ...(hasta ? [hasta] : []),
+  )
+  return c.json<EnvioResumen[]>(filas.map((f) => ({
+    sucursalId: f.sucursal_id, sucursalNombre: f.sucursal_nombre, productoId: f.producto_id, productoNombre: f.producto_nombre,
+    cantidad: f.cantidad, envios: f.envios, ultimo: f.ultimo,
+  })))
+})
+
+// ---------- Sacar para la venta (D02, D04): de un almacén a Venta frente (o Venta comedor) ----------
 
 rutasStock.post('/salidas', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
-  const sector = sectorPara(u, b.sector, true)
   const productoId = leerProductoId(b.productoId)
+  const producto = productoParaMover(await leerProductos(db, [productoId]), productoId, u, sectorPedidoDe(u, b.sector))
+  const sector = producto.sector
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote sale.')
   const cantidad = cantidadPositiva(b.cantidad)
-  const desde = await leerDeposito(db, b.desde, DEPOSITO.frio, 'de qué depósito sale')
-  const venta = await leerDeposito(db, DEPOSITO.venta, null)
+  const desde = await leerDeposito(db, b.desde, await almacenPorDefecto(db), 'de qué depósito sale', 'almacen')
+  const venta = await leerDeposito(db, b.hacia, DEPOSITO.venta, 'a qué venta va', 'venta')
   if (desde.id === venta.id) throw invalido(`Ya está en «${venta.nombre}». Elegí de qué otro depósito sale.`)
-  const producto = productoDelSector(await leerProductos(db, [productoId]), productoId, sector)
 
   const ids = [nuevoId(), nuevoId()]
   const { fecha, dia } = ahora()
@@ -335,39 +422,40 @@ rutasStock.post('/salidas', requiere('stock.mover'), async (c) => {
   return c.json<Movimiento>(m)
 })
 
-// ---------- Envío a sucursal (D03, D04, E05): sale de «Para sucursales» ----------
+// ---------- Envío a sucursal (D03, D04, E05): sale de un almacén (Frío si no se elige otro) ----------
 
 rutasStock.post('/envios', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
-  const sector = sectorPara(u, b.sector, true)
+  const sectorPedido = sectorPedidoDe(u, b.sector)
 
   if (vacio(b.sucursalId)) throw invalido('Elegí la sucursal.')
   const sucursalId = texto(b.sucursalId, 'la sucursal', { max: 100 })
   const sucursal = await una<{ nombre: string; activo: number }>(db, 'SELECT nombre, activo FROM sucursales WHERE id = ?', sucursalId)
   if (!sucursal) throw invalido('Esa sucursal no existe. Recargá la página y probá de nuevo.')
   if (!sucursal.activo) throw invalido(`La sucursal ${sucursal.nombre} está desactivada. Elegí otra.`)
-  const deposito = await leerDeposito(db, DEPOSITO.sucursales, null)
+  const deposito = await leerDeposito(db, b.desde, await almacenPorDefecto(db), 'de qué depósito sale', 'almacen')
 
   if (!Array.isArray(b.items) || b.items.length === 0) throw invalido('Cargá al menos un producto para enviar.')
   if (b.items.length > MAX_LINEAS_ENVIO) throw invalido('Son demasiados productos en un solo envío.')
-  const conLotes = await sectorConLotes(db, sector)
   const crudos = (b.items as unknown[]).map((x) => (x && typeof x === 'object' ? x : {}) as Record<string, unknown>)
   const productos = await leerProductos(db, crudos.map((it) => leerProductoId(it.productoId)))
+  const sectoresConLotes = new Set((await todas<{ id: SectorId }>(db, 'SELECT id FROM sectores WHERE con_lotes = 1')).map((x) => x.id))
 
   const vistos = new Set<string>()
   const lineas = crudos.map((it) => {
     const productoId = leerProductoId(it.productoId)
-    const producto = productoDelSector(productos, productoId, sector)
-    const lote = leerLote(it.lote, conLotes, `Elegí el lote de ${producto.nombre}.`)
+    const producto = productoParaMover(productos, productoId, u, sectorPedido)
+    const sector = producto.sector
+    const lote = leerLote(it.lote, sectoresConLotes.has(sector), `Elegí el lote de ${producto.nombre}.`)
     const cantidad = cantidadPositiva(it.cantidad, `La cantidad de ${producto.nombre}`)
     const clave = `${productoId}|${lote ?? ''}`
     if (vistos.has(clave)) {
       throw invalido(`${producto.nombre}${enLote(lote)} está repetido en el envío: juntá las cantidades en una sola línea.`)
     }
     vistos.add(clave)
-    return { productoId, nombre: producto.nombre, lote, cantidad }
+    return { sector, productoId, nombre: producto.nombre, lote, cantidad }
   })
 
   const envioId = nuevoId()
@@ -376,10 +464,10 @@ rutasStock.post('/envios', requiere('stock.mover'), async (c) => {
   await conControlDeStock(
     db,
     lineas.map((l, i) => sentenciaMovimiento(db, {
-      id: ids[i], sector, productoId: l.productoId, depositoId: deposito.id, lote: l.lote, tipo: 'envio', cantidad: -l.cantidad, motivo: null,
+      id: ids[i], sector: l.sector, productoId: l.productoId, depositoId: deposito.id, lote: l.lote, tipo: 'envio', cantidad: -l.cantidad, motivo: null,
       sucursalId, envioId, usuarioId: u.id, fecha, dia,
     })),
-    lineas.map((l) => ({ sector, productoId: l.productoId, nombre: l.nombre, lote: l.lote, deposito, sale: l.cantidad })),
+    lineas.map((l) => ({ sector: l.sector, productoId: l.productoId, nombre: l.nombre, lote: l.lote, deposito, sale: l.cantidad })),
   )
   return c.json<RespuestaEnvio>({ envioId, movimientos: await movimientosEnOrden(db, ids) })
 })
@@ -390,15 +478,16 @@ rutasStock.post('/ajustes', requiere('stock.ajustar', 'Solo el administrador pue
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
-  const sector = sectorPara(u, b.sector, true)
   if (vacio(b.tipo)) throw invalido('Elegí si es merma, vencimiento, ajuste o stock inicial.')
   if (!(TIPOS_AJUSTE as readonly unknown[]).includes(b.tipo)) throw invalido('El tipo de ajuste no es válido.')
   const tipo = b.tipo as TipoAjuste
   const productoId = leerProductoId(b.productoId)
+  const producto = productoParaMover(await leerProductos(db, [productoId]), productoId, u, sectorPedidoDe(u, b.sector))
+  const sector = producto.sector
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Indicá el lote.')
   const cantidad = cantidadPositiva(b.cantidad)
-  const deposito = await leerDeposito(db, b.depositoId, DEPOSITO.frio)
+  const deposito = await leerDeposito(db, b.depositoId, await almacenPorDefecto(db))
   let signo: 1 | -1
   if (tipo === 'ajuste') {
     if (b.sentido !== 1 && b.sentido !== -1) throw invalido('Elegí si el ajuste suma o resta.')
@@ -408,7 +497,6 @@ rutasStock.post('/ajustes', requiere('stock.ajustar', 'Solo el administrador pue
   }
   if (vacio(b.motivo) || (typeof b.motivo === 'string' && !b.motivo.trim())) throw invalido('Escribí el motivo.')
   const motivo = texto(b.motivo, 'El motivo', { max: 300 })
-  const producto = productoDelSector(await leerProductos(db, [productoId]), productoId, sector)
 
   const id = nuevoId()
   const { fecha, dia } = ahora()
@@ -441,15 +529,15 @@ rutasStock.post('/transferencias', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
-  const sector = sectorPara(u, b.sector, true)
   const productoId = leerProductoId(b.productoId)
+  const producto = productoParaMover(await leerProductos(db, [productoId]), productoId, u, sectorPedidoDe(u, b.sector))
+  const sector = producto.sector
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote.')
   const cantidad = cantidadPositiva(b.cantidad)
   const desde = await leerDeposito(db, b.desde, null, 'de qué depósito sale')
   const hacia = await leerDeposito(db, b.hacia, null, 'a qué depósito va')
   if (desde.id === hacia.id) throw invalido('El depósito de origen y el de destino son el mismo. Elegí otro destino.')
-  const producto = productoDelSector(await leerProductos(db, [productoId]), productoId, sector)
 
   // Primero sale del depósito de origen: si no alcanza, el trigger frena todo el par.
   const motivo = `De «${desde.nombre}» a «${hacia.nombre}»`
@@ -471,7 +559,7 @@ rutasStock.post('/transferencias', requiere('stock.mover'), async (c) => {
 
 rutasStock.get('/movimientos', requiere('stock.ver'), async (c) => {
   const q = c.req.query()
-  const sector = sectorPara(c.get('usuario'), q.sector)
+  const sector = q.todos === '1' ? null : sectorPara(c.get('usuario'), q.sector)
   const desde = diaOpcional(q.desde, 'La fecha desde')
   const hasta = diaOpcional(q.hasta, 'La fecha hasta')
   if (desde && hasta && desde > hasta) throw invalido('La fecha desde no puede ser posterior a la fecha hasta.')

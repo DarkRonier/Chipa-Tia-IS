@@ -16,7 +16,7 @@ export const TIPO_CORTO: Record<TipoProducto, string> = {
 export type EstadoFiltro = 'todos' | 'activos' | 'desactivados'
 
 export interface FiltroProductos {
-  /** Texto libre: busca en nombre, código, categoría y sector. */
+  /** Texto libre: busca en nombre, código, categoría, subcategoría y sector. */
   texto: string
   sector: SectorId | ''
   tipo: TipoProducto | ''
@@ -48,7 +48,7 @@ export function filtrarProductos(lista: Producto[], f: FiltroProductos, n: Nombr
     if (f.estado === 'activos' && !p.activo) return false
     if (f.estado === 'desactivados' && p.activo) return false
     if (!palabras.length) return true
-    const todo = normalizar([p.nombre, p.codigo, n.categoria(p.categoriaId), n.sector(p.sector)].join(' '))
+    const todo = normalizar([p.nombre, p.codigo, n.categoria(p.categoriaId), p.subcategoria, n.sector(p.sector)].join(' '))
     return palabras.every((x) => todo.includes(x))
   })
   return [...pasan.filter((p) => p.activo), ...pasan.filter((p) => !p.activo)]
@@ -87,7 +87,7 @@ export function botonesPagina(actual: number, paginas: number): (number | null)[
 }
 
 export const ENCABEZADOS_EXPORTACION = [
-  'Producto', 'Código', 'Sector', 'Tipo', 'Categoría de compras', 'Unidad', 'Precio de venta', 'IVA', 'Estado',
+  'Producto', 'Código', 'Sector', 'Tipo', 'Categoría', 'Subcategoría', 'Unidad', 'Stock', 'Precio de venta', 'IVA', 'Estado',
 ]
 
 /** Una fila por producto, con las mismas columnas que ENCABEZADOS_EXPORTACION. */
@@ -98,7 +98,9 @@ export function filasExportacion(lista: Producto[], n: Nombres): string[][] {
     n.sector(p.sector),
     TIPO_CORTO[p.tipo],
     n.categoria(p.categoriaId),
+    p.subcategoria,
     p.unidad,
+    p.sinStock ? 'Solo ventas' : 'Con stock',
     p.precioVenta === null ? '' : gs(p.precioVenta),
     p.precioVenta === null ? '' : NOMBRE_IVA[p.iva],
     p.activo ? 'Activo' : 'Desactivado',
