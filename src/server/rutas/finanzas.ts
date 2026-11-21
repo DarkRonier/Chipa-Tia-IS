@@ -12,7 +12,7 @@ import type { Alerta } from '../../shared/alertas'
 import { diaLegible, inicioDeMes } from '../../shared/hora'
 import { puede } from '../../shared/permisos'
 import {
-  MEDIOS_PAGO,
+  MEDIOS_PAGO, describirParte,
   type GastoFijo, type GastoFijoMes, type MedioPago, type MovimientoIE, type ReporteDetallado, type ResumenIE,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
@@ -242,23 +242,24 @@ rutasFinanzas.post('/ie/:id/anular', requiere('ie.completo', SOLO_ADMIN), async 
 // ---------- Consulta y resumen ----------
 
 export async function resumenIE(db: BaseD1, desde: string, hasta: string, soloProveedores: boolean): Promise<ResumenIE> {
-  const proveedores = await todas<{ id: string; dia_pago: string; importe: number; medio: MedioPago; proveedor: string; comprobante: string; usuario: string }>(
+  const proveedores = await todas<{ id: string; dia_pago: string; importe: number; medio: MedioPago; banco: string; cheque_numero: string; proveedor: string; comprobante: string; usuario: string }>(
     db,
-    `SELECT g.id, g.dia_pago, g.importe, g.medio, p.nombre AS proveedor, c.comprobante, u.nombre AS usuario
+    `SELECT g.id, g.dia_pago, g.importe, g.medio, g.banco, g.cheque_numero, p.nombre AS proveedor, c.comprobante, u.nombre AS usuario
        FROM pagos_proveedor g JOIN compras c ON c.id = g.compra_id JOIN proveedores p ON p.id = g.proveedor_id JOIN usuarios u ON u.id = g.usuario_id
       WHERE g.anulado_en IS NULL AND c.anulada_en IS NULL AND g.dia_pago >= ? AND g.dia_pago <= ?`,
     desde, hasta,
   )
   const movimientos: MovimientoIE[] = proveedores.map((g) => ({
-    id: g.id, tipo: 'egreso', dia: g.dia_pago, concepto: `Pago a ${g.proveedor}${g.comprobante ? ` (${g.comprobante})` : ''}`,
+    id: g.id, tipo: 'egreso', dia: g.dia_pago, concepto: `Pago a ${g.proveedor}${g.comprobante ? ` (${g.comprobante})` : ''}${g.banco ? ` · ${describirParte({ medio: g.medio, banco: g.banco, chequeNumero: g.cheque_numero })}` : ''}`,
     categoria: 'Pagos a proveedores', importe: g.importe, medio: g.medio, origen: 'proveedor', usuarioNombre: g.usuario, anulado: false, desdeCaja: false,
   }))
   if (!soloProveedores) {
     const [ventas, manuales] = await Promise.all([
       todas<{ dia: string; medio: MedioPago; total: number; cantidad: number }>(
         db,
-        `SELECT dia, medio, SUM(total) AS total, COUNT(*) AS cantidad FROM ventas
-          WHERE anulada_en IS NULL AND dia >= ? AND dia <= ? GROUP BY dia, medio`,
+        `SELECT v.dia, p.medio, SUM(p.importe) AS total, COUNT(DISTINCT v.id) AS cantidad
+           FROM venta_pagos p JOIN ventas v ON v.id = p.venta_id
+          WHERE v.anulada_en IS NULL AND v.dia >= ? AND v.dia <= ? GROUP BY v.dia, p.medio`,
         desde, hasta,
       ),
       todas<{ id: string; tipo: 'ingreso' | 'egreso'; dia_mov: string; concepto: string; categoria: string; importe: number; medio: MedioPago; gasto_fijo_id: string | null; usuario: string; anulado_en: string | null; caja_movimiento_id: string | null }>(
@@ -378,8 +379,9 @@ rutasFinanzas.get('/reportes/detallado', requiere('reportes.detallados', 'El rep
       anuladas: ventas.length - vigentes.length,
       ticketPromedio: vigentes.length ? Math.round(total / vigentes.length) : 0,
       porMedio: MEDIOS_PAGO.map((medio) => {
-        const l = vigentes.filter((v) => v.medio === medio)
-        return { medio, cantidad: l.length, importe: l.reduce((s, v) => s + v.total, 0) }
+        // Una venta con pago híbrido cuenta en cada medio que usó, con el importe de esa parte.
+        const l = vigentes.filter((v) => v.pagos.some((x) => x.medio === medio))
+        return { medio, cantidad: l.length, importe: l.reduce((s, v) => s + v.pagos.filter((x) => x.medio === medio).reduce((t, x) => t + x.importe, 0), 0) }
       }).filter((x) => x.cantidad),
       porDia: [...dias.values()].sort((a, b) => a.dia.localeCompare(b.dia)),
       porProducto: [...productos.values()].sort((a, b) => b.importe - a.importe),

@@ -13,13 +13,14 @@ import Buscador, { normalizar } from '../../components/Buscador'
 import BotonIcono, { Acciones, LinkIcono } from '../../components/BotonIcono'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { Icono } from '../../components/Iconos'
+import PartesPago, { faltaEnPartes, importesFinales, parteNueva, type ParteForm } from '../../components/PartesPago'
 import Volver from '../../components/Volver'
 import { gs, leerImporte, miles } from '../../shared/dinero'
 import { sectorDeRol } from '../../shared/permisos'
 import { diaLegible, diaPY, fechaHoraPY, inicioDeMes } from '../../shared/hora'
 import {
-  MEDIOS_PAGO, NOMBRE_ESTADO_COMPRA, NOMBRE_MEDIO_PAGO,
-  type Compra, type CuentaProveedor, type EstadoCompra, type MedioPago, type PedidoCompra, type ProductoCompra, type Proveedor,
+  NOMBRE_ESTADO_COMPRA, NOMBRE_MEDIO_PAGO, describirParte,
+  type Compra, type CuentaProveedor, type EstadoCompra, type PagoProveedor, type PedidoCompra, type ProductoCompra, type Proveedor,
   type ReporteCompras,
 } from '../../shared/tipos'
 import '../../styles/compras.css'
@@ -75,27 +76,6 @@ export function PaginaProveedores() {
 // ---------- Piezas ----------
 
 /** Campo de importe en guaraníes: muestra los puntos de miles mientras se escribe. */
-function CampoImporte({ etiqueta, valor, onChange, autoFocus }: { etiqueta: string; valor: number; onChange: (n: number) => void; autoFocus?: boolean }) {
-  return (
-    <label className="campo">
-      <span>{etiqueta}</span>
-      <input inputMode="numeric" value={valor ? miles(valor) : ''} placeholder="0" autoFocus={autoFocus}
-        onChange={(e) => onChange(leerImporte(e.target.value))} />
-    </label>
-  )
-}
-
-function ElegirMedio({ valor, onChange }: { valor: MedioPago; onChange: (m: MedioPago) => void }) {
-  return (
-    <label className="campo">
-      <span>Medio de pago</span>
-      <select value={valor} onChange={(e) => onChange(e.target.value as MedioPago)}>
-        {MEDIOS_PAGO.map((m) => <option key={m} value={m}>{NOMBRE_MEDIO_PAGO[m]}</option>)}
-      </select>
-    </label>
-  )
-}
-
 export function EtiquetaEstado({ c }: { c: Pick<Compra, 'estado' | 'vencida'> }) {
   return (
     <span className={`etq-compra ${c.vencida ? 'vencida' : c.estado}`}>
@@ -507,17 +487,30 @@ function DetalleCompra({ id }: { id: string }) {
   )
 }
 
+/** Los pagos agrupados por registro: las partes de un pago híbrido van juntas. */
+function agruparPagos(pagos: PagoProveedor[]): PagoProveedor[][] {
+  const grupos = new Map<string, PagoProveedor[]>()
+  for (const g of pagos) grupos.set(g.registro, [...(grupos.get(g.registro) ?? []), g])
+  return [...grupos.values()]
+}
+
 function Pagos({ compra }: { compra: Compra }) {
   const hoy = diaPY()
-  const [importe, setImporte] = useState(0)
-  const [medio, setMedio] = useState<MedioPago>('efectivo')
+  const [partes, setPartes] = useState<ParteForm[]>(() => [parteNueva()])
   const [diaPago, setDiaPago] = useState(hoy)
   const [nota, setNota] = useState('')
   const [desdeCaja, setDesdeCaja] = useState(false)
   const [anulando, setAnulando] = useState<string | null>(null)
   const [motivo, setMotivo] = useState('')
-  const pagar = useAccion((todo: boolean) =>
-    post<Compra>(`/compras/${compra.id}/pagos`, { ...(todo ? { total: true } : { importe }), medio, diaPago, nota, desdeCaja: desdeCaja && medio === 'efectivo' }))
+  const hayEfectivo = partes.some((x) => x.medio === 'efectivo')
+  const pagar = useAccion((todo: boolean) => {
+    const finales = importesFinales(partes, compra.saldo, 'compra')
+    // «Pagar todo» (un solo medio) manda `total: true`; si no, las partes, cada una con su medio e importe.
+    const cuerpo = todo ? { total: true, ...finales[0], importe: undefined } : { partes: finales }
+    return post<Compra>(`/compras/${compra.id}/pagos`, { ...cuerpo, diaPago, nota, desdeCaja: desdeCaja && hayEfectivo })
+  })
+  const problema = faltaEnPartes(partes, compra.saldo, 'compra')
+  const listo = () => { setPartes([parteNueva()]); setNota('') }
   const anular = useAccion((ruta: string) => post<Compra>(ruta, { motivo }))
   const pagos = compra.pagos ?? []
 
@@ -541,33 +534,61 @@ function Pagos({ compra }: { compra: Compra }) {
       <h3>Pagos</h3>
       {pagos.length ? (
         <ul className="lista-pagos">
-          {pagos.map((g) => (
-            <li key={g.id} className={g.anulado ? 'apagado' : ''}>
-              <span>{diaLegible(g.diaPago)} · {NOMBRE_MEDIO_PAGO[g.medio]} · <strong>{gs(g.importe)}</strong> · {g.usuarioNombre}{g.nota && ` · ${g.nota}`}</span>
-              {g.anulado
-                ? <span className="chico"> (anulado: {g.motivoAnulacion})</span>
-                : anulando !== g.id && <BotonIcono icono="anular" texto="Anular este pago" tono="peligro" onClick={() => { setAnulando(g.id); setMotivo('') }} />}
-              {pedirMotivo(g.id, `/pagos-proveedor/${g.id}/anular`, 'Anular este pago')}
-            </li>
-          ))}
+          {agruparPagos(pagos).map((grupo) => {
+            const parte = (g: PagoProveedor, varias: boolean) => (
+              <li key={g.id} className={g.anulado ? 'apagado' : ''}>
+                <span>
+                  {!varias && <>{diaLegible(g.diaPago)} · </>}
+                  {describirParte(g)} · <strong>{gs(g.importe)}</strong>
+                  {!varias && <> · {g.usuarioNombre}{g.nota && ` · ${g.nota}`}</>}
+                </span>
+                {g.anulado
+                  ? <span className="chico"> (anulado: {g.motivoAnulacion})</span>
+                  : anulando !== g.id && <BotonIcono icono="anular" texto={varias ? 'Anular esta parte del pago' : 'Anular este pago'} tono="peligro" onClick={() => { setAnulando(g.id); setMotivo('') }} />}
+                {pedirMotivo(g.id, `/pagos-proveedor/${g.id}/anular`, varias ? 'Anular esta parte' : 'Anular este pago')}
+              </li>
+            )
+            if (grupo.length === 1) return parte(grupo[0], false)
+            const g0 = grupo[0]
+            const vigente = grupo.filter((g) => !g.anulado).reduce((s, g) => s + g.importe, 0)
+            return (
+              <li key={g0.registro} className="pago-partes">
+                <span>
+                  {diaLegible(g0.diaPago)} · Pago en {grupo.length} partes · <strong>{gs(vigente)}</strong> · {g0.usuarioNombre}{g0.nota && ` · ${g0.nota}`}
+                </span>
+                <ul>{grupo.map((g) => parte(g, true))}</ul>
+              </li>
+            )
+          })}
         </ul>
       ) : <p className="suave chico">Todavía no tiene pagos.</p>}
       <p><strong>Pagado {gs(compra.pagado)}</strong> · Falta <strong>{gs(compra.saldo)}</strong></p>
       {compra.estado !== 'anulada' && compra.saldo > 0 && (
-        <div className="tarjeta filtros">
-          <CampoImporte etiqueta="Importe a pagar (Gs.)" valor={importe} onChange={setImporte} />
-          <ElegirMedio valor={medio} onChange={setMedio} />
-          <label className="campo"><span>Fecha del pago</span><input type="date" value={diaPago} max={hoy} onChange={(e) => setDiaPago(e.target.value)} /></label>
-          <label className="campo"><span>Nota (opcional)</span><input value={nota} maxLength={300} onChange={(e) => setNota(e.target.value)} /></label>
-          {medio === 'efectivo' && (
-            <label className="check"><input type="checkbox" checked={desdeCaja} onChange={(e) => setDesdeCaja(e.target.checked)} /><span>Sale de la caja abierta</span></label>
-          )}
-          <button type="button" className="btn-primario" disabled={pagar.enviando || importe <= 0} onClick={() => void pagar.ejecutar(false).then((r) => r && setImporte(0))}>
-            Registrar pago
-          </button>
-          <button type="button" className="btn-secundario" disabled={pagar.enviando} onClick={() => void pagar.ejecutar(true)}>
-            Pagar todo ({gs(compra.saldo)})
-          </button>
+        <div className="tarjeta">
+          <PartesPago partes={partes} onChange={setPartes} objetivo={compra.saldo} modo="compra" />
+          <div className="filtros pago-datos">
+            <label className="campo"><span>Fecha del pago</span><input type="date" value={diaPago} max={hoy} onChange={(e) => setDiaPago(e.target.value)} /></label>
+            <label className="campo"><span>Nota (opcional)</span><input value={nota} maxLength={300} onChange={(e) => setNota(e.target.value)} /></label>
+            {hayEfectivo && (
+              <label className="check">
+                <input type="checkbox" checked={desdeCaja} onChange={(e) => setDesdeCaja(e.target.checked)} />
+                <span>{partes.length > 1 ? 'El efectivo sale de la caja abierta' : 'Sale de la caja abierta'}</span>
+              </label>
+            )}
+          </div>
+          {problema && partes.every((x) => x.importe > 0) && <p className="chico diferencia-negativa">{problema}</p>}
+          <div className="fila-acciones">
+            <button type="button" className="btn-primario" disabled={pagar.enviando || problema !== null}
+              onClick={() => void pagar.ejecutar(false).then((r) => r && listo())}>
+              {partes.length > 1 ? `Registrar pago de ${gs(importesFinales(partes, compra.saldo, 'compra').reduce((s, x) => s + x.importe, 0))}` : 'Registrar pago'}
+            </button>
+            {partes.length === 1 && (
+              <button type="button" className="btn-secundario" disabled={pagar.enviando || (partes[0].medio === 'cheque' && !partes[0].banco.trim())}
+                onClick={() => void pagar.ejecutar(true).then((r) => r && listo())}>
+                Pagar todo ({gs(compra.saldo)})
+              </button>
+            )}
+          </div>
         </div>
       )}
       <Aviso>{pagar.error ?? anular.error}</Aviso>
@@ -762,7 +783,7 @@ function Resumen() {
       { nombre: 'Por categoría', arriba, encabezados: ['Categoría', 'Importe'], filas: d.porCategoria.map((k) => [k.categoriaNombre, k.importe]) },
       {
         nombre: 'Pagos', arriba, encabezados: ['Fecha', 'Proveedor', 'Comprobante', 'Medio', 'Importe', 'Cargado por'],
-        filas: d.pagos.map((g) => [celdaDia(g.diaPago), g.proveedorNombre, g.comprobante, NOMBRE_MEDIO_PAGO[g.medio], g.importe, g.usuarioNombre]),
+        filas: d.pagos.map((g) => [celdaDia(g.diaPago), g.proveedorNombre, g.comprobante, describirParte(g), g.importe, g.usuarioNombre]),
       },
     ])
   })

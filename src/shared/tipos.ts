@@ -643,6 +643,33 @@ export const NOMBRE_MEDIO_PAGO: Record<MedioPago, string> = {
   cheque: 'Cheque',
 }
 
+/**
+ * Una parte de un pago (pago híbrido): una factura o una venta se paga con varias partes de distintos medios.
+ * Ejemplo: 1.300.000 en cheque del Banco Regional + 145.000 en cheque del Continental + 115.000 en efectivo.
+ */
+export interface PartePago {
+  medio: MedioPago
+  importe: number
+  /** Banco del cheque (obligatorio en cheque) o de la transferencia (opcional). Vacío en los demás medios. */
+  banco: string
+  /** Número del cheque (opcional). Vacío en los demás medios. */
+  chequeNumero: string
+}
+
+/** Medios que llevan banco: el cheque (obligatorio) y la transferencia (opcional). */
+export const MEDIO_CON_BANCO: Record<MedioPago, boolean> = { efectivo: false, transferencia: true, tarjeta: false, qr: false, cheque: true }
+
+/** Bancos de Paraguay que se sugieren al cargar un cheque o una transferencia (se puede escribir otro). */
+export const BANCOS_SUGERIDOS = [
+  'Banco Regional', 'Banco Continental', 'Itaú', 'Banco Nacional de Fomento', 'Banco Basa', 'Banco Familiar', 'Banco GNB',
+  'Sudameris', 'Visión Banco', 'ueno bank', 'Banco Atlas', 'Interfisa Banco', 'Banco Río', 'Zeta Banco', 'Banco do Brasil', 'Citibank',
+]
+
+/** Texto corto de una parte: «Cheque Banco Regional N° 1234». */
+export function describirParte(p: Pick<PartePago, 'medio' | 'banco' | 'chequeNumero'>): string {
+  return [NOMBRE_MEDIO_PAGO[p.medio], p.banco, p.chequeNumero && `N° ${p.chequeNumero}`].filter(Boolean).join(' ')
+}
+
 export interface Categoria {
   id: string
   nombre: string
@@ -699,6 +726,11 @@ export interface PagoProveedor {
   diaPago: string
   importe: number
   medio: MedioPago
+  /** Banco del cheque o de la transferencia ('' si no corresponde). */
+  banco: string
+  chequeNumero: string
+  /** Las partes que se cargaron juntas (un pago híbrido) comparten este valor. */
+  registro: string
   nota: string
   usuarioId: string
   usuarioNombre: string
@@ -920,7 +952,11 @@ export interface Venta {
   subtotal: number
   descuento: number
   total: number
+  /** Medio principal (la parte más grande); el detalle está en `pagos`. */
   medio: MedioPago
+  /** Cómo se cobró, parte por parte (una sola si se pagó con un solo medio). */
+  pagos: PartePago[]
+  /** Efectivo que entregó el cliente (para el vuelto de la parte en efectivo). */
   recibido: number | null
   vuelto: number | null
   usuarioNombre: string
@@ -937,7 +973,10 @@ export interface PedidoVenta {
   items: { productoId: string; cantidad: number }[]
   /** Descuento en guaraníes sobre el total. */
   descuento?: number
-  medio: MedioPago
+  /** Un solo medio por el total (forma corta) … */
+  medio?: MedioPago
+  /** … o varias partes que suman el total (pago híbrido). */
+  pagos?: { medio: MedioPago; importe: number; banco?: string; chequeNumero?: string }[]
   recibido?: number | null
   clienteNombre?: string
   clienteRuc?: string

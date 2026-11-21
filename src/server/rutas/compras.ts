@@ -6,7 +6,8 @@
 //   (E01) con el número de lote y el vencimiento del renglón, listo para elegir en la amasada. El administrador y el supervisor compran
 //   cualquier producto y pueden agregar renglones de texto libre (flete, servicio…), que no tocan el stock. Un sector
 //   compra solo productos de su sector cuya categoría el administrador habilitó para ese sector.
-// - Pagos: parciales o totales. Solo el administrador y el supervisor los marcan; nunca superan el saldo (trigger
+// - Pagos: parciales o totales, con un medio o con varias partes de distintos medios (pago híbrido: cheque de un
+//   banco + cheque de otro + efectivo, cada parte con su banco y número de cheque). Solo el administrador y el supervisor los marcan; nunca superan el saldo (trigger
 //   `pagos_proveedor_sin_exceso`). La compra queda pendiente, con pago parcial o pagada según lo pagado.
 // - Anular: una compra sin pagos (y con sus lotes de materia prima sin usar) se anula y su stock se descuenta; un pago se anula y vuelve a quedar como saldo.
 import { Hono } from 'hono'
@@ -14,8 +15,8 @@ import type { Alerta } from '../../shared/alertas'
 import { diaLegible, sumarDias } from '../../shared/hora'
 import { puede } from '../../shared/permisos'
 import {
-  DEPOSITO, MEDIOS_PAGO, NOMBRE_MEDIO_PAGO,
-  type Compra, type CompraItem, type CuentaProveedor, type EstadoCompra, type MedioPago, type PagoProveedor, type ProductoCompra,
+  DEPOSITO, MEDIOS_PAGO, NOMBRE_MEDIO_PAGO, describirParte,
+  type Compra, type CompraItem, type CuentaProveedor, type EstadoCompra, type MedioPago, type PagoProveedor, type PartePago, type ProductoCompra,
   type Proveedor, type ReporteCompras, type SectorId, type TipoProducto,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
@@ -23,7 +24,7 @@ import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, UsuarioSesion, ValorSQL } from '../entorno'
 import { conflicto, esStockInsuficiente, invalido, noEncontrado, prohibido } from '../errores'
 import { esSector, requiere } from '../sesion'
-import { cajaAbierta, cajaCerradaError, esCajaCerrada, sentenciaMovimientoCaja, sentenciasAnularMovimientoCaja } from './caja'
+import { cajaAbierta, cajaCerradaError, esCajaCerrada, partesPago, sentenciaMovimientoCaja, sentenciasAnularMovimientoCaja } from './caja'
 import { booleano, cuerpo, dia, diaOpcional, texto, textoOpcional } from '../validar'
 
 export const rutasCompras = new Hono<Entorno>()
@@ -174,9 +175,9 @@ rutasCompras.get('/proveedores/:id/cuenta', requiere('compras.pagar', SOLO_PAGOS
          FROM compras c WHERE c.proveedor_id = ? AND c.anulada_en IS NULL`,
       proveedor.id,
     ),
-    todas<{ id: string; compra_id: string; dia_pago: string; fecha: string; comprobante: string; importe: number; medio: MedioPago }>(
+    todas<{ id: string; compra_id: string; dia_pago: string; fecha: string; comprobante: string; importe: number; medio: MedioPago; banco: string; cheque_numero: string }>(
       base,
-      `SELECT g.id, g.compra_id, g.dia_pago, g.fecha, c.comprobante, g.importe, g.medio
+      `SELECT g.id, g.compra_id, g.dia_pago, g.fecha, c.comprobante, g.importe, g.medio, g.banco, g.cheque_numero
          FROM pagos_proveedor g JOIN compras c ON c.id = g.compra_id
         WHERE g.proveedor_id = ? AND g.anulado_en IS NULL AND c.anulada_en IS NULL`,
       proveedor.id,
@@ -190,7 +191,7 @@ rutasCompras.get('/proveedores/:id/cuenta', requiere('compras.pagar', SOLO_PAGOS
     })),
     ...pagos.map((x) => ({
       tipo: 'pago' as const, id: x.id, compraId: x.compra_id, dia: x.dia_pago, fecha: x.fecha, comprobante: x.comprobante,
-      detalle: `Pago en ${NOMBRE_MEDIO_PAGO[x.medio].toLowerCase()}${x.comprobante ? ` de la compra ${x.comprobante}` : ''}`,
+      detalle: `Pago en ${describirParte({ medio: x.medio, banco: x.banco, chequeNumero: x.cheque_numero }).replace(NOMBRE_MEDIO_PAGO[x.medio], NOMBRE_MEDIO_PAGO[x.medio].toLowerCase())}${x.comprobante ? ` de la compra ${x.comprobante}` : ''}`,
       importe: x.importe,
     })),
   ].sort((a, b) => a.dia.localeCompare(b.dia) || (a.tipo === b.tipo ? 0 : a.tipo === 'compra' ? -1 : 1) || a.fecha.localeCompare(b.fecha))
@@ -301,6 +302,9 @@ interface FilaPago {
   dia_pago: string
   importe: number
   medio: MedioPago
+  banco: string
+  cheque_numero: string
+  registro: string | null
   nota: string
   usuario_id: string
   usuario_nombre: string
@@ -318,7 +322,7 @@ const SQL_COMPRA = `SELECT c.id, c.proveedor_id, p.nombre AS proveedor_nombre, c
   LEFT JOIN usuarios a ON a.id = c.anulada_por`
 
 const SQL_PAGO = `SELECT g.id, g.compra_id, g.proveedor_id, p.nombre AS proveedor_nombre, c.comprobante, g.dia_pago, g.importe, g.medio,
-    g.nota, g.usuario_id, u.nombre AS usuario_nombre, g.fecha, g.anulado_en, g.motivo_anulacion
+    g.banco, g.cheque_numero, g.registro, g.nota, g.usuario_id, u.nombre AS usuario_nombre, g.fecha, g.anulado_en, g.motivo_anulacion
   FROM pagos_proveedor g
   JOIN compras c ON c.id = g.compra_id
   JOIN proveedores p ON p.id = g.proveedor_id
@@ -326,7 +330,8 @@ const SQL_PAGO = `SELECT g.id, g.compra_id, g.proveedor_id, p.nombre AS proveedo
 
 export const aPago = (f: FilaPago): PagoProveedor => ({
   id: f.id, compraId: f.compra_id, proveedorId: f.proveedor_id, proveedorNombre: f.proveedor_nombre, comprobante: f.comprobante,
-  diaPago: f.dia_pago, importe: f.importe, medio: f.medio, nota: f.nota, usuarioId: f.usuario_id, usuarioNombre: f.usuario_nombre,
+  diaPago: f.dia_pago, importe: f.importe, medio: f.medio, banco: f.banco, chequeNumero: f.cheque_numero,
+  registro: f.registro ?? f.id, nota: f.nota, usuarioId: f.usuario_id, usuarioNombre: f.usuario_nombre,
   fecha: f.fecha, anulado: f.anulado_en !== null, motivoAnulacion: f.motivo_anulacion,
 })
 
@@ -556,30 +561,31 @@ async function proveedorActivo(base: BaseD1, v: unknown) {
  * módulos. Si el pago supera el saldo, el trigger frena todo el batch.
  */
 async function sentenciasPago(base: BaseD1, p: {
-  id: string; compraId: string; proveedorId: string; proveedorNombre: string; diaPago: string; importe: number; medio: MedioPago; nota: string
+  compraId: string; proveedorId: string; proveedorNombre: string; diaPago: string; partes: PartePago[]; nota: string
   usuarioId: string; fecha: string; dia: string; desdeCaja: boolean
 }): Promise<SentenciaD1[]> {
-  let cajaMovId: string | null = null
-  const extra: SentenciaD1[] = []
-  if (p.desdeCaja) {
-    const caja = await cajaAbierta(base)
-    if (!caja) throw conflicto('caja_cerrada', 'La caja está cerrada: no puede salir el pago de ella. Desmarcá «sale de la caja» o pedí que la abran.')
-    cajaMovId = nuevoId()
-    extra.push(sentenciaMovimientoCaja(base, {
-      id: cajaMovId, cajaId: caja.id, tipo: 'retiro', medio: p.medio, importe: p.importe, concepto: `Pago a ${p.proveedorNombre}`,
-      origen: 'proveedor', origenId: p.id, usuarioId: p.usuarioId, fecha: p.fecha, dia: p.dia,
-    }))
-  }
-  return [
-    // El retiro de la caja va antes porque el pago lo referencia; si el pago no pasa, el batch no guarda ninguno.
-    ...extra,
-    sentencia(
-      base,
-      `INSERT INTO pagos_proveedor (id, compra_id, proveedor_id, dia_pago, importe, medio, nota, usuario_id, fecha, dia, caja_movimiento_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      p.id, p.compraId, p.proveedorId, p.diaPago, p.importe, p.medio, p.nota, p.usuarioId, p.fecha, p.dia, cajaMovId,
-    ),
-  ]
+  // «Sale de la caja» vale para las partes en efectivo (un cheque o una transferencia no salen del cajón).
+  const desdeCaja = p.desdeCaja && p.partes.some((x) => x.medio === 'efectivo')
+  const caja = desdeCaja ? await cajaAbierta(base) : null
+  if (desdeCaja && !caja) throw conflicto('caja_cerrada', 'La caja está cerrada: no puede salir el pago de ella. Desmarcá «sale de la caja» o pedí que la abran.')
+  const registro = nuevoId()
+  return p.partes.flatMap((x) => {
+    const id = nuevoId()
+    const cajaMovId = caja && x.medio === 'efectivo' ? nuevoId() : null
+    return [
+      // El retiro de la caja va antes porque el pago lo referencia; si una parte no pasa, el batch no guarda ninguna.
+      ...(cajaMovId ? [sentenciaMovimientoCaja(base, {
+        id: cajaMovId, cajaId: caja!.id, tipo: 'retiro', medio: x.medio, importe: x.importe, concepto: `Pago a ${p.proveedorNombre}`,
+        origen: 'proveedor', origenId: id, usuarioId: p.usuarioId, fecha: p.fecha, dia: p.dia,
+      })] : []),
+      sentencia(
+        base,
+        `INSERT INTO pagos_proveedor (id, compra_id, proveedor_id, dia_pago, importe, medio, banco, cheque_numero, registro, nota, usuario_id, fecha, dia, caja_movimiento_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, p.compraId, p.proveedorId, p.diaPago, x.importe, x.medio, x.banco, x.chequeNumero, registro, p.nota, p.usuarioId, p.fecha, p.dia, cajaMovId,
+      ),
+    ]
+  })
 }
 
 const esPagoExcedido = (e: unknown) => e instanceof Error && e.message.includes('PAGO_EXCEDE_SALDO')
@@ -653,17 +659,20 @@ rutasCompras.post('/compras/:id/pagos', requiere('compras.pagar', SOLO_PAGOS), a
   if (compra.estado === 'anulada') throw conflicto('compra_anulada', 'Esa compra está anulada: no se le pueden cargar pagos.')
   if (compra.saldo <= 0) throw conflicto('compra_pagada', 'Esa compra ya está pagada.')
   const { fecha, dia: hoy } = ahora()
+  // Pago híbrido: `partes` con varias partes de distintos medios. Forma corta (un solo medio): `importe` y `medio`;
   // «Pagar todo» manda `total: true` en lugar del importe.
-  const monto = b.total === true ? compra.saldo : importe(b.importe, 'el importe', 1)
+  const partes = b.partes !== undefined
+    ? partesPago(b.partes)
+    : partesPago([{ medio: medio(b.medio), importe: b.total === true ? compra.saldo : importe(b.importe, 'el importe', 1), banco: b.banco, chequeNumero: b.chequeNumero }])
+  const monto = partes.reduce((s, x) => s + x.importe, 0)
   if (monto > compra.saldo) {
     throw invalido(`El pago (${guaranies(monto)}) supera lo que falta pagar de esa compra (${guaranies(compra.saldo)}).`)
   }
   const diaPago = diaHastaHoy(b.diaPago, 'La fecha del pago', hoy)
-  const pagoId = nuevoId()
   try {
     await base.batch(await sentenciasPago(base, {
-      id: pagoId, compraId: compra.id, proveedorId: compra.proveedorId, proveedorNombre: compra.proveedorNombre, diaPago, importe: monto,
-      medio: medio(b.medio), nota: textoOpcional(b.nota, 'La nota', 300) ?? '', usuarioId: u.id, fecha, dia: hoy, desdeCaja: b.desdeCaja === true,
+      compraId: compra.id, proveedorId: compra.proveedorId, proveedorNombre: compra.proveedorNombre, diaPago, partes,
+      nota: textoOpcional(b.nota, 'La nota', 300) ?? '', usuarioId: u.id, fecha, dia: hoy, desdeCaja: b.desdeCaja === true,
     }))
   } catch (e) {
     if (esCajaCerrada(e)) throw cajaCerradaError()

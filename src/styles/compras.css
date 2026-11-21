@@ -197,3 +197,28 @@ div.compra-cabeza { cursor: default; }
 
 /* Marcar todo en limpieza: el símbolo de la marca como botón chico. */
 .btn-icono-accion.btn-marca { width: auto; min-width: 40px; padding: 0 0.5rem; font-weight: 800; font-size: 1rem; }
+
+/* Pago híbrido (PartesPago): una fila por parte (medio, importe, banco, N° de cheque) y abajo cuánto suman.
+   Columnas fijas, así las partes quedan alineadas aunque una lleve banco y otra no. */
+.partes-pago { display: grid; gap: 0.6rem; }
+.parte-pago { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; align-items: end; }
+.partes-pago.venta .parte-pago { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.parte-pago input, .parte-pago select { min-width: 0; width: 100%; }
+.parte-pago.con-borde {
+  position: relative; padding: 1.5rem 3.4rem 0.7rem 0.7rem; border: 1px solid var(--borde); border-radius: 10px;
+}
+.parte-titulo { position: absolute; top: 0.35rem; left: 0.7rem; font-size: 0.78rem; font-weight: 700; color: var(--suave); }
+.parte-pago .parte-quitar { position: absolute; top: 0.5rem; right: 0.5rem; }
+.parte-resto {
+  display: flex; align-items: center; gap: 0.3rem; min-height: 44px; padding: 0 0.7rem; border-radius: 8px;
+  background: var(--neutro); font-weight: 700;
+}
+.parte-resto.negativo { color: var(--error); background: var(--error-fondo); }
+.partes-pie { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem 1rem; }
+.partes-pie .btn-discreto svg { width: 18px; height: 18px; }
+.partes-suma { font-size: 0.95rem; }
+.pago-datos { display: grid; gap: 0.75rem; }
+.pago-partes > ul { margin: 0.25rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.25rem; list-style: circle; }
+@media (max-width: 700px) {
+  .parte-pago { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

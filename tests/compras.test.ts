@@ -197,6 +197,46 @@ describe('compras del supervisor, pagos parciales y saldos', () => {
     expect((await p.pedir(cocina, 'GET', `/proveedores/${proveedor.id}/cuenta`)).status).toBe(403)
   })
 
+  it('pago híbrido: una factura se paga en partes de distintos medios (cheques de dos bancos y efectivo)', async () => {
+    const { p, sup, proveedor } = await escenario()
+    const compra = (await p.pedir<Compra>(sup, 'POST', '/compras', {
+      proveedorId: proveedor.id, items: [{ detalle: 'Mercadería', precioUnitario: 1_560_000 }],
+    })).body
+    const pagar = (partes: object[]) => p.pedir<Compra>(sup, 'POST', `/compras/${compra.id}/pagos`, { partes })
+    // El cheque necesita el banco; las partes no pueden pasar el saldo; ninguna parte va en cero.
+    expect((await pagar([{ medio: 'cheque', importe: 1000 }])).status).toBe(400)
+    expect((await pagar([{ medio: 'efectivo', importe: 1_560_000 }, { medio: 'efectivo', importe: 1 }])).status).toBe(400)
+    expect((await pagar([{ medio: 'efectivo', importe: 0 }])).status).toBe(400)
+    expect((await pagar([])).status).toBe(400)
+    expect((await p.pedir<Compra>(sup, 'GET', `/compras/${compra.id}`)).body.pagado ?? 0).toBe(0)
+
+    const r = await pagar([
+      { medio: 'cheque', importe: 1_300_000, banco: 'Banco Regional', chequeNumero: '00451' },
+      { medio: 'cheque', importe: 145_000, banco: 'Banco Continental' },
+      { medio: 'efectivo', importe: 115_000, banco: 'no corresponde' },
+    ])
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ pagado: 1_560_000, saldo: 0, estado: 'pagada' })
+    expect(r.body.pagos!.map((g) => [g.medio, g.importe, g.banco, g.chequeNumero])).toEqual([
+      ['cheque', 1_300_000, 'Banco Regional', '00451'],
+      ['cheque', 145_000, 'Banco Continental', ''],
+      ['efectivo', 115_000, '', ''],
+    ])
+    // Las tres partes son un mismo registro.
+    expect(new Set(r.body.pagos!.map((g) => g.registro)).size).toBe(1)
+
+    // Una parte se anula sola (el cheque rebotó) y vuelve a quedar como saldo.
+    const anulada = await p.pedir<Compra>(sup, 'POST', `/pagos-proveedor/${r.body.pagos![1].id}/anular`, { motivo: 'Cheque rechazado' })
+    expect(anulada.body).toMatchObject({ pagado: 1_415_000, saldo: 145_000, estado: 'parcial' })
+
+    // El reporte suma por medio cada parte; la cuenta del proveedor muestra el banco.
+    const hoy = diaPY()
+    const rep = (await p.pedir<ReporteCompras>(sup, 'GET', `/reportes/compras?desde=${hoy}&hasta=${hoy}`)).body
+    expect(rep.porMedio).toEqual(expect.arrayContaining([{ medio: 'cheque', importe: 1_300_000 }, { medio: 'efectivo', importe: 115_000 }]))
+    const cuenta = (await p.pedir<CuentaProveedor>(sup, 'GET', `/proveedores/${proveedor.id}/cuenta`)).body
+    expect(cuenta.movimientos.map((m) => m.detalle)).toContain('Pago en cheque Banco Regional N° 00451')
+  })
+
   it('la compra se carga siempre pendiente: no se puede marcar pagada al crearla', async () => {
     const { p, admin, proveedor } = await escenario()
     const base = { proveedorId: proveedor.id, items: [{ productoId: COCIDO, cantidad: 1, precioUnitario: 5000 }] }
