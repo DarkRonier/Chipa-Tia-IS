@@ -10,6 +10,9 @@ export const JPEG_1PX =
   'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwBtFFFeWeyf/9k='
 
 let SQL: Promise<SqlJsStatic> | null = null
+// Armar la base (migraciones + catálogo + usuarios) tarda ~50 ms; copiarla ya armada, ~1 ms.
+// Se arma una vez por archivo de pruebas y cada prueba recibe su propia copia, independiente de las demás.
+let plantilla: Promise<Uint8Array> | null = null
 
 export interface Respuesta<T = any> {
   status: number
@@ -33,7 +36,9 @@ export interface Prueba {
  */
 export async function nuevaPrueba(env: Partial<Env> = {}): Promise<Prueba> {
   SQL ??= initSqlJs()
-  const d1 = await crearBaseDemo(await SQL)
+  const sql = await SQL
+  plantilla ??= crearBaseDemo(sql).then((base) => base.db.export())
+  const d1 = await crearBaseDemo(sql, await plantilla)
   const app = crearApp()
   const entorno: Env = { DB: d1, ...env }
   const pedir = async (token: string | null, metodo: string, ruta: string, cuerpo?: unknown) => {
