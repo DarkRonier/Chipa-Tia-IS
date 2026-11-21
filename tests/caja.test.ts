@@ -115,6 +115,51 @@ describe('caja', () => {
     expect((await p.pedir(cajero, 'POST', '/caja/cerrar', { contado: 0 })).status).toBe(409)
   })
 
+  it('cobro híbrido: una venta se cobra en partes (efectivo + tarjeta + cheque) y cada parte suma en su medio', async () => {
+    const { p, admin, cajero } = await escenario()
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 10_000 })
+    const vender = (pagos: object[], extra: object = {}) =>
+      p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 20 }], pagos, ...extra })
+    // 20 chipas = 60.000. Las partes tienen que sumar justo el total.
+    expect((await vender([{ medio: 'efectivo', importe: 30_000 }, { medio: 'tarjeta', importe: 20_000 }])).status).toBe(400)
+    expect((await vender([{ medio: 'efectivo', importe: 50_000 }, { medio: 'tarjeta', importe: 20_000 }])).status).toBe(400)
+    expect((await vender([{ medio: 'efectivo', importe: 40_000 }, { medio: 'cheque', importe: 20_000 }])).status).toBe(400)
+    // Lo recibido se compara con la parte en efectivo, no con el total.
+    expect((await vender([{ medio: 'efectivo', importe: 25_000 }, { medio: 'tarjeta', importe: 35_000 }], { recibido: 20_000 })).status).toBe(400)
+
+    const v = await vender([
+      { medio: 'efectivo', importe: 25_000 },
+      { medio: 'tarjeta', importe: 30_000 },
+      { medio: 'cheque', importe: 5000, banco: 'Itaú', chequeNumero: '77' },
+    ], { recibido: 30_000 })
+    expect(v.status).toBe(200)
+    expect(v.body).toMatchObject({ total: 60_000, medio: 'tarjeta', vuelto: 5000 })
+    expect(v.body.pagos).toEqual([
+      { medio: 'efectivo', importe: 25_000, banco: '', chequeNumero: '' },
+      { medio: 'tarjeta', importe: 30_000, banco: '', chequeNumero: '' },
+      { medio: 'cheque', importe: 5000, banco: 'Itaú', chequeNumero: '77' },
+    ])
+    // Una venta de un solo medio sigue igual (forma corta).
+    const corta = await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'qr' })
+    expect(corta.body.pagos).toEqual([{ medio: 'qr', importe: 3000, banco: '', chequeNumero: '' }])
+
+    const caja = (await p.pedir<Caja>(cajero, 'GET', '/caja')).body
+    expect(caja.esperadoEfectivo).toBe(35_000)
+    expect(caja.totales.find((t) => t.medio === 'tarjeta')?.ventas).toBe(30_000)
+    expect(caja.totales.find((t) => t.medio === 'cheque')?.ventas).toBe(5000)
+    expect(caja.totales.find((t) => t.medio === 'qr')?.ventas).toBe(3000)
+    expect(caja).toMatchObject({ cantidadVentas: 2, totalVentas: 63_000 })
+
+    // El reporte detallado y los ingresos reparten la venta por medio.
+    const hoy = diaPY()
+    const rep = (await p.pedir<ReporteDetallado>(admin, 'GET', `/reportes/detallado?desde=${hoy}&hasta=${hoy}`)).body
+    expect(rep.ventas.porMedio).toEqual(expect.arrayContaining([
+      { medio: 'efectivo', cantidad: 1, importe: 25_000 }, { medio: 'tarjeta', cantidad: 1, importe: 30_000 },
+    ]))
+    const ie = (await p.pedir<ResumenIE>(admin, 'GET', `/ie?desde=${hoy}&hasta=${hoy}`)).body
+    expect(ie.porMedio.find((m) => m.medio === 'cheque')?.ingresos).toBe(5000)
+  })
+
   it('valida la venta: precio, cantidad, descuento y lo recibido', async () => {
     const { p, cajero } = await escenario()
     await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })

@@ -2,7 +2,8 @@
 // - Caja: una sola caja operativa, como mucho una abierta (índice único). Se abre con un fondo inicial en efectivo;
 //   cada venta, ingreso y retiro suma o resta en su medio de pago; el arqueo compara el efectivo contado con el
 //   esperado; el cierre guarda esperado, contado y diferencia.
-// - Ventas: al contado, con productos, cantidades, precios del catálogo, descuento, medio de pago y cliente opcional.
+// - Ventas: al contado, con productos, cantidades, precios del catálogo, descuento, medio de pago (o varias
+//   partes de distintos medios: pago híbrido) y cliente opcional.
 //   Solo con la caja abierta. Las registra solo el cajero (Mati, 2026-11-21: el administrador y el supervisor no
 //   venden). Todo lo vendido descuenta del depósito Venta frente (en Chipería, de los lotes más viejos primero). La
 //   venta nunca se frena por stock: si no estaba cargado, el depósito queda en negativo a la vista.
@@ -12,8 +13,8 @@ import type { Alerta } from '../../shared/alertas'
 import { diaLegible } from '../../shared/hora'
 import { puede } from '../../shared/permisos'
 import {
-  DEPOSITO, MEDIOS_PAGO,
-  type Arqueo, type Caja, type ConfigFactura, type Factura, type Iva, type MedioPago, type MovimientoCaja, type ProductoVenta,
+  DEPOSITO, MEDIO_CON_BANCO, MEDIOS_PAGO,
+  type Arqueo, type Caja, type ConfigFactura, type Factura, type Iva, type MedioPago, type MovimientoCaja, type PartePago, type ProductoVenta,
   type SectorId, type TotalesMedio, type Venta, type VentaItem,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
@@ -47,6 +48,31 @@ export function medioPago(v: unknown): MedioPago {
   if (!(MEDIOS_PAGO as unknown[]).includes(v)) throw invalido('El medio de pago no es válido.')
   return v as MedioPago
 }
+
+const MAX_PARTES = 10
+
+/**
+ * Las partes de un pago híbrido (`partes`: [{ medio, importe, banco?, chequeNumero? }]). El cheque lleva banco
+ * (obligatorio) y número (opcional); la transferencia, banco opcional; los demás medios no llevan ninguno.
+ */
+export function partesPago(v: unknown): PartePago[] {
+  if (!Array.isArray(v) || v.length === 0) throw invalido('Cargá al menos una parte del pago (medio e importe).')
+  if (v.length > MAX_PARTES) throw invalido(`Son demasiadas partes en un solo pago (como mucho ${MAX_PARTES}).`)
+  return v.map((x, i) => {
+    const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
+    const cual = v.length > 1 ? ` de la parte ${i + 1}` : ''
+    const medio = medioPago(o.medio)
+    const importe = importeGs(o.importe, `el importe${cual}`)
+    const banco = MEDIO_CON_BANCO[medio] ? textoOpcional(o.banco, `El banco${cual}`, 60) ?? '' : ''
+    if (medio === 'cheque' && !banco) throw invalido(`Falta el banco del cheque${cual}.`)
+    const chequeNumero = medio === 'cheque' ? textoOpcional(o.chequeNumero, `El número del cheque${cual}`, 30) ?? '' : ''
+    return { medio, importe, banco, chequeNumero }
+  })
+}
+
+/** El medio de la parte más grande (la primera si empatan). */
+export const medioPrincipal = (partes: PartePago[]): MedioPago =>
+  partes.reduce((a, b) => (b.importe > a.importe ? b : a), partes[0]).medio
 
 export const esCajaCerrada = (e: unknown) => e instanceof Error && e.message.includes('CAJA_CERRADA')
 export const cajaCerradaError = () => conflicto('caja_cerrada', 'La caja está cerrada. Abrila para seguir.')
@@ -105,11 +131,18 @@ const SQL_CAJA = `SELECT c.id, a.nombre AS abierta_por_nombre, c.abierta_en, c.d
 /** Totales por medio de varias cajas: fondo (efectivo) + ventas + ingresos − retiros. */
 async function totalesDe(db: BaseD1, cajas: FilaCaja[]): Promise<Map<string, { totales: TotalesMedio[]; cantidad: number; ventas: number }>> {
   const ids = cajas.map((c) => c.id)
-  const [ventas, movs] = await Promise.all([
-    todasPorTrozos<{ caja_id: string; medio: MedioPago; total: number; cantidad: number }>(
+  const [ventas, cantidades, movs] = await Promise.all([
+    // Por medio, con cada parte de un cobro híbrido en su medio.
+    todasPorTrozos<{ caja_id: string; medio: MedioPago; total: number }>(
       db, ids,
-      (m) => `SELECT caja_id, medio, SUM(total) AS total, COUNT(*) AS cantidad FROM ventas
-               WHERE anulada_en IS NULL AND caja_id IN (${m}) GROUP BY caja_id, medio`,
+      (m) => `SELECT v.caja_id, p.medio, SUM(p.importe) AS total
+                FROM venta_pagos p JOIN ventas v ON v.id = p.venta_id
+               WHERE v.anulada_en IS NULL AND v.caja_id IN (${m}) GROUP BY v.caja_id, p.medio`,
+    ),
+    todasPorTrozos<{ caja_id: string; cantidad: number; total: number }>(
+      db, ids,
+      (m) => `SELECT caja_id, COUNT(*) AS cantidad, SUM(total) AS total FROM ventas
+               WHERE anulada_en IS NULL AND caja_id IN (${m}) GROUP BY caja_id`,
     ),
     todasPorTrozos<{ caja_id: string; medio: MedioPago; tipo: 'ingreso' | 'retiro'; total: number }>(
       db, ids,
@@ -125,12 +158,8 @@ async function totalesDe(db: BaseD1, cajas: FilaCaja[]): Promise<Map<string, { t
       const ret = movs.find((x) => x.caja_id === c.id && x.medio === medio && x.tipo === 'retiro')?.total ?? 0
       return { medio, ventas: v, ingresos: ing, retiros: ret, esperado: (medio === 'efectivo' ? c.fondo_inicial : 0) + v + ing - ret }
     })
-    const propias = ventas.filter((x) => x.caja_id === c.id)
-    r.set(c.id, {
-      totales,
-      cantidad: propias.reduce((s, x) => s + x.cantidad, 0),
-      ventas: propias.reduce((s, x) => s + x.total, 0),
-    })
+    const propias = cantidades.find((x) => x.caja_id === c.id)
+    r.set(c.id, { totales, cantidad: propias?.cantidad ?? 0, ventas: propias?.total ?? 0 })
   }
   return r
 }
@@ -390,13 +419,16 @@ export const numeroFactura = (prefijo: string, numero: number) => `${prefijo}-${
 export async function leerVentas(db: BaseD1, where = '', ...params: ValorSQL[]): Promise<Venta[]> {
   const filas = await todas<FilaVenta>(db, `${SQL_VENTA} ${where} ORDER BY v.numero DESC LIMIT 2000`, ...params)
   const ids = filas.map((f) => f.id)
-  const [items, facturas] = await Promise.all([
+  const [items, facturas, pagos] = await Promise.all([
     todasPorTrozos<{ venta_id: string; producto_id: string; nombre: string; cantidad: number; precio_unitario: number; subtotal: number; iva: Iva; codigo: string | null }>(
       db, ids, (m) => `SELECT i.venta_id, i.producto_id, i.nombre, i.cantidad, i.precio_unitario, i.subtotal, i.iva, p.codigo
         FROM venta_items i LEFT JOIN productos p ON p.id = i.producto_id WHERE i.venta_id IN (${m}) ORDER BY i.orden`,
     ),
     todasPorTrozos<{ id: string; venta_id: string; prefijo: string; numero: number; timbrado: string; fecha: string; impresiones: number; anulada_en: string | null }>(
       db, ids, (m) => `SELECT id, venta_id, prefijo, numero, timbrado, fecha, impresiones, anulada_en FROM facturas WHERE venta_id IN (${m})`,
+    ),
+    todasPorTrozos<{ venta_id: string; medio: MedioPago; importe: number; banco: string; cheque_numero: string }>(
+      db, ids, (m) => `SELECT venta_id, medio, importe, banco, cheque_numero FROM venta_pagos WHERE venta_id IN (${m}) ORDER BY venta_id, orden`,
     ),
   ])
   return filas.map((f) => {
@@ -412,8 +444,14 @@ export async function leerVentas(db: BaseD1, where = '', ...params: ValorSQL[]):
       descuento: f.descuento,
       total: f.total,
       medio: f.medio,
+      pagos: pagos.filter((x) => x.venta_id === f.id).map((x) => ({ medio: x.medio, importe: x.importe, banco: x.banco, chequeNumero: x.cheque_numero })),
       recibido: f.recibido,
-      vuelto: f.recibido !== null ? f.recibido - f.total : null,
+      // El vuelto es sobre la parte en efectivo (en una venta de un solo medio, el total).
+      vuelto: f.recibido !== null
+        ? f.recibido - (pagos.some((x) => x.venta_id === f.id)
+          ? pagos.filter((x) => x.venta_id === f.id && x.medio === 'efectivo').reduce((s, x) => s + x.importe, 0)
+          : f.total)
+        : null,
       usuarioNombre: f.usuario_nombre,
       fecha: f.fecha,
       dia: f.dia,
@@ -492,11 +530,25 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
   const descuento = vacio(b.descuento) ? 0 : importeGs(b.descuento, 'el descuento', 0)
   if (descuento > subtotal) throw invalido('El descuento no puede ser mayor que el total.')
   const total = subtotal - descuento
-  const medio = medioPago(b.medio)
+  // Cobro: un solo medio por el total (`medio`) o varias partes (`pagos`, pago híbrido) que suman justo el total.
+  const partes = total === 0
+    ? []
+    : vacio(b.pagos)
+      ? partesPago([{ medio: medioPago(b.medio), importe: total }])
+      : partesPago(b.pagos)
+  const cobrado = partes.reduce((s, x) => s + x.importe, 0)
+  if (cobrado !== total) {
+    throw invalido(cobrado < total
+      ? `Las partes del cobro suman ${gs(cobrado)}: faltan ${gs(total - cobrado)} para el total (${gs(total)}).`
+      : `Las partes del cobro suman ${gs(cobrado)}: pasan el total (${gs(total)}) por ${gs(cobrado - total)}.`)
+  }
+  const medio: MedioPago = partes.length ? medioPrincipal(partes) : vacio(b.medio) ? 'efectivo' : medioPago(b.medio)
+  const efectivo = partes.filter((x) => x.medio === 'efectivo').reduce((s, x) => s + x.importe, 0)
   let recibido: number | null = null
-  if (medio === 'efectivo' && !vacio(b.recibido)) {
+  if (efectivo > 0 && !vacio(b.recibido)) {
     recibido = importeGs(b.recibido, 'lo que entregó el cliente', 0)
-    if (recibido < total) throw invalido(`Lo que entregó el cliente (${gs(recibido)}) no alcanza para el total (${gs(total)}).`)
+    const que = efectivo === total ? 'el total' : 'la parte en efectivo'
+    if (recibido < efectivo) throw invalido(`Lo que entregó el cliente (${gs(recibido)}) no alcanza para ${que} (${gs(efectivo)}).`)
   }
   const clienteNombre = textoOpcional(b.clienteNombre, 'El nombre del cliente', 120) ?? ''
   const clienteRuc = textoOpcional(b.clienteRuc, 'El RUC o CI del cliente', 30) ?? ''
@@ -516,6 +568,11 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
        VALUES (?, (SELECT COALESCE(MAX(numero), 0) + 1 FROM ventas), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id, caja.id, clienteNombre, clienteRuc, clienteDireccion, subtotal, descuento, total, medio, recibido, u.id, fecha, dia,
     ),
+    ...partes.map((x, i) => sentencia(
+      db,
+      'INSERT INTO venta_pagos (id, venta_id, orden, medio, importe, banco, cheque_numero) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      nuevoId(), id, i, x.medio, x.importe, x.banco, x.chequeNumero,
+    )),
     ...lineas.map((l, i) => sentencia(
       db,
       'INSERT INTO venta_items (id, venta_id, orden, producto_id, nombre, cantidad, precio_unitario, subtotal, iva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',

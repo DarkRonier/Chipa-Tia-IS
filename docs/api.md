@@ -333,7 +333,7 @@ Lo pagado nunca supera el total (trigger `pagos_proveedor_sin_exceso`). Importes
 | GET | `/compras` | `?desde&hasta&proveedor&estado=pendiente,parcial,pagada,anulada&sector` | `Compra[]` |
 | GET | `/compras/:id` | — | `Compra` con `pagos` (si puede verlos) |
 | POST | `/compras` | `PedidoCompra`: `{ proveedorId?, comprobante?, diaCompra?, vencimiento?, nota?, items: [{ productoId? \| detalle?, cantidad, precioUnitario, lote?, vencimiento? }] }`. La materia prima de Chipería (`ProductoCompra.loteMP`) exige `vencimiento` (no anterior a la compra ni a hoy) y crea su lote de materia prima (`LoteMP.compraId`) con el lote, la cantidad y el proveedor del renglón. Sin `proveedorId` queda el proveedor fijo «Sin nombre» (`prov-sin-nombre`, no se lista ni se edita). Se guarda siempre pendiente: con `pago` da 400 | `Compra` |
-| POST | `/compras/:id/pagos` | `{ importe \| total: true, medio, diaPago?, nota?, desdeCaja? }` (`desdeCaja`: el pago sale de la caja abierta) · supervisor y admin | `Compra` |
+| POST | `/compras/:id/pagos` | `{ partes: [{ medio, importe, banco?, chequeNumero? }], diaPago?, nota?, desdeCaja? }` (pago híbrido: varias partes de distintos medios en un mismo registro; el cheque lleva banco; `desdeCaja`: las partes en efectivo salen de la caja abierta). Forma corta de un solo medio: `{ importe \| total: true, medio, banco?, chequeNumero? }` · supervisor y admin | `Compra` (cada parte es un `PagoProveedor` con el mismo `registro`) |
 | POST | `/compras/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` (`409 compra_con_pagos`; `409 lote_mp_usado` si una amasada ya usó su lote de materia prima; si no, ese lote se borra con la compra) |
 | POST | `/pagos-proveedor/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` |
 | GET | `/reportes/compras` | `?desde&hasta` (por defecto, el mes actual) · supervisor y admin | `ReporteCompras` |
@@ -364,7 +364,7 @@ caja, ve las ventas, las anula (`ventas.anular`) y factura, pero no vende. El su
 | GET | `/ventas/productos` | — | `ProductoVenta[]` (con precio y `stock` en «Venta frente») |
 | GET | `/ventas` | `?caja&desde&hasta` (el cajero, por defecto la caja abierta) · cajero y admin | `Venta[]` |
 | GET | `/ventas/:id` | — | `Venta` |
-| POST | `/ventas` | `PedidoVenta`: `{ items: [{ productoId, cantidad }], descuento?, medio, recibido?, clienteNombre?, clienteRuc? }` | `Venta` · solo cajero |
+| POST | `/ventas` | `PedidoVenta`: `{ items: [{ productoId, cantidad }], descuento?, medio \| pagos: [{ medio, importe, banco?, chequeNumero? }], recibido?, clienteNombre?, clienteRuc? }` (`pagos`: cobro híbrido, las partes suman justo el total; `recibido` se compara con la parte en efectivo) | `Venta` · solo cajero |
 | POST | `/ventas/:id/anular` | `{ motivo }` (solo con la caja abierta; devuelve el stock al mismo depósito y lote y anula la factura) · cajero y admin | `Venta` |
 | GET | `/factura/config` | — | `ConfigFactura` (timbrado, vigencia, prefijo, primer y último número del talonario y posiciones en mm de la hoja oficio con original y duplicado) |
 | GET | `/factura/proxima` | — · admin | `{ numero, numeroCompleto }`: la próxima factura que va a salir |

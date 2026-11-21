@@ -12,12 +12,13 @@ import Avisos from '../../components/Avisos'
 import { gs, leerImporte, miles } from '../../shared/dinero'
 import { diaLegible, fechaHoraPY } from '../../shared/hora'
 import {
-  MEDIOS_PAGO, NOMBRE_MEDIO_PAGO,
+  MEDIOS_PAGO, NOMBRE_MEDIO_PAGO, describirParte,
   type Caja as TipoCaja, type ConfigFactura, type MedioPago, type PedidoVenta, type ProductoVenta, type Venta,
 } from '../../shared/tipos'
 import { ConfigurarFactura, ImprimirFactura } from './Factura'
 import '../../styles/compras.css'
 import BotonIcono, { Acciones } from '../../components/BotonIcono'
+import PartesPago, { faltaEnPartes, importesFinales, parteNueva, type ParteForm } from '../../components/PartesPago'
 
 type Pestana = 'vender' | 'ventas' | 'caja' | 'factura' | 'historial'
 
@@ -62,6 +63,12 @@ export default function Caja() {
   )
 }
 
+/** Cómo se cobró: «Efectivo» o, si fue en partes, «Efectivo 40.000 + Tarjeta 20.000». */
+function detalleCobro(v: Pick<Venta, 'medio' | 'pagos'>): string {
+  if (v.pagos.length <= 1) return v.pagos[0] ? describirParte(v.pagos[0]) : NOMBRE_MEDIO_PAGO[v.medio]
+  return v.pagos.map((x) => `${describirParte(x)} ${miles(x.importe)}`).join(' + ')
+}
+
 function CampoImporte({ etiqueta, valor, onChange, autoFocus }: { etiqueta: string; valor: number; onChange: (n: number) => void; autoFocus?: boolean }) {
   return (
     <label className="campo">
@@ -103,7 +110,7 @@ function Vender() {
   const [buscar, setBuscar] = useState('')
   const [carrito, setCarrito] = useState<Map<string, number>>(new Map())
   const [descuento, setDescuento] = useState(0)
-  const [medio, setMedio] = useState<MedioPago>('efectivo')
+  const [partes, setPartes] = useState<ParteForm[]>(() => [parteNueva()])
   const [recibido, setRecibido] = useState(0)
   const [cliente, setCliente] = useState({ nombre: '', ruc: '', direccion: '' })
   const [conCliente, setConCliente] = useState(false)
@@ -117,7 +124,11 @@ function Vender() {
   const lineas = [...carrito.entries()].map(([id, n]) => ({ p: porId.get(id)!, n })).filter((l) => l.p)
   const subtotal = lineas.reduce((s, l) => s + l.n * l.p.precio, 0)
   const total = Math.max(0, subtotal - descuento)
-  const vuelto = medio === 'efectivo' && recibido >= total && recibido > 0 ? recibido - total : null
+  // Pago híbrido: varias partes de distintos medios; la primera cobra lo que falta. El vuelto es sobre el efectivo.
+  const finales = importesFinales(partes, total, 'venta')
+  const efectivo = finales.filter((x) => x.medio === 'efectivo').reduce((s, x) => s + x.importe, 0)
+  const problema = total > 0 ? faltaEnPartes(partes, total, 'venta') : null
+  const vuelto = efectivo > 0 && recibido >= efectivo && recibido > 0 ? recibido - efectivo : null
 
   const sumar = (id: string, d: number) => {
     setHecha(null)
@@ -135,14 +146,14 @@ function Vender() {
     setRecibido(0)
     setCliente({ nombre: '', ruc: '', direccion: '' })
     setConCliente(false)
-    setMedio('efectivo')
+    setPartes([parteNueva()])
   }
   const cobrar = async () => {
     const v = await vender.ejecutar({
       items: lineas.map((l) => ({ productoId: l.p.id, cantidad: l.n })),
       descuento,
-      medio,
-      recibido: medio === 'efectivo' && recibido ? recibido : null,
+      ...(partes.length > 1 ? { pagos: finales } : { medio: finales[0].medio, pagos: total > 0 ? finales : undefined }),
+      recibido: efectivo > 0 && recibido ? recibido : null,
       clienteNombre: cliente.nombre,
       clienteRuc: cliente.ruc,
       clienteDireccion: cliente.direccion,
@@ -162,7 +173,7 @@ function Vender() {
       {hecha && (
         <div className="tarjeta">
           <Aviso tipo="ok">
-            Venta N° {hecha.numero} por {gs(hecha.total)} ({NOMBRE_MEDIO_PAGO[hecha.medio].toLowerCase()}).
+            Venta N° {hecha.numero} por {gs(hecha.total)} ({detalleCobro(hecha).toLowerCase()}).
             {hecha.vuelto !== null && hecha.vuelto > 0 && <> Vuelto: <strong>{gs(hecha.vuelto)}</strong>.</>}
           </Aviso>
           <div className="fila-acciones">
@@ -219,14 +230,13 @@ function Vender() {
         ) : <p className="suave">Tocá los productos para agregarlos.</p>}
         <div className="filtros">
           <CampoImporte etiqueta="Descuento (Gs.)" valor={descuento} onChange={setDescuento} />
-          <label className="campo">
-            <span>Medio de pago</span>
-            <select value={medio} onChange={(e) => setMedio(e.target.value as MedioPago)}>
-              {MEDIOS_PAGO.map((m) => <option key={m} value={m}>{NOMBRE_MEDIO_PAGO[m]}</option>)}
-            </select>
-          </label>
-          {medio === 'efectivo' && <CampoImporte etiqueta="Entregó (para el vuelto)" valor={recibido} onChange={setRecibido} />}
         </div>
+        <PartesPago partes={partes} onChange={setPartes} objetivo={total} modo="venta" />
+        {efectivo > 0 && (
+          <div className="filtros pago-datos">
+            <CampoImporte etiqueta={efectivo === total ? 'Entregó (para el vuelto)' : `Entregó en efectivo (de ${gs(efectivo)})`} valor={recibido} onChange={setRecibido} />
+          </div>
+        )}
         <label className="check">
           <input type="checkbox" checked={conCliente} onChange={(e) => setConCliente(e.target.checked)} />
           <span>Datos del cliente para la factura</span>
@@ -240,9 +250,10 @@ function Vender() {
         )}
         <div className="total-compra"><span>Total{descuento > 0 && <span className="suave chico"> (sin descuento {gs(subtotal)})</span>}</span><strong>{gs(total)}</strong></div>
         {vuelto !== null && <p className="vuelto">Vuelto: <strong>{gs(vuelto)}</strong></p>}
+        {lineas.length > 0 && problema && <p className="chico diferencia-negativa">{problema}</p>}
         <Aviso>{vender.error}</Aviso>
         <div className="fila-acciones">
-          <button type="button" className="btn-primario" disabled={vender.enviando || !lineas.length} onClick={() => void cobrar()}>
+          <button type="button" className="btn-primario" disabled={vender.enviando || !lineas.length || problema !== null} onClick={() => void cobrar()}>
             {vender.enviando ? 'Cobrando…' : `Cobrar ${gs(total)}`}
           </button>
           {lineas.length > 0 && <BotonIcono icono="basurero" texto="Vaciar la venta" tono="peligro" onClick={limpiar} />}
@@ -290,7 +301,7 @@ function VentasDeLaCaja({ cajaId }: { cajaId: string }) {
                         </div>
                       )}
                     </td>
-                    <td data-etiqueta="Medio">{NOMBRE_MEDIO_PAGO[v.medio]}</td>
+                    <td data-etiqueta="Medio">{detalleCobro(v)}</td>
                     <td data-etiqueta="Total" className="num"><strong>{gs(v.total)}</strong></td>
                     <td className="acciones">
                       {!v.anulada && (

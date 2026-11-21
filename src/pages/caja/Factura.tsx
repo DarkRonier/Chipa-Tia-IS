@@ -125,7 +125,7 @@ export function ImprimirFactura({ venta, config, alTerminar }: { venta: Venta; c
 
 const VENTA_PRUEBA: Venta = {
   id: 'prueba', numero: 0, cajaId: '', clienteNombre: 'Cliente de prueba S.A.', clienteRuc: '80000000-1', clienteDireccion: 'Ruta 1 km 300, Coronel Bogado',
-  subtotal: 64_000, descuento: 4000, total: 60_000, medio: 'efectivo', recibido: null, vuelto: null, usuarioNombre: '', fecha: new Date().toISOString(),
+  subtotal: 64_000, descuento: 4000, total: 60_000, medio: 'efectivo', pagos: [], recibido: null, vuelto: null, usuarioNombre: '', fecha: new Date().toISOString(),
   dia: new Date().toISOString().slice(0, 10), anulada: false, anuladaEn: null, motivoAnulacion: null, factura: null,
   items: [
     { productoId: 'a', codigo: 'CH01', nombre: 'Chipa tradicional', cantidad: 10, precioUnitario: 3000, subtotal: 30_000, iva: 10 },

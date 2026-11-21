@@ -101,7 +101,7 @@ describe('descargar todos los datos (I03)', () => {
       'sectores', 'usuarios', 'categorias', 'categorias_sectores', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales', 'depositos', 'deposito_categorias',
       'lotes_mp', 'producciones', 'produccion_items', 'lotes_chipa', 'lote_chipa_mp', 'movimientos', 'lecturas', 'incidencias',
       'limpiezas', 'limpieza_marcas', 'proveedores', 'compras', 'compra_items', 'pagos_proveedor',
-      'cajas', 'caja_movimientos', 'arqueos', 'ventas', 'venta_items', 'facturas', 'gastos_fijos', 'ie_movimientos', 'auditoria', 'copias', 'configuracion', 'archivos',
+      'cajas', 'caja_movimientos', 'arqueos', 'ventas', 'venta_items', 'venta_pagos', 'facturas', 'gastos_fijos', 'ie_movimientos', 'auditoria', 'copias', 'configuracion', 'archivos',
     ])
     expect(tablas.sesiones).toBeUndefined()
     // Los registros de la prueba.
