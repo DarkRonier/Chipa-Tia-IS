@@ -145,9 +145,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     })
     deCompra.set(nombre, p.id)
   }
-  // M10: proveedores; cada sector compra su materia prima y la cocina, además, las bebidas.
-  await pedir(t.admin, 'PATCH', '/categorias/cat-materia-prima', { sectores: ['chiperia', 'chipitas', 'panaderia', 'cocina'] })
-  await pedir(t.admin, 'PATCH', '/categorias/cat-bebidas', { sectores: ['cocina'] })
+  // M10: proveedores. Qué categorías compra cada sector viene de la migración 0021.
   const proveedor = async (nombre: string, ruc: string, telefono: string) =>
     (await pedir<{ id: string }>(t.admin, 'POST', '/proveedores', { nombre, ruc, telefono })).id
   const tatiana = await proveedor('Lácteos Tatiana', '80023456-1', '0981 222 333')
