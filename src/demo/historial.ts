@@ -128,6 +128,8 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
   for (const [sector, nombre, unidad, tipo, precioVenta, categoriaId] of [
     ['chiperia', 'Queso Paraguay', 'kg', 'materia_prima', null, null], ['chiperia', 'Almidón de mandioca', 'kg', 'materia_prima', null, null],
     ['panaderia', 'Harina 000', 'kg', 'materia_prima', null, null], ['cocina', 'Carne fileteada', 'kg', 'materia_prima', null, null],
+    // Materia prima que también se vende en caja (sale del depósito Materia prima).
+    ['cocina', 'Leche entera 1 L', 'unidades', 'materia_prima', 9000, null],
     ['cocina', 'Gaseosa 500 ml', 'unidades', 'reventa', 8000, 'cat-bebidas'], ['cocina', 'Cerveza 1 L', 'unidades', 'reventa', 15000, 'cat-bebidas'],
     ['cocina', 'Agua 500 ml', 'unidades', 'reventa', 5000, 'cat-bebidas'],
     ['cocina', 'Helado Amandau 1 L', 'unidades', 'reventa', 35000, 'cat-amandau'], ['cocina', 'Cucurucho Amandau', 'unidades', 'reventa', 8000, 'cat-amandau'],

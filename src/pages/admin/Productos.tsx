@@ -134,7 +134,7 @@ export default function Productos() {
 
       {modal && (
         <ModalProducto
-          modo={modal} categorias={listaCategorias} sectores={sectores.lista}
+          modo={modal} categorias={listaCategorias} sectores={sectores.lista} productos={c.datos ?? []}
           alCerrar={() => setModal(null)}
           alGuardar={(texto) => { setModal(null); setOk(texto) }}
         />
@@ -350,10 +350,12 @@ function cuerpo(d: Datos) {
   }
 }
 
-function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
+function ModalProducto({ modo, categorias, sectores, productos, alCerrar, alGuardar }: {
   modo: Modo
   categorias: Categoria[]
   sectores: { id: SectorId; nombre: string }[]
+  /** Para sugerir las subcategorías que ya se usan en la categoría elegida (ej.: «Minutas» en Chipas y bocaditos). */
+  productos: Producto[]
   alCerrar: () => void
   alGuardar: (mensaje: string) => void
 }) {
@@ -395,6 +397,8 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
   const unidades = UNIDADES.includes(d.unidad) || !d.unidad ? UNIDADES : [...UNIDADES, d.unidad]
   const seVende = d.precioVenta.trim() !== ''
   const visibles = categorias.filter((k) => k.activo || k.id === d.categoriaId)
+  const subcategorias = [...new Set(productos.filter((p) => p.categoriaId === d.categoriaId && p.subcategoria).map((p) => p.subcategoria))]
+    .sort((a, b) => a.localeCompare(b, 'es'))
 
   return (
     <Modal titulo={original ? `Editar «${original.nombre}»` : 'Nuevo producto'} alCerrar={alCerrar} ancho="grande">
@@ -436,7 +440,9 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
           </label>
           <label className="campo">
             <span>Subcategoría <span className="opcional">opcional</span></span>
-            <input value={d.subcategoria} onChange={(e) => set({ subcategoria: e.target.value })} maxLength={60} placeholder="Ej.: gaseosas, rellenos, tortas" />
+            <input value={d.subcategoria} onChange={(e) => set({ subcategoria: e.target.value })} maxLength={60} placeholder="Ej.: minutas, gaseosas, tortas"
+              list="prod-subcategorias" />
+            <datalist id="prod-subcategorias">{subcategorias.map((x) => <option key={x} value={x} />)}</datalist>
           </label>
           <label className="campo">
             <span>Unidad de medida</span>
@@ -469,7 +475,9 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
             <p className="pista-campo ancho">
               {d.sinStock
                 ? 'No se lleva cuánto hay: en Depósitos aparece solo lo vendido.'
-                : 'Lo que se vende en la caja del frente se descuenta del depósito «Venta frente».'}
+                : d.tipo === 'materia_prima'
+                  ? 'Materia prima con precio (por ejemplo, la leche): se vende en caja y se descuenta del depósito «Materia prima». Sin precio no se vende.'
+                  : 'Lo que se vende en la caja del frente se descuenta del depósito «Venta frente».'}
             </p>
           </div>
         </fieldset>

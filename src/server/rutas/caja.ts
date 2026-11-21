@@ -331,11 +331,17 @@ interface FilaProductoVenta {
   activo: number
   con_lotes: number
   sin_stock: number
+  /** Depósito del que sale al venderlo: Venta frente, o Materia prima para la materia prima que se vende (la leche). */
+  deposito_id: string
   stock: number
 }
 
+// Cualquier producto con precio de venta se vende (Mati, 2026-11-21): también la materia prima, como la leche. La
+// materia prima se compra al depósito Materia prima, así que al venderla sale de ahí; lo demás sale de Venta frente.
+const DEPOSITO_DE_VENTA = `CASE p.tipo WHEN 'materia_prima' THEN '${DEPOSITO.materiaPrima}' ELSE '${DEPOSITO.venta}' END`
 const SQL_PRODUCTO_VENTA = `SELECT p.id, p.nombre, p.sector, s.nombre AS sector_nombre, p.precio_venta, p.iva, p.activo, s.con_lotes, p.sin_stock,
-    COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.deposito_id = '${DEPOSITO.venta}'), 0) AS stock
+    ${DEPOSITO_DE_VENTA} AS deposito_id,
+    COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.deposito_id = ${DEPOSITO_DE_VENTA}), 0) AS stock
   FROM productos p JOIN sectores s ON s.id = p.sector`
 
 /** Ver las ventas: el cajero (las de la caja abierta) y quien ve los reportes detallados (el administrador). */
@@ -494,10 +500,10 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
 
   const id = nuevoId()
   const { fecha, dia } = ahora()
-  // Todo lo vendido sale de Venta frente; en un sector con lotes, de los más viejos primero. Lo «sin stock» (el buffet)
-  // solo queda en la venta.
+  // Lo vendido sale de Venta frente (la materia prima, de Materia prima); en un sector con lotes, de los más viejos
+  // primero. Lo «sin stock» (el buffet) solo queda en la venta.
   const salidas = (await Promise.all(lineas.filter((l) => !l.p.sin_stock).map(async (l) => (
-    l.p.con_lotes ? await repartirPorLotes(db, l.p.sector, l.p.id, DEPOSITO.venta, l.cantidad) : [{ lote: null, cantidad: l.cantidad }]
+    l.p.con_lotes ? await repartirPorLotes(db, l.p.sector, l.p.id, l.p.deposito_id, l.cantidad) : [{ lote: null, cantidad: l.cantidad }]
   ).map((parte) => ({ p: l.p, ...parte }))))).flat()
   const sentencias: SentenciaD1[] = [
     sentencia(
@@ -512,7 +518,7 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
       nuevoId(), id, i, l.p.id, l.p.nombre, l.cantidad, l.p.precio_venta, l.subtotal, l.p.iva,
     )),
     ...salidas.map((x) => sentenciaMovimiento(db, {
-      id: nuevoId(), sector: x.p.sector, productoId: x.p.id, depositoId: DEPOSITO.venta, lote: x.lote, tipo: 'venta', cantidad: -x.cantidad,
+      id: nuevoId(), sector: x.p.sector, productoId: x.p.id, depositoId: x.p.deposito_id, lote: x.lote, tipo: 'venta', cantidad: -x.cantidad,
       motivo: 'Venta en caja', ventaId: id, usuarioId: u.id, fecha, dia,
     })),
   ]

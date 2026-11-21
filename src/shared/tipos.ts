@@ -860,7 +860,7 @@ export interface ProductoVenta {
   sectorNombre: string
   precio: number
   iva: Iva
-  /** Lo que hay en Venta frente (puede ser negativo si se vendió sin cargarlo). */
+  /** Lo que hay en Venta frente, o en Materia prima si es materia prima (puede ser negativo si se vendió sin cargarlo). */
   stock: number
   /** Sin stock (el buffet): solo se registra la venta. */
   sinStock: boolean

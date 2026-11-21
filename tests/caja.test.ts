@@ -170,6 +170,31 @@ describe('stock de la venta: todo sale de «Directo a Venta»', () => {
     expect(lista.find((x) => x.id === COCIDO)?.stock).toBe(-4)
   })
 
+  it('la materia prima con precio se vende (la leche) y sale del depósito Materia prima; sin precio no se vende', async () => {
+    const e = await escenario()
+    const { p, admin, cajero } = e
+    const leche = (await p.pedir<Producto>(admin, 'POST', '/productos', {
+      sector: 'cocina', nombre: 'Leche entera 1 L', tipo: 'materia_prima', precioVenta: 9000,
+    })).body
+    const harina = (await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Harina 000', tipo: 'materia_prima', unidad: 'kg' })).body
+    expect((await p.pedir(admin, 'POST', '/ajustes', {
+      sector: 'cocina', tipo: 'stock_inicial', productoId: leche.id, cantidad: 10, motivo: 'Inicial', depositoId: 'materia_prima',
+    })).status).toBe(200)
+    const lista = (await p.pedir<ProductoVenta[]>(cajero, 'GET', '/ventas/productos')).body
+    expect(lista.find((x) => x.id === leche.id)).toMatchObject({ precio: 9000, stock: 10 })
+    expect(lista.some((x) => x.id === harina.id)).toBe(false)
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const v = await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: leche.id, cantidad: 3 }], medio: 'efectivo' })
+    expect(v.status).toBe(200)
+    expect(v.body.total).toBe(27000)
+    expect(await stockDe(p, admin, 'cocina', leche.id, 'materia_prima')).toBe(7)
+    expect(await stockDe(p, admin, 'cocina', leche.id, 'venta')).toBe(0)
+    expect((await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: harina.id, cantidad: 1 }], medio: 'efectivo' })).status).toBe(400)
+    // Al anular, vuelve a Materia prima.
+    expect((await p.pedir(admin, 'POST', `/ventas/${v.body.id}/anular`, { motivo: 'Mal cobrada' })).status).toBe(200)
+    expect(await stockDe(p, admin, 'cocina', leche.id, 'materia_prima')).toBe(10)
+  })
+
   it('el administrador y el supervisor no venden; el administrador ve las ventas y puede anularlas', async () => {
     const e = await escenario()
     const { p, admin, cajero } = e

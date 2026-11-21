@@ -23,6 +23,13 @@ describe('las 8 categorías', () => {
     expect(de('Menú buffet: plato del día')).toBe('Buffet')
     expect(de('Pan felipe')).toBe('Panificados')
     expect(de('Cocido negro')).toBe('Bebidas')
+    // «Minutas» (0018): subcategoría de Chipas y bocaditos para lo que se hace al momento.
+    const sub = (nombre: string) => prods.find((x) => x.nombre === nombre)!.subcategoria
+    for (const n of ['Hamburguesa', 'Sándwich de milanesa', 'Sándwich de pollo', 'Sándwich de JyQ', 'Sándwich de verdura', 'Pollo muslo (frito)']) {
+      expect(de(n)).toBe('Chipas y bocaditos')
+      expect(sub(n)).toBe('Minutas')
+    }
+    expect(sub('Empanada frita (carne)')).toBe('')
     expect(prods.some((x) => x.categoriaId === null)).toBe(false)
   })
 
