@@ -894,6 +894,8 @@ export interface VentaItem {
   precioUnitario: number
   subtotal: number
   iva: Iva
+  /** Código del producto (columna COD de la factura); vacío si no tiene. */
+  codigo: string
 }
 
 export interface Factura {
@@ -914,6 +916,7 @@ export interface Venta {
   cajaId: string
   clienteNombre: string
   clienteRuc: string
+  clienteDireccion: string
   subtotal: number
   descuento: number
   total: number
@@ -938,6 +941,7 @@ export interface PedidoVenta {
   recibido?: number | null
   clienteNombre?: string
   clienteRuc?: string
+  clienteDireccion?: string
 }
 
 /** Posición de un dato en la hoja preimpresa, en milímetros desde la esquina de arriba a la izquierda. */
@@ -945,38 +949,53 @@ export interface PosicionFactura { x: number; y: number }
 
 /**
  * Formato de la factura preimpresa (M12): numeración y dónde va cada dato sobre la hoja de la imprenta. Los márgenes
- * corren todo junto para calibrar con la impresora.
+ * corren todo junto para calibrar con la impresora. La hoja trae original y duplicado: el duplicado repite todo, corrido
+ * `duplicado` mm (normalmente solo hacia abajo).
  */
 export interface ConfigFactura {
+  /** Versión del formato: 2 = hoja de Chipa Tía (oficio, original y duplicado). */
+  version: number
   timbrado: string
-  /** "001-001": establecimiento y punto de expedición. */
+  /** "001-002": establecimiento y punto de expedición. */
   prefijo: string
-  /** Número con el que empieza la numeración (si todavía no se imprimió ninguna). */
+  /** Número con el que sigue la numeración (si es más alto que la última factura del sistema). */
   numeroInicial: number
+  /** Último número del talonario autorizado (0 = sin límite). */
+  numeroFinal: number
+  /** Fin de vigencia del timbrado, AAAA-MM-DD ('' = sin control). */
+  venceTimbrado: string
   anchoHoja: number
   altoHoja: number
   margenIzquierdo: number
   margenSuperior: number
   tamanoLetra: number
+  /** Dónde empieza el duplicado respecto del original (x a la derecha, y hacia abajo). */
+  duplicado: PosicionFactura
   fecha: PosicionFactura
+  /** La X de «Contado» (las ventas de la caja son al contado). */
+  contado: PosicionFactura
   cliente: PosicionFactura
   ruc: PosicionFactura
+  direccion: PosicionFactura
   /** Primer renglón del detalle; los siguientes bajan `altoRenglon`. */
   detalle: PosicionFactura
   altoRenglon: number
   maxRenglones: number
-  /** Columnas del detalle (x en mm). */
+  /** Columnas del detalle (x en mm): código e inicio de la descripción a la izquierda; las demás, su borde derecho. */
+  columnaCodigo: number
   columnaCantidad: number
   columnaDescripcion: number
   columnaPrecio: number
   columnaExentas: number
   columna5: number
   columna10: number
-  /** Fila de subtotales por columna, total, total en letras y liquidación del IVA. */
+  /** Fila «Valor parcial» (solo cuenta y), total (x = borde derecho), total en letras y liquidación del IVA. */
   subtotales: PosicionFactura
   total: PosicionFactura
   totalLetras: PosicionFactura
-  liquidacionIva: PosicionFactura
+  iva5: PosicionFactura
+  iva10: PosicionFactura
+  totalIva: PosicionFactura
 }
 
 // ---------- Ingresos y egresos (M14) ----------

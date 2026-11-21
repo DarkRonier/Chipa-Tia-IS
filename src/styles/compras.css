@@ -46,6 +46,11 @@ div.compra-cabeza { cursor: default; }
 .hoja-factura { position: relative; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; line-height: 1; }
 .vista-factura { overflow: auto; border: 1px dashed var(--borde); border-radius: 8px; background: #fff; max-width: 100%; }
 .factura-portal { display: none; }
+/* Vista previa sobre la foto de la hoja vacía (solo en pantalla; al imprimir sale solo el texto). */
+.hoja-factura.con-fondo { background: #fff url('/factura-hoja.jpg') 0 0 / 100% 100% no-repeat; }
+.hoja-factura.con-fondo > div { color: #0b4fb3; }
+.aviso-hoja { display: grid; gap: 0.75rem; }
+.aviso-hoja p { margin: 0; }
 @media print {
   body.con-factura > *:not(.factura-portal) { display: none !important; }
   body.con-factura .factura-portal { display: block; }

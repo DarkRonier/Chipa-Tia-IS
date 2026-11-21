@@ -246,6 +246,81 @@ describe('factura preimpresa', () => {
   })
 })
 
+describe('hoja de factura de Chipa Tía', () => {
+  it('viene con el timbrado y la numeración del talonario; guarda la dirección y el código de cada producto', async () => {
+    const { p, admin, cajero } = await escenario()
+    const cfg = (await p.pedir<ConfigFactura>(cajero, 'GET', '/factura/config')).body
+    expect(cfg).toMatchObject({ timbrado: '18980642', prefijo: '001-002', numeroInicial: 1775, numeroFinal: 2000, anchoHoja: 216, altoHoja: 330 })
+    expect(cfg.duplicado.y).toBeGreaterThan(140)
+    await p.pedir(admin, 'PATCH', `/productos/${CHIPA}`, { codigo: 'CH01' })
+    await p.pedir(admin, 'PUT', '/factura/config', { numeroInicial: 1775 })
+    expect((await p.pedir<{ numeroCompleto: string }>(admin, 'GET', '/factura/proxima')).body.numeroCompleto).toBe('001-002-0001775')
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const v = (await p.pedir<Venta>(cajero, 'POST', '/ventas', {
+      items: [{ productoId: CHIPA, cantidad: 2 }], medio: 'efectivo', clienteNombre: 'Juan', clienteRuc: '1234567', clienteDireccion: 'Ruta 1',
+    })).body
+    expect(v.clienteDireccion).toBe('Ruta 1')
+    expect(v.items[0].codigo).toBe('CH01')
+    const f = await p.pedir<{ venta: Venta }>(cajero, 'POST', `/ventas/${v.id}/factura`)
+    expect(f.body.venta.factura).toMatchObject({ numeroCompleto: '001-002-0001775', timbrado: '18980642' })
+  })
+
+  it('no factura con el talonario agotado ni con el timbrado vencido', async () => {
+    const { p, admin, cajero } = await escenario()
+    await p.pedir(admin, 'PUT', '/factura/config', { numeroInicial: 2000 })
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const vender = async () => (await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'efectivo' })).body
+    const v1 = await vender()
+    expect((await p.pedir<{ venta: Venta }>(cajero, 'POST', `/ventas/${v1.id}/factura`)).body.venta.factura?.numeroCompleto).toBe('001-002-0002000')
+    const v2 = await vender()
+    const agotado = await p.pedir<{ error: { codigo: string } }>(cajero, 'POST', `/ventas/${v2.id}/factura`)
+    expect(agotado.status).toBe(409)
+    expect(agotado.body.error.codigo).toBe('talonario_agotado')
+    await p.pedir(admin, 'PUT', '/factura/config', { numeroFinal: 0, venceTimbrado: sumarDias(diaPY(), -1) })
+    const vencido = await p.pedir<{ error: { codigo: string } }>(cajero, 'POST', `/ventas/${v2.id}/factura`)
+    expect(vencido.body.error.codigo).toBe('timbrado_vencido')
+    expect((await p.pedir(admin, 'PUT', '/factura/config', { venceTimbrado: '31/07/2027' })).status).toBe(400)
+  })
+
+  it('el formato viejo (genérico) se cambia por el de la hoja nueva, pero respeta la numeración cargada', async () => {
+    const { p, cajero } = await escenario()
+    await p.sql("INSERT INTO configuracion (clave, valor) VALUES ('factura', ?)", JSON.stringify({ timbrado: '111', prefijo: '001-001', numeroInicial: 40, anchoHoja: 210, altoHoja: 148 }))
+    expect((await p.pedir<ConfigFactura>(cajero, 'GET', '/factura/config')).body).toMatchObject({ timbrado: '111', prefijo: '001-001', numeroInicial: 40, anchoHoja: 216, altoHoja: 330, version: 2 })
+  })
+})
+
+describe('renglones e IVA de la factura', async () => {
+  const { columnasIva, fechaFactura, renglonesFactura } = await import('../src/shared/factura')
+  const { miles } = await import('../src/shared/dinero')
+  const item = (n: number, iva: 0 | 5 | 10, subtotal = 1000) => ({ productoId: `p${n}`, codigo: `C${n}`, nombre: `Producto ${n}`, cantidad: 1, precioUnitario: subtotal, subtotal, iva })
+  const venta = (items: ReturnType<typeof item>[], descuento = 0) => {
+    const subtotal = items.reduce((s, i) => s + i.subtotal, 0)
+    return { items, descuento, subtotal, total: subtotal - descuento } as unknown as Venta
+  }
+
+  it('liquida el IVA incluido y reparte el descuento sin dejar columnas negativas', () => {
+    const v = venta([item(1, 10, 22_000), item(2, 5, 21_000)], 1000)
+    const c = columnasIva(v)
+    expect(c.neto[10] + c.neto[5]).toBe(42_000)
+    expect(c.iva10).toBe(Math.round(c.neto[10] / 11))
+    expect(c.iva5).toBe(Math.round(c.neto[5] / 21))
+    expect(c.totalIva).toBe(c.iva5 + c.iva10)
+    const solo5 = columnasIva(venta([item(1, 5, 10_001)], 3))
+    expect(solo5.desc).toEqual({ 0: 0, 5: 3, 10: 0 })
+  })
+
+  it('si no entran todos los productos, junta los últimos en «Varios» por tasa de IVA', () => {
+    const items = [...Array.from({ length: 12 }, (_, n) => item(n, 10)), item(20, 5), item(21, 0)]
+    const r = renglonesFactura(venta(items), 10, miles)
+    expect(r).toHaveLength(10)
+    expect(r.filter((x) => x.descripcion.startsWith('Varios')).map((x) => x.iva)).toEqual([0, 5, 10])
+    expect(r.reduce((s, x) => s + x.importe, 0)).toBe(14_000)
+    const conDescuento = renglonesFactura(venta(items.slice(0, 3), 500), 10, miles)
+    expect(conDescuento.at(-1)).toMatchObject({ descripcion: 'Descuento', importe: -500 })
+    expect(fechaFactura('2026-11-21')).toBe('21 de noviembre de 2026')
+  })
+})
+
 describe('ingresos y egresos, gastos fijos y sueldos', () => {
   it('suma solas las ventas y los pagos a proveedores; lo manual y los sueldos se cargan una vez', async () => {
     const { p, admin, cajero } = await escenario()
