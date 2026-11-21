@@ -101,7 +101,7 @@ function ListaEnvios({ envios, conSucursal = true }: { envios: Movimiento[]; con
       {envios.map((m) => (
         <li key={m.id}>
           <span>
-            {conSucursal && <><Link to={enlaceSucursal(m.sucursalId)}>{m.sucursalNombre ?? 'Sucursal'}</Link><br /></>}
+            {conSucursal && <><Link className="btn-discreto chico" to={enlaceSucursal(m.sucursalId)}>{m.sucursalNombre ?? 'Sucursal'}</Link><br /></>}
             <span className="suave chico">{fechaHoraPY(m.fecha)} · {m.productoNombre}</span>
           </span>
           <span className="cant">{-m.cantidad}</span>
@@ -150,7 +150,7 @@ function MateriaPrimaDe({ lote }: { lote: Pick<LoteChipa, 'lotesMP'> }) {
   return (
     <ul className="lot-lista-mp">
       {lote.lotesMP.map((mp) => <li key={mp.id}>
-          <Link to={enlaceTrazaMP(mp.id)}>{mp.descripcion}</Link>
+          <Link className="btn-discreto chico" to={enlaceTrazaMP(mp.id)}>{mp.descripcion}</Link>
           <span className="cant">{mp.cantidad === null ? 'sin dato de cantidad' : cantidadConUnidad(mp.cantidad, mp.unidad)}</span>
         </li>)}
     </ul>
@@ -214,7 +214,7 @@ function CadenaMP({ t }: { t: TrazabilidadMP }) {
               return (
                 <section key={lc.id} className="tarjeta lot-paso" aria-label={`Lote de chipa ${lc.codigo}`}>
                   <div className="lot-cabeza">
-                    <Link className="lot-codigo" to={enlaceTrazaLote(lc.codigo)}>Lote {lc.codigo}</Link>
+                    <Link className="lot-codigo btn-discreto chico" to={enlaceTrazaLote(lc.codigo)}>Lote {lc.codigo}</Link>
                     <span className="suave chico">{datosLote(lc)}</span>
                   </div>
                   <p className="chico">
@@ -416,7 +416,7 @@ function CadenaSucursal({ t, desde, hasta }: { t: TrazabilidadSucursal; desde: s
               return (
                 <section key={codigo} className="tarjeta lot-paso" aria-label={`Lote de chipa ${codigo}`}>
                   <div className="lot-cabeza">
-                    {codigo ? <Link className="lot-codigo" to={enlaceTrazaLote(codigo)}>Lote {codigo}</Link> : <span className="lot-codigo">Sin lote</span>}
+                    {codigo ? <Link className="lot-codigo btn-discreto chico" to={enlaceTrazaLote(codigo)}>Lote {codigo}</Link> : <span className="lot-codigo">Sin lote</span>}
                     <span>recibió <strong>{recibido}</strong></span>
                   </div>
                   {lc && <span className="suave chico">{datosLote(lc)}</span>}
@@ -432,7 +432,7 @@ function CadenaSucursal({ t, desde, hasta }: { t: TrazabilidadSucursal; desde: s
             <section className="tarjeta" aria-label="Lotes de materia prima">
               <ul className="lot-lista-mp">
                 {t.lotesMP.map((l) => (
-                  <li key={l.id}><Link to={enlaceTrazaMP(l.id)}>{l.descripcion}</Link><EstadoLoteMP lote={l} /></li>
+                  <li key={l.id}><Link className="btn-discreto chico" to={enlaceTrazaMP(l.id)}>{l.descripcion}</Link><EstadoLoteMP lote={l} /></li>
                 ))}
               </ul>
             </section>

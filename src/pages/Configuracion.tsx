@@ -81,7 +81,7 @@ export default function Configuracion() {
       </form>
       {usuario.rol === 'admin' && (
         <div className="tarjeta">
-          <Link to="/clave">Cambiar mi contraseña</Link>
+          <Link className="btn-discreto" to="/clave">Cambiar mi contraseña</Link>
         </div>
       )}
     </div>

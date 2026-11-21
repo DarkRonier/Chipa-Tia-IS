@@ -158,7 +158,7 @@ function Formulario() {
               {() =>
                 disponibles.length === 0 ? (
                   <p className="suave">
-                    No hay lotes de materia prima disponibles. <Link to="/sector/lotes">Cargalos en Materia prima y lotes</Link>.
+                    No hay lotes de materia prima disponibles. <Link className="btn-discreto chico" to="/sector/lotes">Cargalos en Materia prima y lotes</Link>.
                   </p>
                 ) : (
                   <>

@@ -110,7 +110,7 @@ function Formulario() {
             {conStock.length === 0 && !listo ? (
               <p className="suave">
                 No hay nada en «{depositos.nombre(desde)}».
-                {enOtros.length > 0 && <> Hay en {enOtros.map((d) => `«${d.nombre}»`).join(' y ')}: elegilo arriba o pasalo con «Transferir» en <Link to="/sector/stock">Stock</Link>.</>}
+                {enOtros.length > 0 && <> Hay en {enOtros.map((d) => `«${d.nombre}»`).join(' y ')}: elegilo arriba o pasalo con «Transferir» en <Link className="btn-discreto chico" to="/sector/stock">Stock</Link>.</>}
               </p>
             ) : (<>
             <label className="campo">

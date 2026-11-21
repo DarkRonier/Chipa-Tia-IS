@@ -9,6 +9,10 @@
   --marca-claro: #fdf0d3;
   --acento: #ee9b05;
   --neutro: #ebebeb;
+  --discreto-fondo: #e4e2e2;
+  --discreto-hover: #d6d3d3;
+  --discreto-texto: #1c1a1a;
+  --discreto-rojo: #b8001a;
   --ok: #276b2b;
   --ok-fondo: #e6f4e7;
   --sobre-ok: #ffffff;
@@ -31,6 +35,10 @@
     --marca-claro: #3a2f12;
     --acento: #f2a81d;
     --neutro: #2c2827;
+    --discreto-fondo: #3a3534;
+    --discreto-hover: #4a4443;
+    --discreto-texto: #ffffff;
+    --discreto-rojo: #ffffff;
     --ok: #8fd694;
     --ok-fondo: #1e3320;
     --sobre-ok: #151312;
@@ -53,6 +61,10 @@
   --marca-claro: #3a2f12;
   --acento: #f2a81d;
   --neutro: #2c2827;
+  --discreto-fondo: #3a3534;
+  --discreto-hover: #4a4443;
+  --discreto-texto: #ffffff;
+  --discreto-rojo: #ffffff;
   --ok: #8fd694;
   --ok-fondo: #1e3320;
   --sobre-ok: #151312;
@@ -74,7 +86,6 @@ body {
 }
 h1 { font-size: 1.45rem; font-weight: 800; letter-spacing: -0.01em; margin: 0.5rem 0 1rem; }
 h2 { font-size: 1.1rem; font-weight: 800; margin: 1.5rem 0 0.5rem; }
-a { color: var(--marca-texto); }
 :focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; }
 button, input, select, textarea { font: inherit; color: inherit; }
 input, select, textarea {
@@ -112,7 +123,24 @@ input.rojo { border-color: var(--error); background: var(--error-fondo); }
 .btn-primario:disabled { opacity: 0.6; cursor: default; }
 .btn-secundario { background: var(--superficie); border: 2px solid var(--borde); color: var(--texto); margin-bottom: 0.75rem; }
 .btn-secundario:hover { border-color: var(--marca-texto); color: var(--marca-texto); }
-.btn-texto { background: none; border: none; color: var(--marca-texto); cursor: pointer; padding: 0.3rem 0.4rem; text-decoration: underline; }
+/* Botón discreto: para acciones secundarias (Limpiar, Ver más, Cambiar, ir a otra pantalla).
+   Nunca se usan links subrayados: todo enlace sin clase toma este mismo aspecto.
+   Claro: fondo gris, texto negro (o rojo con .rojo). Oscuro: fondo gris oscuro, texto blanco. */
+.btn-discreto, a:not([class]) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+  min-height: 44px; padding: 0.45rem 0.9rem; border-radius: 8px; border: none;
+  background: var(--discreto-fondo); color: var(--discreto-texto);
+  font: inherit; font-size: 0.92rem; font-weight: 600; line-height: 1.2;
+  text-decoration: none; cursor: pointer; white-space: nowrap; vertical-align: middle; justify-self: start;
+  transition: background 0.12s;
+}
+.btn-discreto.rojo { color: var(--discreto-rojo); }
+.btn-discreto:hover:not(:disabled), a:not([class]):hover { background: var(--discreto-hover); }
+.btn-discreto:disabled { opacity: 0.5; cursor: default; }
+/* Versión chica, para usar dentro de una frase o de una tabla. */
+.btn-discreto.chico, p a:not([class]), td a:not([class]), li a:not([class]) {
+  min-height: 0; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.88em;
+}
 /* Botón de una acción con solo su ícono (BotonIcono): 40 × 40 para el dedo, el texto queda en el cartel (title). */
 .btn-icono-accion {
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;

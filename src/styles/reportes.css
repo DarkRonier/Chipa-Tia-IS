@@ -12,7 +12,6 @@
 
 /* Enlaces de texto con el color de la marca */
 .rep-pagina a:not([class]) { color: var(--marca-texto); }
-.rep-nota .btn-texto { padding: 0; }
 
 /* Secciones y tablas */
 .rep-seccion { margin-top: 1.5rem; }

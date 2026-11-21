@@ -197,7 +197,7 @@ function FiltroTabla({ filtro, cambiar, sectores, categorias }: {
         </select>
       </label>
       {hayFiltro(filtro) && (
-        <button type="button" className="btn-texto prod-limpiar" onClick={() => cambiar(FILTRO_VACIO)}>Limpiar</button>
+        <button type="button" className="btn-discreto rojo prod-limpiar" onClick={() => cambiar(FILTRO_VACIO)}>Limpiar</button>
       )}
     </div>
   )
