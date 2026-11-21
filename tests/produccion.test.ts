@@ -28,10 +28,12 @@ async function loteMP(p: Prueba, o: { id?: string; insumo?: string; proveedor?: 
   return id
 }
 
-async function stock(p: Prueba, sector: string, producto: string, lote?: string) {
+/** Stock de un producto (y lote); sin depósito, lo guardado (todo menos Directo a Venta, donde entra lo cocinado). */
+async function stock(p: Prueba, sector: string, producto: string, lote?: string, deposito?: string) {
   const [f] = await p.sql(
-    `SELECT COALESCE(SUM(cantidad), 0) AS total FROM movimientos WHERE sector = ? AND producto_id = ? ${lote ? 'AND lote = ?' : ''}`,
-    ...[sector, producto, ...(lote ? [lote] : [])],
+    `SELECT COALESCE(SUM(cantidad), 0) AS total FROM movimientos WHERE sector = ? AND producto_id = ? ${lote ? 'AND lote = ?' : ''}
+        AND ${deposito ? 'deposito_id = ?' : "deposito_id <> 'venta'"}`,
+    ...[sector, producto, ...(lote ? [lote] : []), ...(deposito ? [deposito] : [])],
   )
   return f.total as number
 }
@@ -60,9 +62,9 @@ describe('registrar producción (C01–C03)', () => {
     expect(r.body.lote).toBeNull()
     // Lo que vino en 0 y 0 no se registra.
     expect(r.body.items).toEqual([
-      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 30, guardado: 8, finalidad: 'reposicion' },
-      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0, finalidad: 'reposicion' },
-      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0, finalidad: 'reposicion' },
+      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 30, guardado: 8, depositoId: 'frio' },
+      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0, depositoId: 'frio' },
+      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0, depositoId: 'frio' },
     ])
     const lista = await p.pedir<Produccion[]>(t, 'GET', '/producciones')
     expect(lista.body).toHaveLength(1)
@@ -88,17 +90,37 @@ describe('registrar producción (C01–C03)', () => {
     expect(r.body.corregidoPor).toBeNull()
   })
 
-  it('suma al stock en frío solo lo guardado, sin lote fuera de Chipería (D01)', async () => {
+  it('lo cocinado entra en Directo a Venta y lo guardado en Frío, sin lote fuera de Chipería (D01)', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('cocina')
     const r = await registrarAnexo(p, t)
-    const movs = await p.sql('SELECT * FROM movimientos ORDER BY producto_id')
-    expect(movs).toHaveLength(1)
-    expect(movs[0]).toMatchObject({
+    const movs = await p.sql('SELECT * FROM movimientos ORDER BY producto_id, deposito_id')
+    expect(movs.map((m) => [m.producto_id, m.deposito_id, m.cantidad])).toEqual([
+      [EMPANADA, 'frio', 8], [EMPANADA, 'venta', 30], [MARINERA, 'venta', 15], [HAMBURGUESA, 'venta', 3],
+    ].sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1]))))
+    expect(movs.find((m) => m.deposito_id === 'frio')).toMatchObject({
       sector: 'cocina', producto_id: EMPANADA, tipo: 'produccion', cantidad: 8, lote: null,
       produccion_id: r.body.id, usuario_id: 'usr-cocina', dia: r.body.dia,
     })
-    expect(await stock(p, 'cocina', EMPANADA)).toBe(8)
+    expect(await stock(p, 'cocina', EMPANADA, undefined, 'frio')).toBe(8)
+    expect(await stock(p, 'cocina', EMPANADA, undefined, 'venta')).toBe(30)
+  })
+
+  it('lo guardado va al depósito elegido; un depósito que no existe o desactivado se rechaza', async () => {
+    const p = await nuevaPrueba()
+    const t = await p.entrar('cocina')
+    const r = await p.pedir<Produccion>(t, 'POST', '/producciones', {
+      turno: 'dia', items: [{ productoId: EMPANADA, cocinado: 0, guardado: 6, depositoId: 'sucursales' }, { productoId: MARINERA, cocinado: 0, guardado: 2 }],
+    })
+    expect(r.status).toBe(200)
+    expect(r.body.items.map((i) => [i.productoId, i.depositoId])).toEqual([[EMPANADA, 'sucursales'], [MARINERA, 'frio']])
+    expect(await stock(p, 'cocina', EMPANADA, undefined, 'sucursales')).toBe(6)
+    const malo = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: EMPANADA, cocinado: 0, guardado: 1, depositoId: 'nada' }] })
+    expect(malo.status).toBe(400)
+    expect(malo.body.error.mensaje).toBe('Ese depósito no existe. Recargá la página y probá de nuevo.')
+    await p.sql("INSERT INTO depositos (id, nombre, activo) VALUES ('viejo', 'Cámara vieja', 0)")
+    const apagado = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: EMPANADA, cocinado: 0, guardado: 1, depositoId: 'viejo' }] })
+    expect(apagado.body.error.mensaje).toBe('El depósito Cámara vieja está desactivado. Elegí otro.')
   })
 
   it('valida turno, cantidades y productos', async () => {
@@ -207,7 +229,7 @@ describe('sector de cada usuario (A03)', () => {
     expect(deHoy.body.map((x) => x.id)).toEqual([nueva.body.id])
     const deAyer = await p.pedir<Produccion[]>(t, 'GET', `/producciones?desde=${ayer}&hasta=${ayer}`)
     expect(deAyer.body.map((x) => x.id)).toEqual(['vieja'])
-    expect(deAyer.body[0].items).toEqual([{ productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 4, guardado: 0, finalidad: 'reposicion' }])
+    expect(deAyer.body[0].items).toEqual([{ productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 4, guardado: 0, depositoId: 'frio' }])
     expect((await p.pedir(t, 'GET', '/producciones?desde=10-10-2026')).status).toBe(400)
     expect((await p.pedir(t, 'GET', `/producciones?desde=${hoy}&hasta=${ayer}`)).status).toBe(400)
   })
@@ -223,14 +245,18 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
     })
     expect(r.status).toBe(200)
     const codigo = `CH-${diaPY().slice(2).replaceAll('-', '')}-1`
-    expect(r.body.items).toEqual([{ productoId: CHIPA, productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300, finalidad: 'reposicion' }])
+    expect(r.body.items).toEqual([{ productoId: CHIPA, productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300, depositoId: 'frio' }])
     expect(r.body.lote).toMatchObject({
       codigo, amasada: 1, dia: diaPY(), produccionId: r.body.id, horno: 200, congelador: 300, stock: 300,
       lotesMP: [{ id: harina, descripcion: 'Harina · Molino Central · lote H-77', cantidad: 1, unidad: 'kg' }],
     })
     expect(await p.sql('SELECT lote_mp_id, cantidad FROM lote_chipa_mp')).toEqual([{ lote_mp_id: harina, cantidad: 1 }])
-    const movs = await p.sql('SELECT tipo, cantidad, lote, produccion_id FROM movimientos')
-    expect(movs).toEqual([{ tipo: 'produccion', cantidad: 300, lote: codigo, produccion_id: r.body.id }])
+    // Horno a Directo a Venta y congelador a Frío, los dos con el código del lote.
+    const movs = await p.sql('SELECT tipo, cantidad, lote, deposito_id, produccion_id FROM movimientos ORDER BY cantidad')
+    expect(movs).toEqual([
+      { tipo: 'produccion', cantidad: 200, lote: codigo, deposito_id: 'venta', produccion_id: r.body.id },
+      { tipo: 'produccion', cantidad: 300, lote: codigo, deposito_id: 'frio', produccion_id: r.body.id },
+    ])
     expect(await stock(p, 'chiperia', CHIPA, codigo)).toBe(300)
   })
 
@@ -254,10 +280,11 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
       codigos.push(r.body.lote!.codigo)
     }
     expect(codigos).toEqual([`${prefijo}1`, `${prefijo}2`, `${prefijo}3`])
-    const movs = await p.sql("SELECT lote, producto_id, cantidad FROM movimientos WHERE lote = ? ORDER BY producto_id", codigos[1])
+    const movs = await p.sql("SELECT lote, producto_id, deposito_id, cantidad FROM movimientos WHERE lote = ? ORDER BY producto_id, deposito_id", codigos[1])
     expect(movs).toEqual([
-      { lote: codigos[1], producto_id: CHIPA, cantidad: 20 },
-      { lote: codigos[1], producto_id: QUESU, cantidad: 5 },
+      { lote: codigos[1], producto_id: CHIPA, deposito_id: 'frio', cantidad: 20 },
+      { lote: codigos[1], producto_id: CHIPA, deposito_id: 'venta', cantidad: 10 },
+      { lote: codigos[1], producto_id: QUESU, deposito_id: 'frio', cantidad: 5 },
     ])
     const lista = await p.pedir<Produccion[]>(t, 'GET', '/producciones')
     expect(lista.body.map((x) => x.lote?.codigo)).toEqual([...codigos].reverse())
@@ -299,8 +326,8 @@ describe('Chipería: lotes de materia prima y de chipa (E02–E04)', () => {
     expect(r.status).toBe(200)
     expect(r.body.lote?.amasada).toBe(1)
     expect(r.body.lote?.congelador).toBe(0)
-    // Sin guardado no hay movimiento de stock.
-    expect(await p.sql('SELECT COUNT(*) AS n FROM movimientos')).toEqual([{ n: 0 }])
+    // Sin guardado solo entra lo del horno, en Directo a Venta.
+    expect(await p.sql('SELECT deposito_id, cantidad FROM movimientos')).toEqual([{ deposito_id: 'venta', cantidad: 5 }])
 
     const cocina = await p.pedir<Produccion>(admin, 'POST', '/producciones', {
       sector: 'cocina', turno: 'dia', lotesMP: [{ id: mp, cantidad: 1 }], items: [{ productoId: EMPANADA, cocinado: 5, guardado: 2 }],
@@ -327,29 +354,35 @@ describe('corrección del administrador (C04)', () => {
     // El autor y la fecha original no cambian; lo que no vino en el pedido queda igual.
     expect(r.body).toMatchObject({ usuarioId: 'usr-cocina', fecha: original.body.fecha })
     expect(r.body.items).toEqual([
-      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 32, guardado: 6, finalidad: 'reposicion' },
-      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0, finalidad: 'reposicion' },
-      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0, finalidad: 'reposicion' },
+      { productoId: EMPANADA, productoNombre: 'Empanada frita (carne)', cocinado: 32, guardado: 6, depositoId: 'frio' },
+      { productoId: MARINERA, productoNombre: 'Marinera de carne', cocinado: 15, guardado: 0, depositoId: 'frio' },
+      { productoId: HAMBURGUESA, productoNombre: 'Hamburguesa', cocinado: 3, guardado: 0, depositoId: 'frio' },
     ])
 
-    const ajustes = await p.sql("SELECT * FROM movimientos WHERE tipo = 'ajuste'")
-    expect(ajustes).toHaveLength(1)
+    // Lo cocinado sube 2 en Directo a Venta y lo guardado baja 2 en Frío.
+    const ajustes = await p.sql("SELECT * FROM movimientos WHERE tipo = 'ajuste' ORDER BY cantidad")
+    expect(ajustes).toHaveLength(2)
     expect(ajustes[0]).toMatchObject({
-      sector: 'cocina', producto_id: EMPANADA, cantidad: -2, lote: null, motivo: 'Corrección de producción',
+      sector: 'cocina', producto_id: EMPANADA, cantidad: -2, lote: null, motivo: 'Corrección de producción', deposito_id: 'frio',
       produccion_id: original.body.id, usuario_id: 'usr-admin',
     })
+    expect(ajustes[1]).toMatchObject({ producto_id: EMPANADA, cantidad: 2, deposito_id: 'venta' })
     expect(await stock(p, 'cocina', EMPANADA)).toBe(6)
+    expect(await stock(p, 'cocina', EMPANADA, undefined, 'venta')).toBe(32)
 
     const [aud] = await p.sql("SELECT * FROM auditoria WHERE tabla = 'producciones'")
     expect(aud).toMatchObject({ registro_id: original.body.id, accion: 'corregir', usuario_id: 'usr-admin' })
     expect(JSON.parse(aud.antes).items[0]).toMatchObject({ productoId: EMPANADA, cocinado: 30, guardado: 8 })
     expect(JSON.parse(aud.despues).items[0]).toMatchObject({ productoId: EMPANADA, cocinado: 32, guardado: 6 })
 
-    // Subir lo guardado suma al stock; cambiar solo lo cocinado no mueve el stock.
+    // Subir lo guardado suma a Frío; cambiar lo cocinado corrige Directo a Venta.
     await p.pedir(admin, 'PATCH', `/producciones/${original.body.id}`, { items: [{ productoId: EMPANADA, cocinado: 32, guardado: 9 }] })
     await p.pedir(admin, 'PATCH', `/producciones/${original.body.id}`, { items: [{ productoId: MARINERA, cocinado: 14, guardado: 0 }] })
     expect(await stock(p, 'cocina', EMPANADA)).toBe(9)
-    expect(await p.sql("SELECT cantidad FROM movimientos WHERE tipo = 'ajuste' ORDER BY fecha, cantidad")).toEqual([{ cantidad: -2 }, { cantidad: 3 }])
+    expect(await stock(p, 'cocina', MARINERA, undefined, 'venta')).toBe(14)
+    expect(await p.sql("SELECT deposito_id, cantidad FROM movimientos WHERE tipo = 'ajuste' ORDER BY fecha, cantidad")).toEqual([
+      { deposito_id: 'frio', cantidad: -2 }, { deposito_id: 'venta', cantidad: 2 }, { deposito_id: 'frio', cantidad: 3 }, { deposito_id: 'venta', cantidad: -1 },
+    ])
     expect(await p.sql("SELECT COUNT(*) AS n FROM auditoria WHERE tabla = 'producciones'")).toEqual([{ n: 3 }])
   })
 
@@ -381,7 +414,9 @@ describe('corrección del administrador (C04)', () => {
     })
     expect(c.status).toBe(200)
     expect(c.body.lote).toMatchObject({ codigo, horno: 210, congelador: 290, stock: 290 })
-    expect(await p.sql("SELECT lote, cantidad FROM movimientos WHERE tipo = 'ajuste'")).toEqual([{ lote: codigo, cantidad: -10 }])
+    expect(await p.sql("SELECT lote, deposito_id, cantidad FROM movimientos WHERE tipo = 'ajuste' ORDER BY cantidad")).toEqual([
+      { lote: codigo, deposito_id: 'frio', cantidad: -10 }, { lote: codigo, deposito_id: 'venta', cantidad: 10 },
+    ])
   })
 
   it('no deja bajar lo guardado si ese stock ya salió, y no cambia nada (409)', async () => {
@@ -390,7 +425,7 @@ describe('corrección del administrador (C04)', () => {
     const original = await registrarAnexo(p, await p.entrar('cocina'))
     // Salen 5 de las 8 empanadas guardadas (lo carga el módulo de stock; acá, directo en la base).
     await p.sql(
-      "INSERT INTO movimientos (id, sector, producto_id, tipo, cantidad, usuario_id, fecha, dia) VALUES ('s1', 'cocina', ?, 'salida_venta', -5, 'usr-cocina', ?, ?)",
+      "INSERT INTO movimientos (id, sector, producto_id, deposito_id, tipo, cantidad, usuario_id, fecha, dia) VALUES ('s1', 'cocina', ?, 'frio', 'envio', -5, 'usr-cocina', ?, ?)",
       EMPANADA, new Date().toISOString(), diaPY(),
     )
     const r = await p.pedir(admin, 'PATCH', `/producciones/${original.body.id}`, {

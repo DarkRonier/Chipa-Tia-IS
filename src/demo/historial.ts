@@ -114,10 +114,6 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
       await pedir(t.admin, 'POST', '/ajustes', { sector: 'cocina', productoId, tipo: 'stock_inicial', cantidad, motivo: 'Stock existente al empezar a usar el sistema' })
     }
   })
-  // C08: algunos productos con stock mínimo, para que el aviso se vea en la demo.
-  for (const [productoId, stockMinimo] of [['prod-cocina-10', 15], ['prod-cocina-04', 12], ['prod-chipitas-01', 400]] as const) {
-    await pedir(t.admin, 'PATCH', `/productos/${productoId}`, { stockMinimo })
-  }
   // M11: precios de venta, para poder vender en la demo con el usuario cajero.
   for (const [productoId, precioVenta] of [
     ['prod-chiperia-01', 3000], ['prod-chiperia-02', 3500], ['prod-chiperia-03', 4000], ['prod-chiperia-04', 4500], ['prod-chiperia-05', 5000],
@@ -133,7 +129,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     ['cocina', 'Agua 500 ml', 'unidades', 'reventa', 5000],
   ] as const) {
     await pedir(t.admin, 'POST', '/productos', {
-      sector, nombre, unidad, tipo, precioVenta, stockObligatorio: false, ventaDescuentaStock: tipo === 'reventa',
+      sector, nombre, unidad, tipo, precioVenta,
     })
   }
   // M14: un gasto fijo y un sueldo, para que la pantalla de Finanzas tenga algo.
@@ -171,7 +167,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     const amasada1 = await el(dia, 5.5, () => pedir<Produccion>(t.chiperia, 'POST', '/producciones', {
       turno: 'dia', lotesMP: [{ id: quesoDelDia, cantidad: 3 }, { id: almidon.id, cantidad: 5 }],
       items: [
-        { productoId: 'prod-chiperia-01', cocinado: entre(180, 240), guardado: entre(140, 200), finalidad: 'distribucion' },
+        { productoId: 'prod-chiperia-01', cocinado: entre(180, 240), guardado: entre(140, 200), depositoId: 'sucursales' },
         { productoId: 'prod-chiperia-03', cocinado: entre(80, 120), guardado: entre(60, 90) },
         { productoId: 'prod-chiperia-09', cocinado: entre(40, 60), guardado: 0 },
       ],
@@ -180,7 +176,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     const amasada2 = await el(dia, 9, () => pedir<Produccion>(t.chiperia, 'POST', '/producciones', {
       turno: 'dia', lotesMP: [{ id: quesoDelDia, cantidad: 3 }, { id: almidon.id, cantidad: 5 }, { id: harina.id, cantidad: 8 }],
       items: [
-        { productoId: 'prod-chiperia-02', cocinado: entre(100, 140), guardado: entre(80, 110), finalidad: 'distribucion' },
+        { productoId: 'prod-chiperia-02', cocinado: entre(100, 140), guardado: entre(80, 110), depositoId: 'sucursales' },
         { productoId: 'prod-chiperia-05', cocinado: entre(30, 50), guardado: entre(20, 40) },
       ],
     }))
@@ -200,8 +196,8 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     await el(dia, 6, () => pedir(t.cocina, 'POST', '/producciones', {
       turno: 'dia',
       items: [
-        { productoId: 'prod-cocina-10', cocinado: entre(28, 40), guardado: entre(8, 14), finalidad: 'distribucion' },
-        { productoId: 'prod-cocina-15', cocinado: entre(12, 18), guardado: entre(4, 8), finalidad: 'distribucion' },
+        { productoId: 'prod-cocina-10', cocinado: entre(28, 40), guardado: entre(8, 14), depositoId: 'sucursales' },
+        { productoId: 'prod-cocina-15', cocinado: entre(12, 18), guardado: entre(4, 8), depositoId: 'sucursales' },
         { productoId: 'prod-cocina-16', cocinado: entre(15, 25), guardado: 0 },
         { productoId: 'prod-cocina-19', cocinado: entre(10, 16), guardado: 0 },
         { productoId: 'prod-cocina-25', cocinado: entre(30, 45), guardado: 0 },
@@ -227,8 +223,8 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     await el(dia, 7, () => pedir(t.chipitas, 'POST', '/producciones', {
       turno: 'dia',
       items: [
-        { productoId: 'prod-chipitas-01', cocinado: entre(150, 250), guardado: entre(250, 350), finalidad: 'distribucion' },
-        { productoId: 'prod-chipitas-02', cocinado: entre(40, 80), guardado: entre(80, 120), finalidad: 'distribucion' },
+        { productoId: 'prod-chipitas-01', cocinado: entre(150, 250), guardado: entre(250, 350), depositoId: 'sucursales' },
+        { productoId: 'prod-chipitas-02', cocinado: entre(40, 80), guardado: entre(80, 120), depositoId: 'sucursales' },
       ],
     }))
     await el(dia, 13, () => pedir(t.chipitas, 'POST', '/envios', {
@@ -239,7 +235,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
       turno: 'dia',
       items: [
         { productoId: 'prod-panaderia-01', cocinado: entre(300, 450), guardado: 0 },
-        { productoId: 'prod-panaderia-02', cocinado: entre(80, 120), guardado: entre(20, 40), finalidad: 'distribucion' },
+        { productoId: 'prod-panaderia-02', cocinado: entre(80, 120), guardado: entre(20, 40), depositoId: 'sucursales' },
         { productoId: 'prod-panaderia-03', cocinado: entre(50, 80), guardado: entre(30, 50) },
       ],
     }))
@@ -301,11 +297,11 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
         sector: 'cocina', productoId: 'prod-cocina-10', tipo: 'merma', cantidad: 2, motivo: 'Se rompieron al sacarlas del freezer',
       }))
       const stockChipa = await pedir<StockFila[]>(t.admin, 'GET', '/stock?sector=chiperia')
-      const viejo = stockChipa.find((s) => s.productoId === 'prod-chiperia-02')?.lotes.find((l) => l.distribucion > 0)
+      const viejo = stockChipa.find((s) => s.productoId === 'prod-chiperia-02')?.lotes.find((l) => (l.porDeposito.sucursales ?? 0) > 0)
       if (viejo) {
         await el(dia, 16.2, () => pedir(t.admin, 'POST', '/ajustes', {
-          sector: 'chiperia', productoId: 'prod-chiperia-02', lote: viejo.lote, tipo: 'vencimiento', finalidad: 'distribucion',
-          cantidad: Math.min(10, viejo.distribucion), motivo: 'Pasó la fecha de consumo en el congelador',
+          sector: 'chiperia', productoId: 'prod-chiperia-02', lote: viejo.lote, tipo: 'vencimiento', depositoId: 'sucursales',
+          cantidad: Math.min(10, viejo.porDeposito.sucursales ?? 0), motivo: 'Pasó la fecha de consumo en el congelador',
         }))
       }
     }

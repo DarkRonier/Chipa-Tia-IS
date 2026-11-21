@@ -1,9 +1,10 @@
-// D03, D04, E05, C05: un envío a una sucursal con varios productos (y en Chipería, el lote de cada uno).
-// Sale de lo guardado para sucursales. Se confirma una sola vez y se registra todo junto: si una línea no alcanza,
+// D03, D04, E05: un envío a una sucursal con varios productos (y en Chipería, el lote de cada uno).
+// Sale del depósito «Para sucursales». Se confirma una sola vez y se registra todo junto: si una línea no alcanza,
 // no se registra nada.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
+import { useDepositos } from '../../cliente/catalogo'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector, useSectorActivo } from '../../components/Layout'
@@ -11,12 +12,15 @@ import Numero from '../../components/Numero'
 import { IconoEnvio } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { fechaHoraPY } from '../../shared/hora'
-import type { PedidoEnvio, RespuestaEnvio, StockFila, Sucursal } from '../../shared/tipos'
+import { DEPOSITO, type PedidoEnvio, type RespuestaEnvio, type StockFila, type Sucursal } from '../../shared/tipos'
 import { useStock } from './Stock'
 import '../../styles/stock.css'
 import BotonIcono from '../../components/BotonIcono'
 
 interface Linea { clave: number; productoId: string; lote: string; cantidad: number }
+
+/** Lo que hay en «Para sucursales», de donde salen los envíos. */
+const paraEnviar = (f: { porDeposito: Record<string, number> }) => f.porDeposito[DEPOSITO.sucursales] ?? 0
 
 let siguiente = 0
 const lineaVacia = (): Linea => ({ clave: ++siguiente, productoId: '', lote: '', cantidad: 0 })
@@ -30,6 +34,7 @@ export default function Envio() {
 function Formulario() {
   const { id: sector, conLotes } = useSectorActivo()
   const stock = useStock(sector)
+  const depositos = useDepositos()
   const sucursales = useConsulta<Sucursal[]>('/sucursales')
   const [sucursalId, setSucursalId] = useState('')
   const [lineas, setLineas] = useState<Linea[]>(() => [lineaVacia()])
@@ -47,7 +52,9 @@ function Formulario() {
   const hay = (l: Linea) => {
     const f = filaDe(l.productoId)
     if (!f) return 0
-    return conLotes ? (f.lotes.find((x) => x.lote === l.lote)?.distribucion ?? 0) : f.distribucion
+    if (!conLotes) return paraEnviar(f)
+    const x = f.lotes.find((y) => y.lote === l.lote)
+    return x ? paraEnviar(x) : 0
   }
   const listaParaHay = (l: Linea) => !!l.productoId && (!conLotes || !!l.lote)
   const conCantidad = lineas.filter((l) => l.productoId && l.cantidad > 0)
@@ -67,7 +74,7 @@ function Formulario() {
 
   /** Lotes del producto que todavía no están en otra línea. */
   const lotesLibres = (l: Linea) =>
-    (filaDe(l.productoId)?.lotes ?? []).filter((x) => x.distribucion > 0).filter((x) => x.lote === l.lote || !lineas.some((o) => o.clave !== l.clave && o.productoId === l.productoId && o.lote === x.lote))
+    (filaDe(l.productoId)?.lotes ?? []).filter((x) => paraEnviar(x) > 0).filter((x) => x.lote === l.lote || !lineas.some((o) => o.clave !== l.clave && o.productoId === l.productoId && o.lote === x.lote))
 
   const elegirProducto = (l: Linea, productoId: string) => {
     const libres = lotesLibres({ ...l, productoId, lote: '' })
@@ -78,9 +85,9 @@ function Formulario() {
   const opciones = (l: Linea) =>
     filas.filter((f) => {
       if (f.productoId === l.productoId) return true
-      if (f.distribucion <= 0 && (f.obligatorio || !f.activo)) return false
+      if (paraEnviar(f) <= 0) return false
       if (!conLotes) return !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId)
-      return f.lotes.some((x) => x.distribucion > 0 && !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId && o.lote === x.lote))
+      return f.lotes.some((x) => paraEnviar(x) > 0 && !lineas.some((o) => o.clave !== l.clave && o.productoId === f.productoId && o.lote === x.lote))
     })
 
   const revisar = () => {
@@ -90,7 +97,7 @@ function Formulario() {
     for (const l of conCantidad) {
       const nombre = filaDe(l.productoId)?.productoNombre ?? 'un producto'
       if (conLotes && !l.lote) return setAviso(`Elegí el lote de ${nombre}.`)
-      if (filaDe(l.productoId)?.obligatorio !== false && l.cantidad > hay(l)) return setAviso(`No alcanza ${nombre}${conLotes ? ` del lote ${l.lote}` : ''}: hay ${hay(l)}.`)
+      if (l.cantidad > hay(l)) return setAviso(`No alcanza ${nombre}${conLotes ? ` del lote ${l.lote}` : ''}: hay ${hay(l)}.`)
     }
     setConfirmando(true)
   }
@@ -110,8 +117,10 @@ function Formulario() {
   }
 
   const error = aviso ?? registrar.error
-  const hayParaEnviar = filas.some((f) => f.distribucion > 0 || (!f.obligatorio && f.activo))
-  const soloParaVenta = filas.some((f) => f.reposicion > 0)
+  const hayParaEnviar = filas.some((f) => paraEnviar(f) > 0)
+  // Depósitos donde sí hay algo, para avisar que se puede pasar a «Para sucursales».
+  const enOtros = depositos.lista.filter((d) => d.id !== DEPOSITO.sucursales && filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0))
+  const nombreSucursales = depositos.nombre(DEPOSITO.sucursales)
 
   return (
     <>
@@ -130,8 +139,8 @@ function Formulario() {
       <ConDatos consulta={stock}>
         {() => !hayParaEnviar ? (
           <p className="suave">
-            No hay nada guardado en frío para sucursales.
-            {soloParaVenta && <> Lo que hay está guardado para reponer la venta: podés cambiarle la finalidad desde <Link to="/sector/stock">Stock en frío</Link>.</>}
+            No hay nada en «{nombreSucursales}», que es de donde salen los envíos.
+            {enOtros.length > 0 && <> Hay en {enOtros.map((d) => `«${d.nombre}»`).join(' y ')}: pasalo con «Transferir» en <Link to="/sector/stock">Stock</Link>.</>}
           </p>
         ) : (
           <>
@@ -150,7 +159,7 @@ function Formulario() {
             </div>
             {lineas.map((l, i) => {
               const f = filaDe(l.productoId)
-              const pasa = listaParaHay(l) && f?.obligatorio !== false && l.cantidad > hay(l)
+              const pasa = listaParaHay(l) && l.cantidad > hay(l)
               return (
                 <div className={`tarjeta stk-linea${pasa ? ' stk-linea-mal' : ''}`} key={l.clave}>
                   <div className="stk-linea-cabeza">
@@ -166,7 +175,7 @@ function Formulario() {
                     <span>Producto</span>
                     <select value={l.productoId} onChange={(e) => elegirProducto(l, e.target.value)}>
                       <option value="">Elegí un producto</option>
-                      {opciones(l).map((o) => <option key={o.productoId} value={o.productoId}>{o.productoNombre} ({o.distribucion})</option>)}
+                      {opciones(l).map((o) => <option key={o.productoId} value={o.productoId}>{o.productoNombre} ({paraEnviar(o)})</option>)}
                     </select>
                   </label>
                   {conLotes && f && (
@@ -174,7 +183,7 @@ function Formulario() {
                       <span>Lote</span>
                       <select value={l.lote} onChange={(e) => cambiar(l.clave, { lote: e.target.value })}>
                         <option value="">Elegí un lote</option>
-                        {lotesLibres(l).map((x) => <option key={x.lote} value={x.lote}>{x.lote} ({x.distribucion})</option>)}
+                        {lotesLibres(l).map((x) => <option key={x.lote} value={x.lote}>{x.lote} ({paraEnviar(x)})</option>)}
                       </select>
                     </label>
                   )}

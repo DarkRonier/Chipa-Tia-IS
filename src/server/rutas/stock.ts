@@ -1,16 +1,18 @@
-// D01–D07, C05, C08: stock en frío y envíos a sucursales. El stock es la suma del libro `movimientos`:
-// lo guardado en producción suma; salidas a venta, envíos, mermas y vencimientos restan; los ajustes
-// del administrador van en los dos sentidos. Cada unidad tiene una finalidad (C05): 'reposicion' para
-// reponer la venta del sector o 'distribucion' para enviar a sucursales; las salidas a venta salen de la
-// primera, los envíos de la segunda y `POST /reasignaciones` pasa unidades de una a la otra.
-// El trigger `movimientos_sin_stock_negativo` (D04) rechaza cualquier salida que deje negativo el producto
-// o el lote en esa finalidad si el producto tiene stock obligatorio (sin esa marca, el stock puede quedar negativo), y un envío de varias líneas va en un solo `batch`: si una línea no alcanza,
-// no se registra ninguna. El aviso de stock mínimo (C08) sale de `alertasStock`.
+// D01–D07: stock por depósito y envíos a sucursales (stock por depósitos, Mati 2026-11-21). El stock es la suma del
+// libro `movimientos`, por producto, depósito y (en Chipería) lote. Depósitos del sistema (ver migración 0014):
+// - Directo a Venta: lo que está listo para vender; las ventas de caja descuentan de acá.
+// - Frío: lo guardado para reponer la venta. Lo producido va acá si no se elige otro depósito.
+// - Para sucursales: los envíos salen de acá.
+// - Materia prima: lo comprado para producir.
+// «Sacar para la venta» (`POST /salidas`) pasa unidades de un depósito (Frío) a Directo a Venta, y
+// `POST /transferencias` las pasa entre dos depósitos cualquiera. Los dos son un par de movimientos que no cambia el total.
+// El trigger `movimientos_sin_stock_negativo` (D04) rechaza cualquier salida que deje negativo un producto o un lote en
+// un depósito (menos las ventas de caja), y un envío de varias líneas va en un solo `batch`: si una línea no alcanza,
+// no se registra ninguna.
 import { Hono } from 'hono'
-import type { Alerta } from '../../shared/alertas'
 import {
-  FINALIDADES, NOMBRE_FINALIDAD,
-  type Finalidad, type Movimiento, type RespuestaEnvio, type SectorId, type StockFila, type TipoAjuste, type TipoMovimiento,
+  DEPOSITO,
+  type Movimiento, type RespuestaEnvio, type SectorId, type StockFila, type TipoAjuste, type TipoMovimiento,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { leerMovimientos } from '../consultas'
@@ -23,7 +25,7 @@ import { cuerpo, diaOpcional, texto } from '../validar'
 export const rutasStock = new Hono<Entorno>()
 
 const TIPOS_MOVIMIENTO: readonly TipoMovimiento[] = [
-  'produccion', 'stock_inicial', 'salida_venta', 'envio', 'merma', 'vencimiento', 'ajuste', 'reasignacion', 'compra', 'venta',
+  'produccion', 'stock_inicial', 'salida_venta', 'envio', 'merma', 'vencimiento', 'ajuste', 'transferencia', 'compra', 'venta',
 ]
 const TIPOS_AJUSTE: readonly TipoAjuste[] = ['merma', 'vencimiento', 'ajuste', 'stock_inicial']
 const MAX_CANTIDAD = 1_000_000
@@ -34,17 +36,23 @@ const MAX_LOTE = 40
 
 const vacio = (v: unknown) => v === undefined || v === null || v === ''
 
-const otraFinalidad = (f: Finalidad): Finalidad => (f === 'reposicion' ? 'distribucion' : 'reposicion')
+export interface DepositoElegido { id: string; nombre: string }
 
-/** Finalidad opcional (por defecto, reposición). */
-function leerFinalidad(v: unknown): Finalidad {
-  if (vacio(v)) return 'reposicion'
-  if (!(FINALIDADES as readonly unknown[]).includes(v)) throw invalido('La finalidad no es válida: elegí «Reponer venta» o «Sucursales».')
-  return v as Finalidad
+/**
+ * Depósito por id (o `porDefecto` si no viene). Tiene que existir y estar activo. `campo`: «el depósito»,
+ * «el depósito de origen»…
+ */
+export async function leerDeposito(db: BaseD1, v: unknown, porDefecto: string | null, campo = 'el depósito'): Promise<DepositoElegido> {
+  if (vacio(v) && !porDefecto) throw invalido(`Elegí ${campo}.`)
+  const id = vacio(v) ? porDefecto! : texto(v, campo, { max: 100 })
+  const f = await una<{ id: string; nombre: string; activo: number }>(db, 'SELECT id, nombre, activo FROM depositos WHERE id = ?', id)
+  if (!f) throw invalido('Ese depósito no existe. Recargá la página y probá de nuevo.')
+  if (!f.activo) throw invalido(`El depósito ${f.nombre} está desactivado. Elegí otro.`)
+  return { id: f.id, nombre: f.nombre }
 }
 
 /** Sector con lotes (Chipería): exige lote en salidas, envíos y ajustes, y muestra el stock por lote. */
-async function sectorConLotes(db: BaseD1, sector: SectorId): Promise<boolean> {
+export async function sectorConLotes(db: BaseD1, sector: SectorId): Promise<boolean> {
   const f = await una<{ con_lotes: number }>(db, 'SELECT con_lotes FROM sectores WHERE id = ?', sector)
   return !!f?.con_lotes
 }
@@ -95,13 +103,13 @@ function leerLote(v: unknown, conLotes: boolean, siFalta: string): string | null
   return texto(v, 'El lote', { max: MAX_LOTE }).toUpperCase()
 }
 
-/** Lo que hay de un producto (y lote, si se indica); con `finalidad`, solo de esa finalidad. */
-async function stockActual(db: BaseD1, sector: SectorId, productoId: string, lote: string | null, finalidad?: Finalidad): Promise<number> {
+/** Lo que hay de un producto (y lote, si se indica) en un depósito; sin depósito, en todos. */
+export async function stockActual(db: BaseD1, sector: SectorId, productoId: string, lote: string | null, depositoId?: string): Promise<number> {
   const f = await una<{ total: number }>(
     db,
     `SELECT COALESCE(SUM(cantidad), 0) AS total FROM movimientos
-      WHERE sector = ? AND producto_id = ? ${lote === null ? '' : 'AND lote = ?'} ${finalidad ? 'AND finalidad = ?' : ''}`,
-    sector, productoId, ...(lote === null ? [] : [lote]), ...(finalidad ? [finalidad] : []),
+      WHERE sector = ? AND producto_id = ? ${lote === null ? '' : 'AND lote = ?'} ${depositoId ? 'AND deposito_id = ?' : ''}`,
+    sector, productoId, ...(lote === null ? [] : [lote]), ...(depositoId ? [depositoId] : []),
   )
   return f?.total ?? 0
 }
@@ -110,13 +118,13 @@ const enLote = (lote: string | null) => (lote ? ` del lote ${lote}` : '')
 
 /**
  * Corre el batch y, si el trigger de D04 lo rechaza, busca qué línea no alcanza para decirlo claro
- * ("No hay stock suficiente: de Empanada frita (carne) hay 3…"). Cada línea sale de una finalidad; si en la otra
- * hay stock, lo dice. Siempre responde 409 stock_insuficiente.
+ * ("No hay stock suficiente en Frío: de Empanada frita (carne) hay 3…"). Si en otro depósito hay, lo dice.
+ * Siempre responde 409 stock_insuficiente.
  */
 async function conControlDeStock(
   db: BaseD1,
   sentencias: SentenciaD1[],
-  lineas: { sector: SectorId; productoId: string; nombre: string; lote: string | null; finalidad: Finalidad; sale: number }[],
+  lineas: { sector: SectorId; productoId: string; nombre: string; lote: string | null; deposito: DepositoElegido; sale: number }[],
 ) {
   try {
     await db.batch(sentencias)
@@ -125,20 +133,25 @@ async function conControlDeStock(
     for (const l of lineas) {
       // Lo que piden de un mismo producto y lote en varias líneas se suma.
       const pedido = lineas
-        .filter((o) => o.productoId === l.productoId && o.finalidad === l.finalidad && (l.lote === null || o.lote === l.lote))
+        .filter((o) => o.productoId === l.productoId && o.deposito.id === l.deposito.id && (l.lote === null || o.lote === l.lote))
         .reduce((s, o) => s + o.sale, 0)
-      const hay = Math.max(0, await stockActual(db, l.sector, l.productoId, l.lote, l.finalidad))
+      const hay = Math.max(0, await stockActual(db, l.sector, l.productoId, l.lote, l.deposito.id))
       if (pedido > hay) {
-        const otra = otraFinalidad(l.finalidad)
-        const enLaOtra = Math.max(0, await stockActual(db, l.sector, l.productoId, l.lote, otra))
-        const aclaracion = enLaOtra > 0
-          ? ` En «${NOMBRE_FINALIDAD[otra]}» hay ${enLaOtra}: cambiales la finalidad en Stock en frío si querés usarlos.`
+        const otros = await todas<{ nombre: string; total: number }>(
+          db,
+          `SELECT d.nombre, SUM(m.cantidad) AS total FROM movimientos m JOIN depositos d ON d.id = m.deposito_id
+            WHERE m.sector = ? AND m.producto_id = ? ${l.lote === null ? '' : 'AND m.lote = ?'} AND m.deposito_id <> ?
+            GROUP BY d.id HAVING SUM(m.cantidad) > 0 ORDER BY d.orden`,
+          l.sector, l.productoId, ...(l.lote === null ? [] : [l.lote]), l.deposito.id,
+        )
+        const aclaracion = otros.length
+          ? ` En ${otros.map((o) => `«${o.nombre}» hay ${o.total}`).join(' y en ')}: pasalo con «Transferir» en Stock si querés usarlo.`
           : ''
         throw conflicto(
           'stock_insuficiente',
           (hay === 0
-            ? `No hay stock de ${l.nombre}${enLote(l.lote)}.`
-            : `No hay stock suficiente: de ${l.nombre}${enLote(l.lote)} hay ${hay} y querés sacar ${pedido}.`) + aclaracion,
+            ? `No hay stock de ${l.nombre}${enLote(l.lote)} en «${l.deposito.nombre}».`
+            : `No hay stock suficiente en «${l.deposito.nombre}»: de ${l.nombre}${enLote(l.lote)} hay ${hay} y querés sacar ${pedido}.`) + aclaracion,
         )
       }
     }
@@ -146,26 +159,31 @@ async function conControlDeStock(
   }
 }
 
-function sentenciaMovimiento(db: BaseD1, m: {
+export function sentenciaMovimiento(db: BaseD1, m: {
   id: string
   sector: SectorId
   productoId: string
+  depositoId: string
   lote: string | null
   tipo: TipoMovimiento
   cantidad: number
-  finalidad: Finalidad
   motivo: string | null
-  sucursalId: string | null
-  envioId: string | null
+  sucursalId?: string | null
+  envioId?: string | null
+  produccionId?: string | null
+  compraId?: string | null
+  ventaId?: string | null
   usuarioId: string
   fecha: string
   dia: string
 }): SentenciaD1 {
   return sentencia(
     db,
-    `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, finalidad, motivo, sucursal_id, envio_id, produccion_id, usuario_id, fecha, dia)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-    m.id, m.sector, m.productoId, m.lote, m.tipo, m.cantidad, m.finalidad, m.motivo, m.sucursalId, m.envioId, m.usuarioId, m.fecha, m.dia,
+    `INSERT INTO movimientos (id, sector, producto_id, deposito_id, lote, tipo, cantidad, motivo, sucursal_id, envio_id, produccion_id,
+                              compra_id, venta_id, usuario_id, fecha, dia)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    m.id, m.sector, m.productoId, m.depositoId, m.lote, m.tipo, m.cantidad, m.motivo, m.sucursalId ?? null, m.envioId ?? null,
+    m.produccionId ?? null, m.compraId ?? null, m.ventaId ?? null, m.usuarioId, m.fecha, m.dia,
   )
 }
 
@@ -191,103 +209,102 @@ function claveLote(f: { lote: string; lote_dia: string | null; amasada: number |
 
 // ---------- Stock (D01, D07) ----------
 
+interface FilaLoteDeposito {
+  producto_id: string
+  lote: string
+  deposito_id: string
+  cantidad: number
+  lote_dia: string | null
+  amasada: number | null
+  primera_dia: string
+  primera: string
+}
+
+/** Lotes de un sector con stock, por depósito, el más viejo primero. */
+async function lotesConStock(db: BaseD1, sector: SectorId, productoId?: string) {
+  const filas = await todas<FilaLoteDeposito>(
+    db,
+    `SELECT m.producto_id, m.lote, m.deposito_id, SUM(m.cantidad) AS cantidad, MIN(m.dia) AS primera_dia, MIN(m.fecha) AS primera,
+            (SELECT l.dia FROM lotes_chipa l WHERE l.codigo = m.lote) AS lote_dia,
+            (SELECT l.amasada FROM lotes_chipa l WHERE l.codigo = m.lote) AS amasada
+       FROM movimientos m
+      WHERE m.sector = ? AND m.lote IS NOT NULL ${productoId ? 'AND m.producto_id = ?' : ''}
+      GROUP BY m.producto_id, m.lote, m.deposito_id`,
+    sector, ...(productoId ? [productoId] : []),
+  )
+  const porLote = new Map<string, FilaLoteDeposito & { porDeposito: Record<string, number> }>()
+  for (const f of filas) {
+    const clave = `${f.producto_id}|${f.lote}`
+    const l = porLote.get(clave) ?? { ...f, cantidad: 0, porDeposito: {} }
+    l.cantidad += f.cantidad
+    if (f.cantidad !== 0) l.porDeposito[f.deposito_id] = f.cantidad
+    if (f.primera_dia < l.primera_dia) l.primera_dia = f.primera_dia
+    if (f.primera < l.primera) l.primera = f.primera
+    porLote.set(clave, l)
+  }
+  return [...porLote.values()]
+    .filter((l) => l.cantidad > 0)
+    .map((f) => ({ f, k: claveLote(f) }))
+    .sort((a, b) =>
+      a.k.dia.localeCompare(b.k.dia) || a.k.amasada - b.k.amasada || a.k.primera.localeCompare(b.k.primera) || a.f.lote.localeCompare(b.f.lote))
+    .map(({ f }) => f)
+}
+
+/**
+ * Para la venta en caja en un sector con lotes: de qué lotes sale `cantidad` en un depósito, el más viejo primero.
+ * Lo que no alcanza a cubrir ningún lote sale sin lote (y deja el depósito en negativo).
+ */
+export async function repartirPorLotes(db: BaseD1, sector: SectorId, productoId: string, depositoId: string, cantidad: number) {
+  const partes: { lote: string | null; cantidad: number }[] = []
+  let falta = cantidad
+  for (const l of await lotesConStock(db, sector, productoId)) {
+    const hay = l.porDeposito[depositoId] ?? 0
+    if (hay <= 0 || falta <= 0) continue
+    const sale = Math.min(hay, falta)
+    partes.push({ lote: l.lote, cantidad: sale })
+    falta -= sale
+  }
+  if (falta > 0) partes.push({ lote: null, cantidad: falta })
+  return partes
+}
+
 rutasStock.get('/stock', requiere('stock.ver'), async (c) => {
   const db = c.env.DB
   const sector = sectorPara(c.get('usuario'), c.req.query('sector'), true)
   const conLotes = await sectorConLotes(db, sector)
 
-  const productos = await todas<{
-    id: string; nombre: string; activo: number; stock_minimo: number | null; stock_obligatorio: number
-    reposicion: number; distribucion: number; con_movimientos: number
-  }>(
-    db,
-    `SELECT p.id, p.nombre, p.activo, p.stock_minimo, p.stock_obligatorio,
-            EXISTS (SELECT 1 FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id) AS con_movimientos,
-            COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.finalidad = 'reposicion'), 0) AS reposicion,
-            COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.finalidad = 'distribucion'), 0) AS distribucion
-       FROM productos p
-      WHERE p.sector = ?
-      ORDER BY p.orden, p.nombre`,
-    sector,
-  )
-
-  const lotes = conLotes
-    ? await todas<{ producto_id: string; lote: string; cantidad: number; reposicion: number; distribucion: number; lote_dia: string | null; amasada: number | null; primera_dia: string; primera: string }>(
+  const [productos, saldos, lotes] = await Promise.all([
+    todas<{ id: string; nombre: string; activo: number }>(
+      db, 'SELECT p.id, p.nombre, p.activo FROM productos p WHERE p.sector = ? ORDER BY p.orden, p.nombre', sector,
+    ),
+    todas<{ producto_id: string; deposito_id: string; total: number }>(
       db,
-      `SELECT m.producto_id, m.lote, SUM(m.cantidad) AS cantidad,
-              SUM(CASE WHEN m.finalidad = 'reposicion' THEN m.cantidad ELSE 0 END) AS reposicion,
-              SUM(CASE WHEN m.finalidad = 'distribucion' THEN m.cantidad ELSE 0 END) AS distribucion,
-              MIN(m.dia) AS primera_dia, MIN(m.fecha) AS primera,
-              (SELECT l.dia FROM lotes_chipa l WHERE l.codigo = m.lote) AS lote_dia,
-              (SELECT l.amasada FROM lotes_chipa l WHERE l.codigo = m.lote) AS amasada
-         FROM movimientos m
-        WHERE m.sector = ? AND m.lote IS NOT NULL
-        GROUP BY m.producto_id, m.lote
-       HAVING SUM(m.cantidad) > 0`,
+      `SELECT producto_id, deposito_id, SUM(cantidad) AS total FROM movimientos WHERE sector = ?
+        GROUP BY producto_id, deposito_id HAVING SUM(cantidad) <> 0`,
       sector,
-    )
-    : []
-  const ordenados = lotes
-    .map((f) => ({ f, k: claveLote(f) }))
-    .sort((a, b) =>
-      a.k.dia.localeCompare(b.k.dia) || a.k.amasada - b.k.amasada || a.k.primera.localeCompare(b.k.primera) || a.f.lote.localeCompare(b.f.lote))
-    .map(({ f }) => f)
+    ),
+    conLotes ? lotesConStock(db, sector) : Promise.resolve([]),
+  ])
 
   const filas: StockFila[] = productos
-    .map((p) => ({ p, total: p.reposicion + p.distribucion }))
-    .filter(({ p, total }) => p.activo || total !== 0)
-    .map(({ p, total }) => ({
+    .map((p) => {
+      const porDeposito: Record<string, number> = {}
+      for (const s of saldos) if (s.producto_id === p.id) porDeposito[s.deposito_id] = s.total
+      return { p, porDeposito, total: Object.values(porDeposito).reduce((a, n) => a + n, 0) }
+    })
+    .filter(({ p, porDeposito }) => p.activo || Object.keys(porDeposito).length > 0)
+    .map(({ p, porDeposito, total }) => ({
       productoId: p.id,
       productoNombre: p.nombre,
       activo: !!p.activo,
       total,
-      reposicion: p.reposicion,
-      distribucion: p.distribucion,
-      minimo: p.stock_minimo,
-      obligatorio: !!p.stock_obligatorio,
-      conMovimientos: !!p.con_movimientos,
-      lotes: ordenados.filter((l) => l.producto_id === p.id).map((l) => ({
-        lote: l.lote, cantidad: l.cantidad, reposicion: l.reposicion, distribucion: l.distribucion,
-      })),
+      porDeposito,
+      lotes: lotes.filter((l) => l.producto_id === p.id).map((l) => ({ lote: l.lote, cantidad: l.cantidad, porDeposito: l.porDeposito })),
     }))
   return c.json<StockFila[]>(filas)
 })
 
-// ---------- Stock mínimo (C08) ----------
-
-const textoAlerta = (nombre: string, total: number, minimo: number) =>
-  `${nombre}: ${total <= 0 ? 'no queda nada' : `quedan ${total}`} en frío (mínimo ${minimo}).`
-
-/**
- * Productos activos cuyo stock en frío (todas las finalidades y lotes) bajó del mínimo que les puso el
- * administrador. `sector` null = todos los sectores. En el orden del catálogo.
- */
-export async function alertasStock(db: BaseD1, sector: SectorId | null): Promise<Alerta[]> {
-  const filas = await todas<{ sector: SectorId; nombre: string; stock_minimo: number; total: number }>(
-    db,
-    `SELECT sector, nombre, stock_minimo, total FROM (
-       SELECT p.sector, p.nombre, p.stock_minimo, p.orden, s.orden AS orden_sector,
-              COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id), 0) AS total
-         FROM productos p JOIN sectores s ON s.id = p.sector
-        WHERE p.activo = 1 AND p.stock_minimo IS NOT NULL ${sector ? 'AND p.sector = ?' : ''}
-     ) WHERE total < stock_minimo
-     ORDER BY orden_sector, orden, nombre`,
-    ...(sector ? [sector] : []),
-  )
-  return filas.map((f) => ({
-    tipo: 'stock_minimo' as const,
-    sector: f.sector,
-    texto: textoAlerta(f.nombre, f.total, f.stock_minimo),
-    enlace: '/stock',
-  }))
-}
-
-rutasStock.get('/stock/alertas', requiere('stock.ver'), async (c) => {
-  const sector = sectorPara(c.get('usuario'), c.req.query('sector'))
-  return c.json<Alerta[]>(await alertasStock(c.env.DB, sector))
-})
-
-// ---------- Salida a venta (D02, D04) ----------
+// ---------- Sacar para la venta (D02, D04): de un depósito (Frío) a Directo a Venta ----------
 
 rutasStock.post('/salidas', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
@@ -298,23 +315,27 @@ rutasStock.post('/salidas', requiere('stock.mover'), async (c) => {
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote sale.')
   const cantidad = cantidadPositiva(b.cantidad)
+  const desde = await leerDeposito(db, b.desde, DEPOSITO.frio, 'de qué depósito sale')
+  const venta = await leerDeposito(db, DEPOSITO.venta, null)
+  if (desde.id === venta.id) throw invalido(`Ya está en «${venta.nombre}». Elegí de qué otro depósito sale.`)
   const producto = productoDelSector(await leerProductos(db, [productoId]), productoId, sector)
 
-  const id = nuevoId()
+  const ids = [nuevoId(), nuevoId()]
   const { fecha, dia } = ahora()
+  const base = { sector, productoId, lote, tipo: 'salida_venta' as const, motivo: `De «${desde.nombre}» a «${venta.nombre}»`, usuarioId: u.id, fecha, dia }
   await conControlDeStock(
     db,
-    [sentenciaMovimiento(db, {
-      id, sector, productoId, lote, tipo: 'salida_venta', cantidad: -cantidad, finalidad: 'reposicion', motivo: null,
-      sucursalId: null, envioId: null, usuarioId: u.id, fecha, dia,
-    })],
-    [{ sector, productoId, nombre: producto.nombre, lote, finalidad: 'reposicion', sale: cantidad }],
+    [
+      sentenciaMovimiento(db, { ...base, id: ids[0], depositoId: desde.id, cantidad: -cantidad }),
+      sentenciaMovimiento(db, { ...base, id: ids[1], depositoId: venta.id, cantidad }),
+    ],
+    [{ sector, productoId, nombre: producto.nombre, lote, deposito: desde, sale: cantidad }],
   )
-  const [m] = await movimientosEnOrden(db, [id])
+  const [m] = await movimientosEnOrden(db, [ids[0]])
   return c.json<Movimiento>(m)
 })
 
-// ---------- Envío a sucursal (D03, D04, E05) ----------
+// ---------- Envío a sucursal (D03, D04, E05): sale de «Para sucursales» ----------
 
 rutasStock.post('/envios', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
@@ -327,6 +348,7 @@ rutasStock.post('/envios', requiere('stock.mover'), async (c) => {
   const sucursal = await una<{ nombre: string; activo: number }>(db, 'SELECT nombre, activo FROM sucursales WHERE id = ?', sucursalId)
   if (!sucursal) throw invalido('Esa sucursal no existe. Recargá la página y probá de nuevo.')
   if (!sucursal.activo) throw invalido(`La sucursal ${sucursal.nombre} está desactivada. Elegí otra.`)
+  const deposito = await leerDeposito(db, DEPOSITO.sucursales, null)
 
   if (!Array.isArray(b.items) || b.items.length === 0) throw invalido('Cargá al menos un producto para enviar.')
   if (b.items.length > MAX_LINEAS_ENVIO) throw invalido('Son demasiados productos en un solo envío.')
@@ -354,10 +376,10 @@ rutasStock.post('/envios', requiere('stock.mover'), async (c) => {
   await conControlDeStock(
     db,
     lineas.map((l, i) => sentenciaMovimiento(db, {
-      id: ids[i], sector, productoId: l.productoId, lote: l.lote, tipo: 'envio', cantidad: -l.cantidad, finalidad: 'distribucion', motivo: null,
+      id: ids[i], sector, productoId: l.productoId, depositoId: deposito.id, lote: l.lote, tipo: 'envio', cantidad: -l.cantidad, motivo: null,
       sucursalId, envioId, usuarioId: u.id, fecha, dia,
     })),
-    lineas.map((l) => ({ sector, productoId: l.productoId, nombre: l.nombre, lote: l.lote, finalidad: 'distribucion' as const, sale: l.cantidad })),
+    lineas.map((l) => ({ sector, productoId: l.productoId, nombre: l.nombre, lote: l.lote, deposito, sale: l.cantidad })),
   )
   return c.json<RespuestaEnvio>({ envioId, movimientos: await movimientosEnOrden(db, ids) })
 })
@@ -376,7 +398,7 @@ rutasStock.post('/ajustes', requiere('stock.ajustar', 'Solo el administrador pue
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Indicá el lote.')
   const cantidad = cantidadPositiva(b.cantidad)
-  const finalidad = leerFinalidad(b.finalidad)
+  const deposito = await leerDeposito(db, b.depositoId, DEPOSITO.frio)
   let signo: 1 | -1
   if (tipo === 'ajuste') {
     if (b.sentido !== 1 && b.sentido !== -1) throw invalido('Elegí si el ajuste suma o resta.')
@@ -390,32 +412,32 @@ rutasStock.post('/ajustes', requiere('stock.ajustar', 'Solo el administrador pue
 
   const id = nuevoId()
   const { fecha, dia } = ahora()
-  const antes = await stockActual(db, sector, productoId, lote, finalidad)
+  const antes = await stockActual(db, sector, productoId, lote, deposito.id)
   const delta = signo * cantidad
   await conControlDeStock(
     db,
     [
       sentenciaMovimiento(db, {
-        id, sector, productoId, lote, tipo, cantidad: delta, finalidad, motivo, sucursalId: null, envioId: null, usuarioId: u.id, fecha, dia,
+        id, sector, productoId, depositoId: deposito.id, lote, tipo, cantidad: delta, motivo, usuarioId: u.id, fecha, dia,
       }),
       sentenciaAuditoria(db, {
         tabla: 'movimientos',
         registroId: id,
         accion: 'ajustar',
         usuarioId: u.id,
-        antes: { sector, productoId, producto: producto.nombre, lote, finalidad, stock: antes },
-        despues: { sector, productoId, producto: producto.nombre, lote, finalidad, stock: antes + delta, tipo, cantidad: delta, motivo },
+        antes: { sector, productoId, producto: producto.nombre, lote, deposito: deposito.nombre, stock: antes },
+        despues: { sector, productoId, producto: producto.nombre, lote, deposito: deposito.nombre, stock: antes + delta, tipo, cantidad: delta, motivo },
       }),
     ],
-    signo < 0 ? [{ sector, productoId, nombre: producto.nombre, lote, finalidad, sale: cantidad }] : [],
+    signo < 0 ? [{ sector, productoId, nombre: producto.nombre, lote, deposito, sale: cantidad }] : [],
   )
   const [m] = await movimientosEnOrden(db, [id])
   return c.json<Movimiento>(m)
 })
 
-// ---------- Cambio de finalidad (C05) · operador del sector y administrador ----------
+// ---------- Transferencia entre depósitos · operador del sector y administrador ----------
 
-rutasStock.post('/reasignaciones', requiere('stock.mover'), async (c) => {
+rutasStock.post('/transferencias', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
@@ -424,23 +446,23 @@ rutasStock.post('/reasignaciones', requiere('stock.mover'), async (c) => {
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote.')
   const cantidad = cantidadPositiva(b.cantidad)
-  if (vacio(b.desde)) throw invalido('Elegí de qué finalidad pasan.')
-  const desde = leerFinalidad(b.desde)
-  const hacia = otraFinalidad(desde)
+  const desde = await leerDeposito(db, b.desde, null, 'de qué depósito sale')
+  const hacia = await leerDeposito(db, b.hacia, null, 'a qué depósito va')
+  if (desde.id === hacia.id) throw invalido('El depósito de origen y el de destino son el mismo. Elegí otro destino.')
   const producto = productoDelSector(await leerProductos(db, [productoId]), productoId, sector)
 
-  // Primero sale de la finalidad de origen: si no alcanza, el trigger frena todo el par.
-  const motivo = `Cambio de finalidad: de «${NOMBRE_FINALIDAD[desde]}» a «${NOMBRE_FINALIDAD[hacia]}»`
+  // Primero sale del depósito de origen: si no alcanza, el trigger frena todo el par.
+  const motivo = `De «${desde.nombre}» a «${hacia.nombre}»`
   const ids = [nuevoId(), nuevoId()]
   const { fecha, dia } = ahora()
-  const base = { sector, productoId, lote, tipo: 'reasignacion' as const, motivo, sucursalId: null, envioId: null, usuarioId: u.id, fecha, dia }
+  const base = { sector, productoId, lote, tipo: 'transferencia' as const, motivo, usuarioId: u.id, fecha, dia }
   await conControlDeStock(
     db,
     [
-      sentenciaMovimiento(db, { ...base, id: ids[0], cantidad: -cantidad, finalidad: desde }),
-      sentenciaMovimiento(db, { ...base, id: ids[1], cantidad, finalidad: hacia }),
+      sentenciaMovimiento(db, { ...base, id: ids[0], depositoId: desde.id, cantidad: -cantidad }),
+      sentenciaMovimiento(db, { ...base, id: ids[1], depositoId: hacia.id, cantidad }),
     ],
-    [{ sector, productoId, nombre: producto.nombre, lote, finalidad: desde, sale: cantidad }],
+    [{ sector, productoId, nombre: producto.nombre, lote, deposito: desde, sale: cantidad }],
   )
   return c.json<Movimiento[]>(await movimientosEnOrden(db, ids))
 })
@@ -470,6 +492,9 @@ rutasStock.get('/movimientos', requiere('stock.ver'), async (c) => {
     producto: corto(q.producto, 'El producto'),
     tipos: tipos as TipoMovimiento[],
     lote: corto(q.lote, 'El lote'),
+    deposito: corto(q.deposito, 'El depósito'),
+    // De cada par (sacar para la venta, transferencia) se muestra la salida: su motivo dice de dónde a dónde.
+    sinEntradasDePares: true,
   }))
 })
 

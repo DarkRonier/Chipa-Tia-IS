@@ -1,7 +1,7 @@
 // Lecturas que comparten varios módulos (producción, stock, lotes, trazabilidad, reportes).
 // Cada una arma el objeto de src/shared/tipos.ts listo para devolver por la API.
 import { diaLegible, diaPY } from '../shared/hora'
-import type { Finalidad, LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoMovimiento, Turno } from '../shared/tipos'
+import type { Deposito, LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoMovimiento, Turno } from '../shared/tipos'
 import { todas, todasPorTrozos } from './db'
 import type { BaseD1, ValorSQL } from './entorno'
 
@@ -126,7 +126,7 @@ export async function leerLotesChipa(db: BaseD1, filtro: {
   const columnas = `SELECT l.id, l.codigo, l.produccion_id, l.amasada, l.dia,
       COALESCE((SELECT SUM(i.cocinado) FROM produccion_items i WHERE i.produccion_id = l.produccion_id), 0) AS horno,
       COALESCE((SELECT SUM(i.guardado) FROM produccion_items i WHERE i.produccion_id = l.produccion_id), 0) AS congelador,
-      COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = 'chiperia' AND m.lote = l.codigo), 0) AS stock
+      COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = 'chiperia' AND m.lote = l.codigo AND m.deposito_id <> 'venta'), 0) AS stock
     FROM lotes_chipa l`
   const orden = 'ORDER BY l.dia DESC, l.amasada DESC'
   let filas: FilaLoteChipa[]
@@ -203,9 +203,9 @@ export async function leerProducciones(db: BaseD1, filtro: {
   }
   if (!filas.length) return []
   const ids = filas.map((f) => f.id)
-  const items = await todasPorTrozos<{ produccion_id: string; producto_id: string; nombre: string; cocinado: number; guardado: number; finalidad: Finalidad }>(
+  const items = await todasPorTrozos<{ produccion_id: string; producto_id: string; nombre: string; cocinado: number; guardado: number; deposito_id: string }>(
     db, ids,
-    (m) => `SELECT i.produccion_id, i.producto_id, pr.nombre, i.cocinado, i.guardado, i.finalidad
+    (m) => `SELECT i.produccion_id, i.producto_id, pr.nombre, i.cocinado, i.guardado, i.deposito_id
               FROM produccion_items i JOIN productos pr ON pr.id = i.producto_id
              WHERE i.produccion_id IN (${m}) ORDER BY pr.orden, pr.nombre`,
   )
@@ -221,7 +221,7 @@ export async function leerProducciones(db: BaseD1, filtro: {
     dia: f.dia,
     turno: f.turno,
     items: items.filter((i) => i.produccion_id === f.id).map((i) => ({
-      productoId: i.producto_id, productoNombre: i.nombre, cocinado: i.cocinado, guardado: i.guardado, finalidad: i.finalidad,
+      productoId: i.producto_id, productoNombre: i.nombre, cocinado: i.cocinado, guardado: i.guardado, depositoId: i.deposito_id,
     })),
     lote: lotes.find((l) => l.produccionId === f.id) ?? null,
     corregidoPor: f.corregido_por,
@@ -240,7 +240,8 @@ interface FilaMovimiento {
   lote: string | null
   tipo: TipoMovimiento
   cantidad: number
-  finalidad: Finalidad
+  deposito_id: string
+  deposito_nombre: string
   motivo: string | null
   sucursal_id: string | null
   sucursal_nombre: string | null
@@ -261,6 +262,9 @@ export interface FiltroMovimientos {
   producto?: string | null
   tipos?: TipoMovimiento[]
   lote?: string | null
+  deposito?: string | null
+  /** Sin la mitad que entra en el depósito de destino de «Sacar para la venta» y de las transferencias. */
+  sinEntradasDePares?: boolean
   /** Movimientos de cualquiera de estos lotes de chipa. */
   lotes?: string[]
   envioId?: string | null
@@ -276,7 +280,8 @@ const aMovimiento = (f: FilaMovimiento): Movimiento => ({
   lote: f.lote,
   tipo: f.tipo,
   cantidad: f.cantidad,
-  finalidad: f.finalidad,
+  depositoId: f.deposito_id,
+  depositoNombre: f.deposito_nombre,
   motivo: f.motivo,
   sucursalId: f.sucursal_id,
   sucursalNombre: f.sucursal_nombre,
@@ -290,12 +295,13 @@ const aMovimiento = (f: FilaMovimiento): Movimiento => ({
 
 /** Movimientos del libro de stock con nombres de producto, sucursal y usuario. El más nuevo primero. */
 export async function leerMovimientos(db: BaseD1, filtro: FiltroMovimientos = {}): Promise<Movimiento[]> {
-  const columnas = `SELECT m.id, m.sector, m.producto_id, p.nombre AS producto_nombre, m.lote, m.tipo, m.cantidad, m.finalidad, m.motivo,
+  const columnas = `SELECT m.id, m.sector, m.producto_id, p.nombre AS producto_nombre, m.lote, m.tipo, m.cantidad, m.deposito_id, d.nombre AS deposito_nombre, m.motivo,
       m.sucursal_id, s.nombre AS sucursal_nombre, m.envio_id, m.produccion_id, m.usuario_id, u.nombre AS usuario_nombre,
       m.fecha, m.dia
     FROM movimientos m
     JOIN productos p ON p.id = m.producto_id
     JOIN usuarios u ON u.id = m.usuario_id
+    JOIN depositos d ON d.id = m.deposito_id
     LEFT JOIN sucursales s ON s.id = m.sucursal_id`
   if (filtro.ids || filtro.lotes) {
     const [col, ids] = filtro.ids ? ['m.id', filtro.ids] : ['m.lote', filtro.lotes!]
@@ -312,10 +318,20 @@ export async function leerMovimientos(db: BaseD1, filtro: FiltroMovimientos = {}
     .si(lleno(filtro.producto), 'm.producto_id = ?', filtro.producto ?? null)
     .si(tipos.length > 0, `m.tipo IN (${tipos.map(() => '?').join(', ')})`, ...tipos)
     .si(lleno(filtro.lote), 'm.lote = ?', filtro.lote ?? null)
+    .si(lleno(filtro.deposito), 'm.deposito_id = ?', filtro.deposito ?? null)
+    .si(!!filtro.sinEntradasDePares, "NOT (m.tipo IN ('salida_venta', 'transferencia') AND m.cantidad > 0)")
     .si(lleno(filtro.envioId), 'm.envio_id = ?', filtro.envioId ?? null)
     .si(lleno(filtro.produccionId), 'm.produccion_id = ?', filtro.produccionId ?? null)
   const filas = await todas<FilaMovimiento>(
     db, `${columnas} ${w.where} ORDER BY m.fecha DESC, m.id LIMIT ?`, ...w.params, filtro.limite ?? 2000,
   )
   return filas.map(aMovimiento)
+}
+
+/** Depósitos en su orden (Directo a Venta, Frío, Para sucursales, Materia prima y los que agregó el administrador). */
+export async function leerDepositos(db: BaseD1, todos = true): Promise<Deposito[]> {
+  const filas = await todas<{ id: string; nombre: string; descripcion: string; sistema: number; activo: number }>(
+    db, `SELECT id, nombre, descripcion, sistema, activo FROM depositos ${todos ? '' : 'WHERE activo = 1'} ORDER BY orden, nombre`,
+  )
+  return filas.map((f) => ({ id: f.id, nombre: f.nombre, descripcion: f.descripcion, sistema: !!f.sistema, activo: !!f.activo }))
 }

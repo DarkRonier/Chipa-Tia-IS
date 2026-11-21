@@ -104,7 +104,8 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     expect(r.status).toBe(200)
     return new Map(r.body.map((f) => [f.productoId, f]))
   }
-  const stockDe = async (token: string, producto: string) => (await stock(token)).get(producto)?.total ?? 0
+  /** Lo que hay de un producto en un depósito: sin indicarlo, en Frío (lo guardado; lo del horno va a Directo a Venta). */
+  const stockDe = async (token: string, producto: string, deposito = 'frio') => (await stock(token)).get(producto)?.porDeposito[deposito] ?? 0
 
   beforeAll(async () => {
     ponerReloj(reloj)
@@ -305,24 +306,26 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     expect(antes.items.find((i) => i.productoId === MARINERA)!.cocinado).toBe(15)
   })
 
-  // ---------- D. Stock en frío y sucursales ----------
+  // ---------- D. Stock (por depósitos) y sucursales ----------
 
-  it('D01 · en el stock en frío hay 8 empanadas', async () => {
+  it('D01 · en el stock en frío hay 8 empanadas (las 30 del horno están en Directo a Venta)', async () => {
     const s = await stock(tk.cocina)
-    expect(s.get(EMPANADA)).toMatchObject({ productoNombre: 'Empanada frita (carne)', total: 8, lotes: [] })
-    expect(s.get(MARINERA)!.total).toBe(0)
+    expect(s.get(EMPANADA)).toMatchObject({ productoNombre: 'Empanada frita (carne)', total: 38, porDeposito: { frio: 8, venta: 30 }, lotes: [] })
+    expect(await stockDe(tk.cocina, MARINERA)).toBe(0)
+    expect(await stockDe(tk.cocina, MARINERA, 'venta')).toBe(14)
   })
 
   it('D02 · sacar 3 empanadas para reponer la venta deja 5', async () => {
     const r = await pedir<Movimiento>(tk.cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 3 })
     expect(r.status).toBe(200)
-    expect(r.body).toMatchObject({ tipo: 'salida_venta', cantidad: -3, lote: null, usuarioNombre: 'Encargado Cocina', dia: DIA })
+    expect(r.body).toMatchObject({ tipo: 'salida_venta', cantidad: -3, lote: null, depositoId: 'frio', usuarioNombre: 'Encargado Cocina', dia: DIA })
     expect(await stockDe(tk.cocina, EMPANADA)).toBe(5)
+    expect(await stockDe(tk.cocina, EMPANADA, 'venta')).toBe(33)
   })
 
   it('D03 · enviar 2 empanadas a una sucursal queda registrado y deja 3', async () => {
-    // C05: lo guardado quedó para reponer la venta; 2 se pasan a «Sucursales», que es de donde salen los envíos.
-    expect((await pedir(tk.cocina, 'POST', '/reasignaciones', { productoId: EMPANADA, cantidad: 2, desde: 'reposicion' })).status).toBe(200)
+    // C05: lo guardado quedó en «Frío»; 2 se pasan a «Para sucursales», que es de donde salen los envíos.
+    expect((await pedir(tk.cocina, 'POST', '/transferencias', { productoId: EMPANADA, cantidad: 2, desde: 'frio', hacia: 'sucursales' })).status).toBe(200)
     const r = await pedir<RespuestaEnvio>(tk.cocina, 'POST', '/envios', {
       sucursalId: sanLorenzo.id, items: [{ productoId: EMPANADA, cantidad: 2 }],
     })
@@ -340,7 +343,7 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     const r = await pedir(tk.cocina, 'POST', '/envios', { sucursalId: sanLorenzo.id, items: [{ productoId: EMPANADA, cantidad: 10 }] })
     expect(r.status).toBe(409)
     expect(r.body.error.codigo).toBe('stock_insuficiente')
-    expect(r.body.error.mensaje).toMatch(/^No hay stock de Empanada frita \(carne\)\. En «Reponer venta» hay 3:/)
+    expect(r.body.error.mensaje).toMatch(/^No hay stock de Empanada frita \(carne\) en «Para sucursales»\. En «Directo a Venta» hay 33 y en «Frío» hay 3: pasalo con «Transferir»/)
     // Un envío con una línea que no alcanza no registra ninguna.
     const mixto = await pedir(tk.cocina, 'POST', '/envios', {
       sucursalId: sanLorenzo.id, items: [{ productoId: EMPANADA, cantidad: 1 }, { productoId: MARINERA, cantidad: 5 }],
@@ -359,7 +362,9 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     const ayer = sumarDias(DIA, -1)
     expect((await pedir(tk.cocina, 'GET', `/movimientos?desde=${ayer}&hasta=${ayer}`)).body).toEqual([])
     expect((await pedir(tk.cocina, 'GET', '/movimientos?sucursal=suc-centro')).body).toEqual([])
-    expect((await pedir(tk.cocina, 'GET', `/movimientos?producto=${MARINERA}`)).body).toEqual([])
+    // De la marinera solo hay lo del horno (que entra en Directo a Venta) y su corrección de C04: nunca salió.
+    const marinera = await pedir<Movimiento[]>(tk.cocina, 'GET', `/movimientos?producto=${MARINERA}`)
+    expect(marinera.body.map((m) => [m.tipo, m.depositoId, m.cantidad]).sort()).toEqual([['ajuste', 'venta', -1], ['produccion', 'venta', 15]])
   })
 
   it('D06 · una merma de 1 empanada con su motivo deja 2 y figura en el historial', async () => {
@@ -371,9 +376,11 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     expect(r.body).toMatchObject({ tipo: 'merma', cantidad: -1, motivo: merma.motivo, usuarioNombre: 'Administración' })
     expect(await stockDe(tk.cocina, EMPANADA)).toBe(2)
     const historial = await pedir<Movimiento[]>(tk.cocina, 'GET', `/movimientos?producto=${EMPANADA}&tipo=merma,envio,salida_venta,produccion`)
-    expect(historial.body.map((m) => [m.tipo, m.cantidad, m.motivo])).toEqual([
-      ['merma', -1, merma.motivo], ['envio', -2, null], ['salida_venta', -3, null], ['produccion', 8, null],
+    expect(historial.body.map((m) => [m.tipo, m.depositoId, m.cantidad, m.motivo])).toEqual([
+      ['merma', 'frio', -1, merma.motivo], ['envio', 'sucursales', -2, null], ['salida_venta', 'frio', -3, 'De «Frío» a «Directo a Venta»'],
+      ...historial.body.filter((m) => m.tipo === 'produccion').map((m) => ['produccion', m.depositoId, m.cantidad, null]),
     ])
+    expect(historial.body.filter((m) => m.tipo === 'produccion').map((m) => [m.depositoId, m.cantidad]).sort()).toEqual([['frio', 8], ['venta', 30]])
   })
 
   it('D07 · el stock inicial de otro producto aparece en el stock en frío', async () => {
@@ -383,8 +390,8 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     expect(r.status).toBe(200)
     expect(r.body).toMatchObject({ tipo: 'stock_inicial', cantidad: 20 })
     const s = await stock(tk.cocina)
-    expect(s.get(CROQUETE)).toMatchObject({ productoNombre: 'Croquete de carne', total: 20 })
-    expect(s.get(EMPANADA)!.total).toBe(2)
+    expect(s.get(CROQUETE)).toMatchObject({ productoNombre: 'Croquete de carne', total: 20, porDeposito: { frio: 20 } })
+    expect(await stockDe(tk.cocina, EMPANADA)).toBe(2)
   })
 
   // ---------- E. Chipería y lotes ----------
@@ -402,7 +409,7 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
   })
 
   it('E02 · las chipas registradas eligiendo ese lote quedan ligadas a la harina', async () => {
-    const items = [{ productoId: CHIPA, cocinado: 200, guardado: 300, finalidad: 'distribucion' }]
+    const items = [{ productoId: CHIPA, cocinado: 200, guardado: 300, depositoId: 'sucursales' }]
     expect((await pedir(tk.chiperia, 'POST', '/producciones', { turno: 'dia', items })).status).toBe(400)
     const r = await pedir<Produccion>(tk.chiperia, 'POST', '/producciones', { turno: 'dia', items, lotesMP: [{ id: harina.id, cantidad: 1 }] })
     expect(r.status).toBe(200)
@@ -416,11 +423,13 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     expect(leida.lote).toMatchObject({ codigo: 'CH-261014-1', amasada: 1, produccionId: chipas.id })
     lote = leida.lote!.codigo
     const movs = await pedir<Movimiento[]>(tk.chiperia, 'GET', `/movimientos?lote=${lote}`)
-    expect(movs.body.map((m) => [m.tipo, m.cantidad, m.produccionId])).toEqual([['produccion', 300, chipas.id]])
+    expect(movs.body.map((m) => [m.tipo, m.depositoId, m.cantidad, m.produccionId]).sort()).toEqual([
+      ['produccion', 'sucursales', 300, chipas.id], ['produccion', 'venta', 200, chipas.id],
+    ])
   })
 
   it('E04 · se guardan 200 chipas al horno y 300 al congelador', async () => {
-    expect(chipas.items).toEqual([{ productoId: CHIPA, productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300, finalidad: 'distribucion' }])
+    expect(chipas.items).toEqual([{ productoId: CHIPA, productoNombre: 'Chipa tradicional', cocinado: 200, guardado: 300, depositoId: 'sucursales' }])
     const lotes = await pedir<LoteChipa[]>(tk.chiperia, 'GET', `/lotes-chipa?desde=${DIA}&hasta=${DIA}`)
     expect(lotes.body.map((l) => [l.codigo, l.horno, l.congelador, l.stock])).toEqual([[lote, 200, 300, 300]])
   })
@@ -436,7 +445,7 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     envioChipas = r.body
     expect(r.body.movimientos[0]).toMatchObject({ tipo: 'envio', lote, cantidad: -100, sucursalNombre: 'Sucursal San Lorenzo' })
     const s = await stock(tk.chiperia)
-    expect(s.get(CHIPA)).toMatchObject({ total: 200, lotes: [{ lote, cantidad: 200 }] })
+    expect(s.get(CHIPA)).toMatchObject({ total: 400, porDeposito: { venta: 200, sucursales: 200 }, lotes: [{ lote, cantidad: 400, porDeposito: { venta: 200, sucursales: 200 } }] })
     const lotes = await pedir<LoteChipa[]>(tk.chiperia, 'GET', '/lotes-chipa')
     expect(lotes.body.find((l) => l.codigo === lote)!.stock).toBe(200)
   })
@@ -589,11 +598,16 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
       ['cocina', 'Marinera de carne', 14, 0],
       ['cocina', 'Hamburguesa casera', 3, 0],
     ])
-    expect(rep.stock.map((f) => [f.sector, f.productoNombre, f.total])).toEqual([
-      ['chiperia', 'Chipa tradicional', 200],
-      ['cocina', 'Croquete de carne', 20],
-      ['cocina', 'Empanada frita (carne)', 2],
+    // Stock por depósito: lo del horno quedó en Directo a Venta (todavía no hubo ventas de caja).
+    expect(rep.stock.map((f) => [f.sector, f.productoNombre, f.total, f.porDeposito])).toEqual([
+      ['chiperia', 'Chipa tradicional', 400, { sucursales: 200, venta: 200 }],
+      ['panaderia', 'Pan felipe', 40, { venta: 40 }],
+      ['cocina', 'Croquete de carne', 20, { frio: 20 }],
+      ['cocina', 'Empanada frita (carne)', 35, { frio: 2, venta: 33 }],
+      ['cocina', 'Marinera de carne', 14, { venta: 14 }],
+      ['cocina', 'Hamburguesa casera', 3, { venta: 3 }],
     ])
+    expect(rep.depositos.map((d) => d.id)).toEqual(['venta', 'frio', 'sucursales', 'materia_prima'])
     expect(rep.envios.map((f) => [f.sucursalNombre, f.productoNombre, f.cantidad])).toEqual([
       ['Sucursal San Lorenzo', 'Chipa tradicional', 100],
       ['Sucursal San Lorenzo', 'Empanada frita (carne)', 2],

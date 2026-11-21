@@ -1,7 +1,8 @@
 // M10: proveedores, compras y pagos a proveedores.
 // - Proveedores: los cargan y editan el administrador y el supervisor. Los sectores solo los eligen al cargar una compra.
 // - Compras: con fecha, comprobante, detalle, importe y vencimiento. Cada renglón con producto suma a su stock (tipo
-//   'compra' en el libro de movimientos, en el sector del producto). El administrador y el supervisor compran
+//   'compra' en el libro de movimientos, en el sector del producto: la venta directa entra en el depósito Directo a
+//   Venta y la materia prima en el depósito Materia prima). El administrador y el supervisor compran
 //   cualquier producto y pueden agregar renglones de texto libre (flete, servicio…), que no tocan el stock. Un sector
 //   compra solo productos de su sector cuya categoría el administrador habilitó para ese sector.
 // - Pagos: parciales o totales. Solo el administrador y el supervisor los marcan; nunca superan el saldo (trigger
@@ -12,7 +13,7 @@ import type { Alerta } from '../../shared/alertas'
 import { diaLegible, sumarDias } from '../../shared/hora'
 import { puede } from '../../shared/permisos'
 import {
-  MEDIOS_PAGO, NOMBRE_MEDIO_PAGO,
+  DEPOSITO, MEDIOS_PAGO, NOMBRE_MEDIO_PAGO,
   type Compra, type CompraItem, type CuentaProveedor, type EstadoCompra, type MedioPago, type PagoProveedor, type ProductoCompra,
   type Proveedor, type ReporteCompras, type SectorId, type TipoProducto,
 } from '../../shared/tipos'
@@ -513,9 +514,15 @@ async function leerRenglones(base: BaseD1, u: UsuarioSesion, v: unknown): Promis
 const sentenciaMovimientoCompra = (base: BaseD1, r: Renglon, compraId: string, cantidad: number, motivo: string, usuarioId: string, fecha: string, dia: string) =>
   sentencia(
     base,
-    `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, finalidad, motivo, usuario_id, fecha, dia, compra_id)
-     VALUES (?, ?, ?, ?, 'compra', ?, 'reposicion', ?, ?, ?, ?, ?)`,
-    nuevoId(), r.sector, r.productoId, r.lote, cantidad, motivo, usuarioId, fecha, dia, compraId,
+    // Depósito: lo de venta directa entra en Directo a Venta; la materia prima, en Materia prima. Al anular, sale del
+    // mismo depósito al que había entrado.
+    `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, deposito_id, motivo, usuario_id, fecha, dia, compra_id)
+     VALUES (?, ?, ?, ?, 'compra', ?,
+             COALESCE(
+               (SELECT m.deposito_id FROM movimientos m WHERE m.compra_id = ? AND m.producto_id = ? AND m.cantidad > 0 LIMIT 1),
+               CASE (SELECT p.tipo FROM productos p WHERE p.id = ?) WHEN 'reventa' THEN '${DEPOSITO.venta}' ELSE '${DEPOSITO.materiaPrima}' END),
+             ?, ?, ?, ?, ?)`,
+    nuevoId(), r.sector, r.productoId, r.lote, cantidad, compraId, r.productoId, r.productoId, motivo, usuarioId, fecha, dia, compraId,
   )
 
 /** El proveedor de la compra; sin proveedor, queda como «Sin nombre». */

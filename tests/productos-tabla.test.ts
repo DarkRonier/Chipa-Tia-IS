@@ -6,8 +6,8 @@ import {
 import type { Producto } from '../src/shared/tipos'
 
 const base: Producto = {
-  id: '', sector: 'chiperia', nombre: '', unidad: 'unidades', activo: true, stockMinimo: null, stockObligatorio: true,
-  categoriaId: null, precioVenta: null, iva: 10, ventaDescuentaStock: false, codigo: '', tipo: 'elaborado',
+  id: '', sector: 'chiperia', nombre: '', unidad: 'unidades', activo: true,
+  categoriaId: null, precioVenta: null, iva: 10, codigo: '', tipo: 'elaborado',
 }
 const prod = (id: string, cambios: Partial<Producto> = {}): Producto => ({ ...base, id, nombre: id, ...cambios })
 
@@ -18,8 +18,8 @@ const nombres: Nombres = {
 
 const lista = [
   prod('Chipa so\'o', { codigo: 'CS1', precioVenta: 5000 }),
-  prod('Queso Paraguay', { tipo: 'materia_prima', categoriaId: 'lac', stockObligatorio: false }),
-  prod('Coca-Cola 500 ml', { sector: 'cocina', tipo: 'reventa', categoriaId: 'beb', precioVenta: 8000, ventaDescuentaStock: true }),
+  prod('Queso Paraguay', { tipo: 'materia_prima', categoriaId: 'lac' }),
+  prod('Coca-Cola 500 ml', { sector: 'cocina', tipo: 'reventa', categoriaId: 'beb', precioVenta: 8000 }),
   prod('Chipa vieja', { activo: false }),
   prod('Pan casero', { sector: 'panaderia' }),
 ]
@@ -77,7 +77,7 @@ describe('exportación', () => {
   it('una fila por producto con todas las columnas', () => {
     const filas = filasExportacion(lista.slice(0, 3), nombres)
     expect(filas.every((f) => f.length === ENCABEZADOS_EXPORTACION.length)).toBe(true)
-    expect(filas[2]).toEqual(['Coca-Cola 500 ml', '', 'Cocina y buffet', 'Venta directa', 'Bebidas', 'unidades', 'Gs. 8.000', 'IVA 10 %', 'Sí', 'Sí', '', 'Activo'])
+    expect(filas[2]).toEqual(['Coca-Cola 500 ml', '', 'Cocina y buffet', 'Venta directa', 'Bebidas', 'unidades', 'Gs. 8.000', 'IVA 10 %', 'Activo'])
     expect(filas[1][6]).toBe('')
   })
 

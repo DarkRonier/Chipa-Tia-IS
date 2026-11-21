@@ -87,8 +87,7 @@ export function botonesPagina(actual: number, paginas: number): (number | null)[
 }
 
 export const ENCABEZADOS_EXPORTACION = [
-  'Producto', 'Código', 'Sector', 'Tipo', 'Categoría de compras', 'Unidad', 'Precio de venta', 'IVA',
-  'La venta descuenta stock', 'Stock obligatorio', 'Stock mínimo', 'Estado',
+  'Producto', 'Código', 'Sector', 'Tipo', 'Categoría de compras', 'Unidad', 'Precio de venta', 'IVA', 'Estado',
 ]
 
 /** Una fila por producto, con las mismas columnas que ENCABEZADOS_EXPORTACION. */
@@ -102,9 +101,6 @@ export function filasExportacion(lista: Producto[], n: Nombres): string[][] {
     p.unidad,
     p.precioVenta === null ? '' : gs(p.precioVenta),
     p.precioVenta === null ? '' : NOMBRE_IVA[p.iva],
-    p.precioVenta === null ? '' : p.ventaDescuentaStock ? 'Sí' : 'No',
-    p.stockObligatorio ? 'Sí' : 'No',
-    p.stockMinimo === null ? '' : String(p.stockMinimo),
     p.activo ? 'Activo' : 'Desactivado',
   ])
 }

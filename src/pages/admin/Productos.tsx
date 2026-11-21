@@ -1,6 +1,7 @@
 // B01: productos de todos los sectores en una tabla paginada (10 por página). El sector es una columna más.
 // Arriba a la izquierda el filtro, arriba a la derecha «+ Nuevo producto»; la descarga (PDF o CSV) va sobre la tabla.
-// Crear y editar se hace en un modal: en la tabla no se cambia nada directo (ni el tipo ni el stock obligatorio).
+// Crear y editar se hace en un modal: en la tabla no se cambia nada directo (ni el tipo ni el precio).
+// Los productos no tienen campos de stock: el stock se lleva por depósito (pantalla Stock).
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { patch, post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
@@ -91,7 +92,7 @@ export default function Productos() {
                   <thead>
                     <tr>
                       <th>Producto</th><th>Sector</th><th>Tipo</th><th>Categoría</th>
-                      <th className="num">Precio de venta</th><th>Stock obligatorio</th><th>Estado</th>
+                      <th className="num">Precio de venta</th><th>Estado</th>
                       <th className="acciones"><span className="solo-lector">Acciones</span></th>
                     </tr>
                   </thead>
@@ -142,7 +143,7 @@ export default function Productos() {
 }
 
 /** En el PDF van las columnas que entran en una hoja A4 (el CSV lleva todas). */
-const COLUMNAS_PDF = [0, 1, 2, 3, 4, 5, 6, 7, 9, 11]
+const COLUMNAS_PDF = [0, 1, 2, 3, 4, 5, 6, 7, 8]
 const ENCABEZADOS_PDF = COLUMNAS_PDF.map((i) => ENCABEZADOS_EXPORTACION[i])
 
 // ---------- Filtro ----------
@@ -262,7 +263,6 @@ function FilaProducto({ p, nombres, alEditar }: { p: Producto; nombres: Nombres;
         <td data-etiqueta="Tipo" className="sin-cortar"><span className={`prod-tipo tipo-${p.tipo}`}>{TIPO_CORTO[p.tipo]}</span></td>
         <td data-etiqueta="Categoría" className={categoria ? undefined : 'vacia'}>{categoria || nada}</td>
         <td data-etiqueta="Precio de venta" className="num">{p.precioVenta === null ? <span className="suave">No se vende</span> : gs(p.precioVenta)}</td>
-        <td data-etiqueta="Stock obligatorio">{p.stockObligatorio ? 'Sí' : 'No'}</td>
         <td data-etiqueta="Estado">
           {p.activo ? <span className="prod-estado activo">Activo</span> : <span className="prod-estado">Desactivado</span>}
         </td>
@@ -277,7 +277,7 @@ function FilaProducto({ p, nombres, alEditar }: { p: Producto; nombres: Nombres;
         </td>
       </tr>
       {activar.error && (
-        <tr className="fila-detalle"><td colSpan={8}><Aviso>{activar.error}</Aviso></td></tr>
+        <tr className="fila-detalle"><td colSpan={7}><Aviso>{activar.error}</Aviso></td></tr>
       )}
     </>
   )
@@ -313,9 +313,6 @@ interface Datos {
   unidad: string
   precioVenta: string
   iva: Iva
-  ventaDescuentaStock: boolean
-  stockObligatorio: boolean
-  stockMinimo: string
 }
 
 const datosDe = (p: Producto): Datos => ({
@@ -327,9 +324,6 @@ const datosDe = (p: Producto): Datos => ({
   unidad: p.unidad,
   precioVenta: p.precioVenta === null ? '' : miles(p.precioVenta),
   iva: p.iva,
-  ventaDescuentaStock: p.ventaDescuentaStock,
-  stockObligatorio: p.stockObligatorio,
-  stockMinimo: p.stockMinimo === null ? '' : String(p.stockMinimo),
 })
 
 /** Lo que se manda a la API: la categoría solo vale para lo que se compra; vacío = sin categoría. */
@@ -342,9 +336,6 @@ function cuerpo(d: Datos) {
     unidad: d.unidad.trim() || 'unidades',
     precioVenta: d.precioVenta.trim() || null,
     iva: d.iva,
-    ventaDescuentaStock: d.ventaDescuentaStock,
-    stockObligatorio: d.stockObligatorio,
-    stockMinimo: d.stockMinimo.trim() || null,
   }
 }
 
@@ -359,7 +350,6 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
   const original = modo.tipo === 'editar' ? modo.producto : null
   const [d, setD] = useState<Datos>(() => original ? datosDe(original) : {
     sector: sectorArriba, nombre: '', codigo: '', tipo: 'elaborado', categoriaId: '', unidad: '', precioVenta: '', iva: 10,
-    ventaDescuentaStock: false, stockObligatorio: true, stockMinimo: '',
   })
   const set = (c: Partial<Datos>) => setD((x) => ({ ...x, ...c }))
   const nombreSector = sectores.find((s) => s.id === d.sector)?.nombre ?? d.sector
@@ -367,7 +357,7 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
   const guardar = useAccion(async () => {
     const nuevo = cuerpo(d)
     if (!original) return post<Producto>('/productos', { sector: d.sector, ...nuevo })
-    // Solo lo que cambió (la API rechaza algunos cambios, como sacar el stock obligatorio con stock en negativo).
+    // Solo lo que cambió.
     const antes = cuerpo(datosDe(original)) as Record<string, unknown>
     const cambios = Object.fromEntries(Object.entries(nuevo).filter(([k, v]) => v !== antes[k]))
     if (!Object.keys(cambios).length) return original
@@ -430,10 +420,6 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
             <span>Unidad</span>
             <input value={d.unidad} onChange={(e) => set({ unidad: e.target.value })} maxLength={30} placeholder="unidades" />
           </label>
-          <label className="campo">
-            <span>Stock mínimo en frío <span className="opcional">opcional</span></span>
-            <input value={d.stockMinimo} inputMode="numeric" onChange={(e) => set({ stockMinimo: e.target.value })} maxLength={7} placeholder="Sin aviso" />
-          </label>
         </div>
 
         <fieldset className="prod-grupo">
@@ -449,23 +435,8 @@ function ModalProducto({ modo, categorias, sectores, alCerrar, alGuardar }: {
                 {IVAS.map((i) => <option key={i} value={i}>{NOMBRE_IVA[i]}</option>)}
               </select>
             </label>
-            <label className="check ancho">
-              <input type="checkbox" checked={d.ventaDescuentaStock} disabled={!seVende} onChange={(e) => set({ ventaDescuentaStock: e.target.checked })} />
-              <span>La venta descuenta stock <span className="suave chico">(por ejemplo, una gaseosa; la chipa no, baja al sacarla del frío)</span></span>
-            </label>
+            <p className="pista-campo ancho">Lo que se vende en caja se descuenta del depósito «Directo a Venta».</p>
           </div>
-        </fieldset>
-
-        <fieldset className="prod-grupo">
-          <legend>Stock</legend>
-          <label className="check">
-            <input type="checkbox" checked={d.stockObligatorio} onChange={(e) => set({ stockObligatorio: e.target.checked })} />
-            <span>Stock obligatorio</span>
-          </label>
-          <p className="pista-campo">
-            Con la marca el stock nunca queda en negativo y no deja sacar más de lo que hay (por ejemplo, la chipa).
-            Sin la marca puede quedar sin cargar o en negativo y nunca frena (por ejemplo, el cocido o la harina).
-          </p>
         </fieldset>
 
         <Aviso>{guardar.error}</Aviso>

@@ -1,26 +1,28 @@
-// M11–M13: caja, ventas y factura preimpresa. Lo usan el cajero y el administrador.
+// M11–M13: caja, ventas y factura preimpresa. Lo usan el cajero y el administrador (que no vende).
 // - Caja: una sola caja operativa, como mucho una abierta (índice único). Se abre con un fondo inicial en efectivo;
 //   cada venta, ingreso y retiro suma o resta en su medio de pago; el arqueo compara el efectivo contado con el
 //   esperado; el cierre guarda esperado, contado y diferencia.
 // - Ventas: al contado, con productos, cantidades, precios del catálogo, descuento, medio de pago y cliente opcional.
-//   Solo con la caja abierta. Descuentan stock solo los productos marcados «la venta descuenta stock» (decisión de
-//   Mati, 2026-11-15): lo que sale del frío ya bajó con «Sacar para la venta» y no se descuenta otra vez.
+//   Solo con la caja abierta. Las registra solo el cajero (Mati, 2026-11-21: el administrador y el supervisor no
+//   venden). Todo lo vendido descuenta del depósito Directo a Venta (en Chipería, de los lotes más viejos primero). La
+//   venta nunca se frena por stock: si no estaba cargado, el depósito queda en negativo a la vista.
 // - Factura preimpresa: numeración propia (prefijo y número), una por venta; se puede reimprimir con el mismo número.
-import { Hono } from 'hono'
+import { Hono, type MiddlewareHandler } from 'hono'
 import type { Alerta } from '../../shared/alertas'
 import { diaLegible } from '../../shared/hora'
 import { puede } from '../../shared/permisos'
 import {
-  MEDIOS_PAGO,
+  DEPOSITO, MEDIOS_PAGO,
   type Arqueo, type Caja, type ConfigFactura, type Factura, type Iva, type MedioPago, type MovimientoCaja, type ProductoVenta,
   type SectorId, type TotalesMedio, type Venta, type VentaItem,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, ValorSQL } from '../entorno'
-import { conflicto, esStockInsuficiente, invalido, noEncontrado } from '../errores'
+import { conflicto, invalido, noEncontrado, prohibido } from '../errores'
 import { requiere } from '../sesion'
 import { cuerpo, diaOpcional, texto, textoOpcional } from '../validar'
+import { repartirPorLotes, sentenciaMovimiento } from './stock'
 
 export const rutasCaja = new Hono<Entorno>()
 
@@ -326,16 +328,21 @@ interface FilaProductoVenta {
   sector_nombre: string
   precio_venta: number | null
   iva: Iva
-  venta_descuenta_stock: number
-  stock_obligatorio: number
   activo: number
+  con_lotes: number
   stock: number
 }
 
-const SQL_PRODUCTO_VENTA = `SELECT p.id, p.nombre, p.sector, s.nombre AS sector_nombre, p.precio_venta, p.iva, p.venta_descuenta_stock,
-    p.stock_obligatorio, p.activo,
-    COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.finalidad = 'reposicion'), 0) AS stock
+const SQL_PRODUCTO_VENTA = `SELECT p.id, p.nombre, p.sector, s.nombre AS sector_nombre, p.precio_venta, p.iva, p.activo, s.con_lotes,
+    COALESCE((SELECT SUM(m.cantidad) FROM movimientos m WHERE m.sector = p.sector AND m.producto_id = p.id AND m.deposito_id = '${DEPOSITO.venta}'), 0) AS stock
   FROM productos p JOIN sectores s ON s.id = p.sector`
+
+/** Ver las ventas: el cajero (las de la caja abierta) y quien ve los reportes detallados (el administrador). */
+const verVentas: MiddlewareHandler<Entorno> = async (c, next) => {
+  const rol = c.get('usuario').rol
+  if (!puede(rol, 'ventas.registrar') && !puede(rol, 'reportes.detallados')) throw prohibido()
+  await next()
+}
 
 rutasCaja.get('/ventas/productos', requiere('ventas.registrar'), async (c) => {
   const filas = await todas<FilaProductoVenta>(
@@ -343,7 +350,7 @@ rutasCaja.get('/ventas/productos', requiere('ventas.registrar'), async (c) => {
   )
   return c.json<ProductoVenta[]>(filas.map((f) => ({
     id: f.id, nombre: f.nombre, sector: f.sector, sectorNombre: f.sector_nombre, precio: f.precio_venta!, iva: f.iva,
-    descuentaStock: !!f.venta_descuenta_stock, stock: f.venta_descuenta_stock ? f.stock : null, stockObligatorio: !!f.stock_obligatorio,
+    stock: f.stock,
   })))
 })
 
@@ -421,7 +428,7 @@ async function unaVenta(db: BaseD1, id: string): Promise<Venta> {
   return v
 }
 
-rutasCaja.get('/ventas', requiere('ventas.registrar'), async (c) => {
+rutasCaja.get('/ventas', verVentas, async (c) => {
   const q = c.req.query()
   const db = c.env.DB
   const partes: string[] = []
@@ -443,19 +450,7 @@ rutasCaja.get('/ventas', requiere('ventas.registrar'), async (c) => {
   return c.json<Venta[]>(await leerVentas(db, partes.length ? `WHERE ${partes.join(' AND ')}` : '', ...params))
 })
 
-rutasCaja.get('/ventas/:id', requiere('ventas.registrar'), async (c) => c.json<Venta>(await unaVenta(c.env.DB, c.req.param('id'))))
-
-/** Si el trigger de stock frena la venta, dice qué producto no alcanza. */
-async function mensajeSinStock(db: BaseD1, lineas: { id: string; nombre: string; sector: SectorId; cantidad: number }[]) {
-  for (const l of lineas) {
-    const f = await una<{ total: number }>(
-      db, `SELECT COALESCE(SUM(cantidad), 0) AS total FROM movimientos WHERE sector = ? AND producto_id = ? AND finalidad = 'reposicion'`, l.sector, l.id,
-    )
-    const hay = Math.max(0, f?.total ?? 0)
-    if (l.cantidad > hay) return hay === 0 ? `No hay stock de ${l.nombre}.` : `No hay stock suficiente de ${l.nombre}: hay ${hay} y querés vender ${l.cantidad}.`
-  }
-  return 'No hay stock suficiente para esa venta.'
-}
+rutasCaja.get('/ventas/:id', verVentas, async (c) => c.json<Venta>(await unaVenta(c.env.DB, c.req.param('id'))))
 
 rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
   const db = c.env.DB
@@ -497,7 +492,10 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
 
   const id = nuevoId()
   const { fecha, dia } = ahora()
-  const conStock = lineas.filter((l) => l.p.venta_descuenta_stock)
+  // Todo lo vendido sale de Directo a Venta; en un sector con lotes, de los más viejos primero.
+  const salidas = (await Promise.all(lineas.map(async (l) => (
+    l.p.con_lotes ? await repartirPorLotes(db, l.p.sector, l.p.id, DEPOSITO.venta, l.cantidad) : [{ lote: null, cantidad: l.cantidad }]
+  ).map((parte) => ({ p: l.p, ...parte }))))).flat()
   const sentencias: SentenciaD1[] = [
     sentencia(
       db,
@@ -510,26 +508,21 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
       'INSERT INTO venta_items (id, venta_id, orden, producto_id, nombre, cantidad, precio_unitario, subtotal, iva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       nuevoId(), id, i, l.p.id, l.p.nombre, l.cantidad, l.p.precio_venta, l.subtotal, l.p.iva,
     )),
-    ...conStock.map((l) => sentencia(
-      db,
-      `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, finalidad, motivo, usuario_id, fecha, dia, venta_id)
-       VALUES (?, ?, ?, NULL, 'venta', ?, 'reposicion', ?, ?, ?, ?, ?)`,
-      nuevoId(), l.p.sector, l.p.id, -l.cantidad, 'Venta en caja', u.id, fecha, dia, id,
-    )),
+    ...salidas.map((x) => sentenciaMovimiento(db, {
+      id: nuevoId(), sector: x.p.sector, productoId: x.p.id, depositoId: DEPOSITO.venta, lote: x.lote, tipo: 'venta', cantidad: -x.cantidad,
+      motivo: 'Venta en caja', ventaId: id, usuarioId: u.id, fecha, dia,
+    })),
   ]
   try {
     await db.batch(sentencias)
   } catch (e) {
     if (esCajaCerrada(e)) throw cajaCerradaError()
-    if (esStockInsuficiente(e)) {
-      throw conflicto('stock_insuficiente', await mensajeSinStock(db, conStock.map((l) => ({ id: l.p.id, nombre: l.p.nombre, sector: l.p.sector, cantidad: l.cantidad }))))
-    }
     throw e
   }
   return c.json<Venta>(await unaVenta(db, id))
 })
 
-rutasCaja.post('/ventas/:id/anular', requiere('ventas.registrar'), async (c) => {
+rutasCaja.post('/ventas/:id/anular', requiere('ventas.anular'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
@@ -538,20 +531,18 @@ rutasCaja.post('/ventas/:id/anular', requiere('ventas.registrar'), async (c) => 
   if (venta.anulada) throw conflicto('venta_anulada', 'Esa venta ya está anulada.')
   const caja = await una<{ cerrada_en: string | null }>(db, 'SELECT cerrada_en FROM cajas WHERE id = ?', venta.cajaId)
   if (caja?.cerrada_en) throw conflicto('caja_cerrada', 'Esa venta es de una caja que ya se cerró: no se puede anular.')
-  const movs = await todas<{ sector: SectorId; producto_id: string; cantidad: number }>(
-    db, `SELECT sector, producto_id, cantidad FROM movimientos WHERE venta_id = ? AND tipo = 'venta'`, venta.id,
+  const movs = await todas<{ sector: SectorId; producto_id: string; deposito_id: string; lote: string | null; cantidad: number }>(
+    db, `SELECT sector, producto_id, deposito_id, lote, cantidad FROM movimientos WHERE venta_id = ? AND tipo = 'venta'`, venta.id,
   )
   const { fecha, dia } = ahora()
   await db.batch([
     sentencia(db, 'UPDATE ventas SET anulada_por = ?, anulada_en = ?, motivo_anulacion = ? WHERE id = ? AND anulada_en IS NULL', u.id, fecha, motivo, venta.id),
     sentencia(db, 'UPDATE facturas SET anulada_en = ? WHERE venta_id = ? AND anulada_en IS NULL', fecha, venta.id),
     // Vuelve al stock lo que la venta había descontado (con el mismo tipo, en positivo).
-    ...movs.filter((m) => m.cantidad < 0).map((m) => sentencia(
-      db,
-      `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, finalidad, motivo, usuario_id, fecha, dia, venta_id)
-       VALUES (?, ?, ?, NULL, 'venta', ?, 'reposicion', ?, ?, ?, ?, ?)`,
-      nuevoId(), m.sector, m.producto_id, -m.cantidad, `Anulación de la venta N° ${venta.numero}`, u.id, fecha, dia, venta.id,
-    )),
+    ...movs.filter((m) => m.cantidad < 0).map((m) => sentenciaMovimiento(db, {
+      id: nuevoId(), sector: m.sector, productoId: m.producto_id, depositoId: m.deposito_id, lote: m.lote, tipo: 'venta', cantidad: -m.cantidad,
+      motivo: `Anulación de la venta N° ${venta.numero}`, ventaId: venta.id, usuarioId: u.id, fecha, dia,
+    })),
     sentenciaAuditoria(db, { tabla: 'ventas', registroId: venta.id, accion: 'anular', usuarioId: u.id, antes: venta, despues: { anulada: true, motivo } }),
   ])
   return c.json<Venta>(await unaVenta(db, venta.id))

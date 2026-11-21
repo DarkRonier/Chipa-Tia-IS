@@ -1,4 +1,4 @@
-// Avisos automáticos (C08, E10, G08 e incidencias de máquinas) juntos: arriba del inicio de cada sector y en el Resumen
+// Avisos automáticos (E10, G08 e incidencias de máquinas) juntos: arriba del inicio de cada sector y en el Resumen
 // del administrador y del supervisor.
 import { Link } from 'react-router-dom'
 import { useConsulta } from '../cliente/consultas'
@@ -6,7 +6,6 @@ import type { Alerta, TipoAlerta } from '../shared/alertas'
 import type { SectorId } from '../shared/tipos'
 
 const TITULO: Record<TipoAlerta, string> = {
-  stock_minimo: 'Stock bajo',
   lote_por_vencer: 'Por vencer',
   lote_vencido: 'Vencido',
   limpieza_atrasada: 'Limpieza atrasada',
@@ -24,7 +23,6 @@ function destino(a: Alerta, admin: boolean): string {
   if (!admin) return `/sector${a.enlace}`
   // La máquina puede ser de otro sector que el elegido arriba: el enlace lo lleva para cambiarlo.
   if (a.tipo === 'incidencia_maquina') return `/sector${a.enlace}${a.sector ? `&sector=${a.sector}` : ''}`
-  if (a.tipo === 'stock_minimo') return '/admin/stock'
   if (a.tipo === 'limpieza_atrasada') return '/admin/controles'
   return `/sector${a.enlace}`
 }

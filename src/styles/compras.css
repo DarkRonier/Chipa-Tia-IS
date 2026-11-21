@@ -29,6 +29,9 @@ div.compra-cabeza { cursor: default; }
   background: var(--superficie); border: 1px solid var(--borde); color: var(--texto); font: inherit; box-shadow: var(--sombra);
 }
 .producto-venta:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Sin stock cargado en Directo a Venta: se puede vender igual, solo se avisa. */
+.producto-venta.sin-stock { border-style: dashed; }
+.producto-venta .stk-negativo { color: var(--error, #b42318); }
 .producto-venta strong { font-size: 0.95rem; }
 .carrito { display: grid; gap: 0.4rem; }
 .linea-carrito { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.5rem; }

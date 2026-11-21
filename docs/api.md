@@ -18,13 +18,14 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
 - **Roles y permisos.** Hay 7 roles: los 4 sectores (`chiperia`, `chipitas`, `panaderia`, `cocina`), `supervisor`,
   `cajero` y `admin`. Qué puede hacer cada uno está en una sola tabla, `src/shared/permisos.ts`, que usan la API
   (`requiere(permiso)` en `src/server/sesion.ts`) y las pantallas. Sin el permiso: `403 prohibido`.
-  - **Administrador**: todo, incluido lo del cajero.
+  - **Administrador**: todo menos registrar ventas: opera la caja, ve y anula ventas y factura, pero las ventas las
+    registra solo el cajero.
   - **Supervisor**: ve producción, stock, salidas, máquinas, limpieza, lotes, trazabilidad y reportes de todos los
     sectores (indica `?sector` como el administrador). Reporta fallas o incidencias de máquinas
     (`/incidencias`) y da el visto bueno de la limpieza. No carga producción ni lecturas, no mueve ni ajusta stock,
     no corrige y no entra a catálogos, usuarios, datos ni a la configuración del correo.
-  - **Cajero**: por ahora ninguna ruta de datos (caja, ventas y facturas llegan en la etapa 3); `/alertas` le
-    devuelve `[]`. Puede leer los catálogos.
+  - **Cajero**: caja, ventas (es el único que las registra) y facturas; `/alertas` le devuelve `[]`. Puede leer los
+    catálogos.
   - **Sectores**: lo de su sector; lotes y trazabilidad solo Chipería.
 - **Errores.** `{ "error": { "codigo": "...", "mensaje": "..." } }`. El `mensaje` se muestra tal cual al usuario,
   en castellano rioplatense/paraguayo y sin jerga ("No hay stock suficiente para esa salida.").
@@ -38,7 +39,7 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
 | 403 | `usuario_inactivo` | Login de un usuario desactivado |
 | 403 | `debe_cambiar_clave` | Un administrador todavía no cambió su contraseña inicial o restablecida |
 | 404 | `no_encontrado` | El registro no existe; ruta desconocida |
-| 409 | `stock_insuficiente` | Salida, envío, merma o corrección que dejaría negativo el producto o el lote (D04), si el producto tiene stock obligatorio |
+| 409 | `stock_insuficiente` | Salida, envío, transferencia, merma o corrección que dejaría negativo el producto o el lote en su depósito (D04). Las ventas de caja nunca lo dan |
 | 409 | `usuario_repetido` | Ya existe ese nombre de usuario |
 | 409 | `nombre_repetido` | Producto (en su sector), área, tarea (en su área), sucursal o sector con el mismo nombre, sin distinguir mayúsculas ni tildes; si el otro está desactivado, el mensaje propone activarlo |
 | 409 | `numero_repetido` | Otra máquina activa del sector tiene ese N° |
@@ -69,7 +70,7 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
   y ediciones de catálogos y usuarios, contraseñas restablecidas, correcciones de producción, ajustes de stock,
   bloqueos de lotes, controles de limpieza, configuración y copias manuales.
 - **D04.** El trigger `movimientos_sin_stock_negativo` rechaza cualquier salida que deje negativo el producto
-  o el lote. Las rutas lo traducen a `409 stock_insuficiente` diciendo qué falta ("de Empanada frita (carne)
+  o el lote en su depósito (menos las ventas de caja). Las rutas lo traducen a `409 stock_insuficiente` diciendo qué falta ("de Empanada frita (carne)
   hay 3 y querés sacar 10"). Varias líneas en un `batch` son atómicas: si una no alcanza, no se guarda ninguna.
 
 ## Autenticación (A01)
@@ -112,8 +113,8 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | GET | `/sectores` | | `Sector[]` (los cuatro, en orden) |
 | PATCH | `/sectores/:id` | `{ nombre }` | `Sector` |
 | GET | `/productos` | `?sector&todos` | `Producto[]` |
-| POST | `/productos` | `{ sector, nombre, unidad?, stockMinimo?, stockObligatorio? }` | `Producto` (`unidad` por defecto `unidades`; `stockObligatorio` por defecto `true`; queda al final de su sector) |
-| PATCH | `/productos/:id` | `{ nombre?, unidad?, activo?, stockMinimo?, stockObligatorio? }` | `Producto` (`stockMinimo`: entero ≥ 0, o `null`/vacío para quitarlo; C08) |
+| POST | `/productos` | `{ sector, nombre, unidad? }` (más lo de compras y venta: `tipo`, `categoriaId`, `codigo`, `precioVenta`, `iva`) | `Producto` (`unidad` por defecto `unidades`; queda al final de su sector) |
+| PATCH | `/productos/:id` | `{ nombre?, unidad?, activo? }` (y los mismos campos opcionales) | `Producto` |
 | GET | `/maquinas` | `?sector&todos` | `Maquina[]` (por sector y N°) |
 | POST | `/maquinas` | `{ sector, numero?, nombre, tipo, tempMin?, tempMax? }` | `Maquina` |
 | PATCH | `/maquinas/:id` | `{ numero?, nombre?, tipo?, tempMin?, tempMax?, activo? }` | `Maquina` |
@@ -125,6 +126,9 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | GET | `/sucursales` | `?todos` | `Sucursal[]` (por nombre) |
 | POST | `/sucursales` | `{ nombre }` | `Sucursal` |
 | PATCH | `/sucursales/:id` | `{ nombre?, activo? }` | `Sucursal` |
+| GET | `/depositos` | `?todos` (admin) | `Deposito[]` (en orden; sin `todos`, solo los activos) |
+| POST | `/depositos` | `{ nombre, descripcion? }` · admin | `Deposito` (queda al final) |
+| PATCH | `/depositos/:id` | `{ nombre?, descripcion?, activo? }` · admin | `Deposito` |
 
 - Nombres repetidos: `409 nombre_repetido` (ver arriba).
 - Máquinas: sin `numero` toma el siguiente al más alto del sector; dos máquinas activas del mismo sector no
@@ -132,10 +136,11 @@ Los `PATCH` sin ningún campo editable dan `400`.
   tipos necesitan al menos un límite: un lado puede faltar (freezer ≤ −18 °C, bufetera ≥ 63 °C).
   `tempMin ≤ tempMax`, entre −60 °C y 300 °C, con un decimal. El `PATCH` valida el rango con lo que llega y lo
   que ya tenía.
-- Stock obligatorio: con `true` el stock del producto nunca queda negativo y las salidas que no alcanzan dan
-  `409 stock_insuficiente` (la chipa). Con `false` puede quedar sin cargar o en negativo y nunca frena (el cocido,
-  la harina). Volver a `true` con el stock en negativo (en total, en una finalidad o en un lote) da
-  `409 stock_negativo`: primero se corrige con un ajuste. Los productos que ya existían quedaron en `true`.
+- Los productos no tienen campos de stock (stock mínimo, stock obligatorio y «la venta descuenta stock» se quitaron
+  en la migración 0014): el stock se lleva por depósito (ver Stock).
+- Depósitos: los del sistema (`venta` «Directo a Venta», `frio` «Frío», `sucursales` «Para sucursales»,
+  `materia_prima` «Materia prima») se pueden renombrar pero no desactivar (`409 deposito_del_sistema`). Uno con
+  stock ≠ 0 no se desactiva (`409 deposito_con_stock`): primero se transfiere. Nombres sin repetir.
 - Áreas: `sectores` = qué sectores la cargan (al menos uno; las comunes, como Sanitario, tienen varios).
 
 ## Producción (C01–C04, E02–E04)
@@ -148,9 +153,9 @@ Los `PATCH` sin ningún campo editable dan `400`.
 
 - `POST`: `turno` (`dia` o `noche`) obligatorio. Cada producto una sola vez (hasta 300), enteros ≥ 0; las líneas
   en 0 y 0 no se guardan y tiene que quedar al menos una. Productos activos del sector.
-- Lo `guardado` entra al stock en frío como movimiento `produccion` (+guardado); lo `cocinado` va directo a venta.
-  Cada línea lleva `finalidad` (C05): `reposicion` (por defecto, reponer la venta del sector) o `distribucion` (enviar a
-  sucursales); `400` si es otra. Al corregir, lo ya guardado conserva su finalidad.
+- Lo `cocinado` entra en el depósito «Directo a Venta» y lo `guardado` en el depósito de la línea (`depositoId`, por
+  defecto `frio`; tiene que existir y estar activo, si no `400`), los dos como movimiento `produccion`. Al corregir,
+  lo guardado sigue en su depósito.
 - **Chipería**: exige `lotesMP` (de 1 a 50 objetos `{ id, cantidad }`; `400` si falta) disponibles (`409
   lote_mp_no_disponible` si alguno está bloqueado, vencido, sin saldo o no existe). `cantidad` es lo usado de ese
   lote en su unidad (E03): obligatoria, número > 0 y no más que el saldo del lote (`400`); cada lote va una sola
@@ -161,31 +166,34 @@ Los `PATCH` sin ningún campo editable dan `400`.
 - Corrección (C04): **mezcla**, no reemplaza: los productos que no vienen en `items` quedan como estaban; los
   que vienen toman los valores nuevos (0 y 0 deja el producto en cero) y se pueden agregar productos activos
   del sector. Sin cambios, `400`; el registro tiene que quedar con al menos una cantidad. Por cada producto, la
-  diferencia de `guardado` se registra como movimiento `ajuste` (con `produccionId`, el lote si es de Chipería y
-  motivo "Corrección de producción"); si dejaría negativo, `409 stock_insuficiente`. Guarda
+  diferencia de `cocinado` (en «Directo a Venta») y la de `guardado` (en su depósito) se registran como movimientos
+  `ajuste` (con `produccionId`, el lote si es de Chipería y motivo "Corrección de producción"); si dejaría negativo,
+  `409 stock_insuficiente`. Estos ajustes no cuentan como salidas en los reportes. Guarda
   `corregidoPor`/`corregidoEn` y una fila de `auditoria` (`corregir`, ítems antes y después). El turno y los
   lotes de materia prima no se corrigen.
 
-## Stock en frío (D01–D07)
+## Stock por depósitos (D01–D07)
 
 | Método | Ruta | Cuerpo / consulta | Respuesta |
 |---|---|---|---|
 | GET | `/stock` | `?sector` (admin: obligatorio) | `StockFila[]` |
-| POST | `/salidas` | `PedidoSalida` | `Movimiento` (`salida_venta`, cantidad negativa) |
-| POST | `/envios` | `PedidoEnvio` | `RespuestaEnvio` (una línea por ítem, mismo `envioId`, todo o nada) |
-| POST | `/ajustes` | `PedidoAjuste` · admin | `Movimiento` |
-| POST | `/reasignaciones` | `PedidoReasignacion` | `Movimiento[]` (par `reasignacion`: −N en `desde`, +N en la otra) |
-| GET | `/stock/alertas` | `?sector` (admin: todos si falta) | `Alerta[]` (`stock_minimo`, C08) |
-| GET | `/movimientos` | `?sector&desde&hasta&sucursal&producto&tipo&lote` | `Movimiento[]` |
+| POST | `/salidas` | `PedidoSalida` (`desde?`, por defecto `frio`) | `Movimiento` (`salida_venta`, la mitad que sale) |
+| POST | `/envios` | `PedidoEnvio` | `RespuestaEnvio` (salen de «Para sucursales»; una línea por ítem, mismo `envioId`, todo o nada) |
+| POST | `/ajustes` | `PedidoAjuste` (`depositoId?`, por defecto `frio`) · admin | `Movimiento` |
+| POST | `/transferencias` | `PedidoTransferencia`: `{ sector?, productoId, lote?, cantidad, desde, hacia }` | `Movimiento[]` (par `transferencia`: −N en `desde`, +N en `hacia`) |
+| GET | `/movimientos` | `?sector&desde&hasta&sucursal&producto&tipo&lote&deposito` | `Movimiento[]` |
 
-- **Finalidad (C05).** Cada movimiento lleva `finalidad`: `reposicion` o `distribucion` (los anteriores a la migración 0007 quedan
-  como `reposicion`). `StockFila` trae `total`, `reposicion` y `distribucion` (y lo mismo por lote). También `obligatorio` (stock obligatorio del producto) y `conMovimientos` (sin stock obligatorio y sin movimientos, el stock está «sin cargar» y la pantalla muestra —). `/salidas` saca de
-  `reposicion`, `/envios` de `distribucion`, `/ajustes` de la `finalidad` indicada (por defecto `reposicion`). El trigger
-  de D04 controla por producto, lote y finalidad; el `409` dice cuánto hay en la otra finalidad. `/reasignaciones`
-  (`{ sector?, productoId, lote?, cantidad, desde }`, operador del sector o admin) pasa unidades a la otra finalidad
-  con dos movimientos `reasignacion`, que no cuentan como salida en los reportes.
-- **Stock mínimo (C08).** `alertasStock(db, sector)` (src/server/rutas/stock.ts) devuelve una `Alerta` por producto
-  activo con menos que su `stockMinimo` en frío (todas las finalidades y lotes), con enlace `/stock`.
+- **Depósitos.** Cada movimiento lleva `depositoId` (y `depositoNombre` al leerlo). `StockFila` trae `total` (todos
+  los depósitos), `porDeposito` (`{ venta: 3, frio: 8 }`, sin los que están en 0) y, en Chipería, `lotes` con
+  `cantidad` y `porDeposito`. Las ventas de caja descuentan de «Directo a Venta»; las compras de venta directa
+  (`tipo: reventa`) entran ahí y las de materia prima en «Materia prima»; lo cocinado entra en «Directo a Venta».
+- `/salidas` («Sacar para la venta») pasa del depósito `desde` a «Directo a Venta» con dos movimientos
+  `salida_venta` (motivo «De «Frío» a «Directo a Venta»»). `/transferencias` pasa entre dos depósitos cualesquiera
+  (distintos, el destino activo) con dos movimientos `transferencia`, que no cuentan como salida en los reportes.
+  `/movimientos` muestra solo la mitad que sale de esos pares.
+- El trigger de D04 controla por producto, depósito y lote; el `409` dice cuánto hay en los otros depósitos y sugiere
+  «Transferir». Las ventas de caja (tipo `venta`) son la excepción: nunca se frenan y «Directo a Venta» puede quedar en
+  negativo (la pantalla de Stock lo marca: «faltan N por cargar»).
 - `/stock`: los productos activos del sector (aunque estén en 0) y los inactivos con stock ≠ 0. En Chipería,
   `lotes` trae los lotes con cantidad > 0, el más viejo primero; en los demás sectores viene vacío.
 - **Chipería exige `lote`** en salidas, envíos (en cada línea) y ajustes (`400` si falta); en los otros
@@ -282,8 +290,9 @@ ese sector, y ven solo las compras que cargaron (sin pagos ni saldos). **Supervi
 cualquier producto (y renglones de texto libre, como un flete, que no tocan el stock), gestionan proveedores, marcan
 pagos (parciales o totales), anulan compras y pagos, y ven el reporte. El cajero no entra.
 
-Cada renglón con producto suma a su stock (movimiento `compra`, finalidad «Reponer venta», en el sector del producto).
-Anular una compra (sin pagos) descuenta ese stock; si el stock obligatorio ya se usó, `409 stock_insuficiente`.
+Cada renglón con producto suma a su stock (movimiento `compra`, en el sector del producto): los de venta directa en
+«Directo a Venta» y la materia prima en «Materia prima». Anular una compra (sin pagos) descuenta ese stock del mismo
+depósito; si ya salió de ahí, `409 stock_insuficiente`.
 Lo pagado nunca supera el total (trigger `pagos_proveedor_sin_exceso`). Importes en guaraníes enteros.
 
 | Método | Ruta | Cuerpo / consulta | Respuesta |
@@ -308,13 +317,14 @@ Lo pagado nunca supera el total (trigger `pagos_proveedor_sin_exceso`). Importes
 Medios de pago: `efectivo`, `transferencia`, `tarjeta`, `qr`, `cheque`. Avisos nuevos en `/alertas` (supervisor y
 admin): `compra_por_vencer` (vence en 3 días o menos) y `compra_vencida`.
 
-## Caja, ventas y facturas (M11–M13) · cajero y admin
+## Caja, ventas y facturas (M11–M13) · cajero (y admin, que no vende)
 
 Hay una sola caja abierta a la vez. Sin caja abierta no se vende. Al cerrar se cuenta el efectivo: esperado = fondo
 inicial + ventas en efectivo + ingresos − retiros; la diferencia queda guardada. Una caja cerrada no se toca (trigger
-`CAJA_CERRADA`). Cada producto tiene `precioVenta` (sin precio no se vende), `iva` (0, 5 o 10) y
-`ventaDescuentaStock`: solo esos productos (ej. una gaseosa comprada) descuentan stock al vender (movimiento `venta`);
-la chipa se descuenta al «Sacar para la venta» del frío, así no se descuenta dos veces.
+`CAJA_CERRADA`). Cada producto tiene `precioVenta` (sin precio no se vende) e `iva` (0, 5 o 10). Toda venta descuenta
+del depósito «Directo a Venta» (movimiento `venta`), sin frenarse nunca; en Chipería, por lote, el más viejo primero
+(lo que no alcanza sale sin lote). Solo el **cajero** registra ventas (`ventas.registrar`); el administrador opera la
+caja, ve las ventas, las anula (`ventas.anular`) y factura, pero no vende. El supervisor no entra.
 
 | Método | Ruta | Cuerpo / consulta | Respuesta |
 |---|---|---|---|
@@ -326,11 +336,11 @@ la chipa se descuenta al «Sacar para la venta» del frío, así no se descuenta
 | POST | `/caja/cerrar` | `{ contado, nota? }` | `Caja` cerrada con `diferencia` |
 | GET | `/cajas` | `?desde&hasta` · admin | `Caja[]` |
 | GET | `/cajas/:id` | — · admin | `Caja` |
-| GET | `/ventas/productos` | — | `ProductoVenta[]` (con precio; stock si descuenta) |
-| GET | `/ventas` | `?caja&desde&hasta` (el cajero, por defecto la caja abierta) | `Venta[]` |
+| GET | `/ventas/productos` | — | `ProductoVenta[]` (con precio y `stock` en «Directo a Venta») |
+| GET | `/ventas` | `?caja&desde&hasta` (el cajero, por defecto la caja abierta) · cajero y admin | `Venta[]` |
 | GET | `/ventas/:id` | — | `Venta` |
-| POST | `/ventas` | `PedidoVenta`: `{ items: [{ productoId, cantidad }], descuento?, medio, recibido?, clienteNombre?, clienteRuc? }` | `Venta` (`409 stock_insuficiente`) |
-| POST | `/ventas/:id/anular` | `{ motivo }` (solo con la caja abierta; devuelve el stock y anula la factura) | `Venta` |
+| POST | `/ventas` | `PedidoVenta`: `{ items: [{ productoId, cantidad }], descuento?, medio, recibido?, clienteNombre?, clienteRuc? }` | `Venta` · solo cajero |
+| POST | `/ventas/:id/anular` | `{ motivo }` (solo con la caja abierta; devuelve el stock al mismo depósito y lote y anula la factura) · cajero y admin | `Venta` |
 | GET | `/factura/config` | — | `ConfigFactura` (timbrado, prefijo, número inicial y posiciones en mm) |
 | PUT | `/factura/config` | `ConfigFactura` · admin | `ConfigFactura` |
 | POST | `/ventas/:id/factura` | — | `{ venta, config }`: la primera vez asigna el número correlativo; después cuenta reimpresiones |

@@ -1,9 +1,9 @@
 // H01–H02: el reporte del administrador para un rango de días (en hora de Paraguay) y, si se pide, un sector.
-// Producción por producto (cocinado contra guardado), stock en frío actual, envíos por sucursal, salidas del
+// Producción por producto (cocinado contra guardado), stock actual por depósito, envíos por sucursal, salidas del
 // stock por tipo, lotes de Chipería, temperaturas fuera de rango, máquinas con fallas y limpiezas.
 // Lo usan GET /reportes, el resumen por correo (H04) y el Excel (H03, en el navegador).
 import type { Reporte, SectorId, TipoMovimiento } from '../shared/tipos'
-import { leerLotesChipa } from './consultas'
+import { leerDepositos, leerLotesChipa } from './consultas'
 import { todas, una } from './db'
 import type { BaseD1, ValorSQL } from './entorno'
 import { leerLecturas } from './rutas/maquinas'
@@ -48,16 +48,15 @@ export async function armarReporte(db: BaseD1, p: PedidoReporte): Promise<Report
     ),
     una<{ n: number }>(db, `SELECT COUNT(*) AS n FROM producciones p WHERE ${prod.sql}`, ...prod.params),
     // Stock actual (no el del período): la suma del libro de movimientos, sin los productos en cero.
-    todas<{ sector: SectorId; producto_id: string; nombre: string; total: number; reposicion: number; distribucion: number }>(
+    // Por depósito: una fila por producto y depósito, que se juntan abajo.
+    todas<{ sector: SectorId; producto_id: string; nombre: string; deposito_id: string; total: number }>(
       db,
-      `SELECT m.sector, m.producto_id, pr.nombre, SUM(m.cantidad) AS total,
-              SUM(CASE WHEN m.finalidad = 'reposicion' THEN m.cantidad ELSE 0 END) AS reposicion,
-              SUM(CASE WHEN m.finalidad = 'distribucion' THEN m.cantidad ELSE 0 END) AS distribucion
+      `SELECT m.sector, m.producto_id, pr.nombre, m.deposito_id, SUM(m.cantidad) AS total
          FROM movimientos m
          JOIN productos pr ON pr.id = m.producto_id
          JOIN sectores s ON s.id = m.sector
         ${soloSector}
-        GROUP BY m.sector, m.producto_id
+        GROUP BY m.sector, m.producto_id, m.deposito_id
        HAVING SUM(m.cantidad) <> 0
         ORDER BY s.orden, pr.orden, pr.nombre`,
       ...(p.sector ? [p.sector] : []),
@@ -75,13 +74,15 @@ export async function armarReporte(db: BaseD1, p: PedidoReporte): Promise<Report
       ...mov.params,
     ),
     // Lo que salió del frío en el período, por tipo (en unidades positivas). Los ajustes que suman no son salidas,
-    // y los cambios de finalidad tampoco: no sacan nada del frío, solo pasan unidades de un stock al otro.
+    // y las transferencias entre depósitos tampoco: solo pasan unidades de un depósito a otro. «Sacar para la venta»
+    // sí cuenta (su mitad que sale del Frío), y también lo vendido en caja. Las correcciones de una producción no son
+    // salidas: arreglan lo que se cargó.
     todas<{ sector: SectorId; tipo: TipoMovimiento; cantidad: number }>(
       db,
       `SELECT m.sector, m.tipo, -SUM(m.cantidad) AS cantidad
          FROM movimientos m
          JOIN sectores s ON s.id = m.sector
-        WHERE m.cantidad < 0 AND m.tipo <> 'reasignacion' AND ${mov.sql}
+        WHERE m.cantidad < 0 AND m.tipo <> 'transferencia' AND NOT (m.tipo = 'ajuste' AND m.produccion_id IS NOT NULL) AND ${mov.sql}
         GROUP BY m.sector, m.tipo
         ORDER BY s.orden,
           CASE m.tipo WHEN 'salida_venta' THEN 1 WHEN 'envio' THEN 2 WHEN 'merma' THEN 3 WHEN 'vencimiento' THEN 4 ELSE 5 END`,
@@ -113,9 +114,8 @@ export async function armarReporte(db: BaseD1, p: PedidoReporte): Promise<Report
     produccion: produccion.map((f) => ({
       sector: f.sector, productoId: f.producto_id, productoNombre: f.nombre, cocinado: f.cocinado, guardado: f.guardado,
     })),
-    stock: stock.map((f) => ({
-      sector: f.sector, productoId: f.producto_id, productoNombre: f.nombre, total: f.total, reposicion: f.reposicion, distribucion: f.distribucion,
-    })),
+    stock: juntarStock(stock),
+    depositos: await leerDepositos(db),
     envios: envios.map((f) => ({
       sucursalId: f.sucursal_id, sucursalNombre: f.sucursal_nombre, productoNombre: f.producto_nombre, sector: f.sector, cantidad: f.cantidad,
     })),
@@ -136,4 +136,16 @@ export async function armarReporte(db: BaseD1, p: PedidoReporte): Promise<Report
       limpiezasSinControlar: suma(limpiezas, (f) => f.sin_controlar),
     },
   }
+}
+
+/** Junta las filas por producto y depósito en una por producto, con lo de cada depósito; sin los productos en cero. */
+function juntarStock(filas: { sector: SectorId; producto_id: string; nombre: string; deposito_id: string; total: number }[]) {
+  const porProducto = new Map<string, { sector: SectorId; productoId: string; productoNombre: string; total: number; porDeposito: Record<string, number> }>()
+  for (const f of filas) {
+    const x = porProducto.get(f.producto_id) ?? { sector: f.sector, productoId: f.producto_id, productoNombre: f.nombre, total: 0, porDeposito: {} }
+    x.total += f.total
+    x.porDeposito[f.deposito_id] = f.total
+    porProducto.set(f.producto_id, x)
+  }
+  return [...porProducto.values()].filter((x) => x.total !== 0 || Object.keys(x.porDeposito).length > 0)
 }

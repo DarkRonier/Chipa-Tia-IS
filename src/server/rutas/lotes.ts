@@ -165,7 +165,7 @@ rutasLotes.get('/trazabilidad/lote/:codigo', trazabilidad, async (c) => {
     lote,
     produccion: produccion ?? null,
     envios: movimientos.filter((m) => m.tipo === 'envio'),
-    otrosMovimientos: movimientos.filter((m) => m.tipo !== 'envio' && m.tipo !== 'produccion' && m.tipo !== 'reasignacion'),
+    otrosMovimientos: movimientos.filter((m) => m.tipo !== 'envio' && m.tipo !== 'produccion' && m.tipo !== 'transferencia' && !(m.tipo === 'salida_venta' && m.cantidad > 0)),
   })
 })
 
