@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
-import { useDepositos } from '../../cliente/catalogo'
+import { useCategorias, useDepositos } from '../../cliente/catalogo'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector, useSectorActivo } from '../../components/Layout'
@@ -29,6 +29,7 @@ function Formulario() {
   const hoy = diaPY()
   const deHoy = useConsulta<Movimiento[]>('/movimientos', { sector, desde: hoy, hasta: hoy, tipo: 'salida_venta' })
   const depositos = useDepositos()
+  const categorias = useCategorias()
   const [elegido, setElegido] = useState('')
   const [hacia, setHacia] = useState<string>(DEPOSITO.venta)
   const [productoId, setProductoId] = useState('')
@@ -45,8 +46,12 @@ function Formulario() {
     d.id !== DEPOSITO.materiaPrima || filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0))
   const desde = (origenes.find((d) => d.id === elegido) ?? origenes.find((d) => filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0)) ?? origenes[0])?.id ?? ''
   const hay = (f: { porDeposito: Record<string, number> }) => f.porDeposito[desde] ?? 0
+  // Cada depósito de venta recibe solo los productos de sus categorías (sin categoría cuenta como «Otros»).
+  const ventaElegida = depositos.venta.find((d) => d.id === hacia)
+  const otros = categorias.lista.find((c) => c.sistema)?.id
+  const recibe = (f: { categoriaId: string | null }) => !ventaElegida || ventaElegida.categorias.includes(f.categoriaId ?? otros ?? '')
   // Se listan los productos con stock en el depósito elegido (y el elegido, aunque se haya quedado en 0).
-  const conStock = filas.filter((f) => hay(f) > 0 || f.productoId === productoId)
+  const conStock = filas.filter((f) => recibe(f) && (hay(f) > 0 || f.productoId === productoId))
   const lotes = (fila?.lotes ?? []).filter((l) => hay(l) > 0)
   const disponible = !fila ? 0 : conLotes ? hay(lotes.find((l) => l.lote === lote) ?? { porDeposito: {} }) : hay(fila)
   const enOtros = origenes.filter((d) => d.id !== desde && filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0))
@@ -104,7 +109,7 @@ function Formulario() {
             {depositos.venta.length > 1 && (
               <div className="segmentado" role="group" aria-label="Va a">
                 {depositos.venta.map((d) => (
-                  <button key={d.id} type="button" className={hacia === d.id ? 'activo' : ''} aria-pressed={hacia === d.id} onClick={() => { limpiarMensajes(); setHacia(d.id) }}>
+                  <button key={d.id} type="button" className={hacia === d.id ? 'activo' : ''} aria-pressed={hacia === d.id} onClick={() => { limpiarMensajes(); setHacia(d.id); setProductoId('') }}>
                     A {d.nombre}
                   </button>
                 ))}

@@ -327,6 +327,9 @@ describe('sucursales (B04)', () => {
   it('agrega una sucursal y aparece como destino para todos los sectores', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
+    // Crear sucursales es del super-administrador (Configuración → Ajustes avanzados).
+    expect((await p.pedir(admin, 'POST', '/sucursales', { nombre: 'Sucursal Luque' })).status).toBe(403)
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     const r = await p.pedir(admin, 'POST', '/sucursales', { nombre: 'Sucursal Luque' })
     expect(r.status).toBe(200)
     expect(r.body).toEqual({ id: expect.any(String), nombre: 'Sucursal Luque', activo: true })
@@ -345,6 +348,9 @@ describe('sucursales (B04)', () => {
     const admin = await p.entrar('admin')
     const op = await p.entrar('chipitas')
     expect((await p.pedir(admin, 'PATCH', '/sucursales/suc-ruta1', { nombre: 'Sucursal Ruta 1' })).body.nombre).toBe('Sucursal Ruta 1')
+    // Dar de baja es del super-administrador.
+    expect((await p.pedir(admin, 'PATCH', '/sucursales/suc-ruta1', { activo: false })).status).toBe(403)
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     expect((await p.pedir(admin, 'PATCH', '/sucursales/suc-ruta1', { activo: false })).body.activo).toBe(false)
     expect((await p.pedir(op, 'GET', '/sucursales')).body.map((s: any) => s.id)).not.toContain('suc-ruta1')
     expect((await p.pedir(op, 'GET', '/sucursales?todos=1')).body.map((s: any) => s.id)).not.toContain('suc-ruta1')
@@ -360,6 +366,7 @@ describe('sucursales (B04)', () => {
     const op = await p.entrar('cocina')
     expect((await p.pedir(op, 'POST', '/sucursales', { nombre: 'X' })).status).toBe(403)
     expect((await p.pedir(op, 'PATCH', '/sucursales/suc-centro', { activo: false })).status).toBe(403)
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     expect((await p.pedir(admin, 'POST', '/sucursales', { nombre: '' })).status).toBe(400)
     expect((await p.pedir(admin, 'POST', '/sucursales', { nombre: 'SUCURSAL centro' })).status).toBe(409)
     expect((await p.pedir(admin, 'PATCH', '/sucursales/suc-centro', { nombre: 'Sucursal Ruta 1' })).status).toBe(409)

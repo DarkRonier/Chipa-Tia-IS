@@ -98,7 +98,7 @@ describe('descargar todos los datos (I03)', () => {
     const { tablas } = r.body
     expect(Date.parse(r.body.generadoEn)).toBeGreaterThan(Date.now() - 60_000)
     expect(Object.keys(tablas)).toEqual([
-      'sectores', 'usuarios', 'categorias', 'categorias_sectores', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales', 'depositos',
+      'sectores', 'usuarios', 'categorias', 'categorias_sectores', 'productos', 'maquinas', 'areas_limpieza', 'areas_sectores', 'tareas_limpieza', 'sucursales', 'depositos', 'deposito_categorias',
       'lotes_mp', 'producciones', 'produccion_items', 'lotes_chipa', 'lote_chipa_mp', 'movimientos', 'lecturas', 'incidencias',
       'limpiezas', 'limpieza_marcas', 'proveedores', 'compras', 'compra_items', 'pagos_proveedor',
       'cajas', 'caja_movimientos', 'arqueos', 'ventas', 'venta_items', 'facturas', 'gastos_fijos', 'ie_movimientos', 'auditoria', 'copias', 'configuracion', 'archivos',

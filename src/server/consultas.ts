@@ -1,7 +1,7 @@
 // Lecturas que comparten varios módulos (producción, stock, lotes, trazabilidad, reportes).
 // Cada una arma el objeto de src/shared/tipos.ts listo para devolver por la API.
 import { diaLegible, diaPY } from '../shared/hora'
-import type { Deposito, LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoDeposito, TipoMovimiento, Turno } from '../shared/tipos'
+import type { Deposito, EstadoMaquina, LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoDeposito, TipoMovimiento, Turno } from '../shared/tipos'
 import { todas, todasPorTrozos } from './db'
 import type { BaseD1, ValorSQL } from './entorno'
 
@@ -345,10 +345,43 @@ export async function leerMovimientos(db: BaseD1, filtro: FiltroMovimientos = {}
   return filas.map(aMovimiento)
 }
 
-/** Depósitos que existen, en su orden: los de venta (frente, comedor), los almacenes y Materia prima. */
+/**
+ * Depósitos que existen, en su orden: los de venta (frente, comedor) y los fríos (Materia prima, cámaras…). De cada
+ * frío con máquina vinculada trae la última medición; de cada uno de venta, las categorías que admite.
+ */
 export async function leerDepositos(db: BaseD1): Promise<Deposito[]> {
-  const filas = await todas<{ id: string; nombre: string; descripcion: string; sistema: number; activo: number; tipo: TipoDeposito }>(
-    db, 'SELECT id, nombre, descripcion, sistema, activo, tipo FROM depositos WHERE borrado_en IS NULL ORDER BY orden, nombre',
-  )
-  return filas.map((f) => ({ id: f.id, nombre: f.nombre, descripcion: f.descripcion, sistema: !!f.sistema, activo: !!f.activo, tipo: f.tipo }))
+  const [filas, cats] = await Promise.all([
+    todas<{
+      id: string; nombre: string; descripcion: string; sistema: number; activo: number; tipo: TipoDeposito
+      maquina_id: string | null; maquina_nombre: string | null; temp_min: number | null; temp_max: number | null
+      l_fecha: string | null; l_temperatura: number | null; l_estado: EstadoMaquina | null; l_fuera: number | null; l_usuario: string | null
+    }>(
+      db,
+      `SELECT d.id, d.nombre, d.descripcion, d.sistema, d.activo, d.tipo, d.maquina_id, m.nombre AS maquina_nombre, m.temp_min, m.temp_max,
+              l.fecha AS l_fecha, l.temperatura AS l_temperatura, l.estado AS l_estado, l.fuera_de_rango AS l_fuera, u.nombre AS l_usuario
+         FROM depositos d
+         LEFT JOIN maquinas m ON m.id = d.maquina_id
+         LEFT JOIN lecturas l ON l.id = (SELECT x.id FROM lecturas x WHERE x.maquina_id = d.maquina_id ORDER BY x.fecha DESC, x.id LIMIT 1)
+         LEFT JOIN usuarios u ON u.id = l.usuario_id
+        WHERE d.borrado_en IS NULL
+        ORDER BY d.orden, d.nombre`,
+    ),
+    todas<{ deposito_id: string; categoria_id: string }>(
+      db,
+      `SELECT dc.deposito_id, dc.categoria_id FROM deposito_categorias dc JOIN categorias c ON c.id = dc.categoria_id
+        ORDER BY c.orden, c.nombre`,
+    ),
+  ])
+  return filas.map((f) => ({
+    id: f.id, nombre: f.nombre, descripcion: f.descripcion, sistema: !!f.sistema, activo: !!f.activo, tipo: f.tipo,
+    maquina: f.maquina_id
+      ? {
+          id: f.maquina_id, nombre: f.maquina_nombre ?? '', tempMin: f.temp_min, tempMax: f.temp_max,
+          ultima: f.l_fecha
+            ? { fecha: f.l_fecha, temperatura: f.l_temperatura, estado: f.l_estado!, fueraDeRango: !!f.l_fuera, usuarioNombre: f.l_usuario ?? '' }
+            : null,
+        }
+      : null,
+    categorias: f.tipo === 'venta' ? cats.filter((c) => c.deposito_id === f.id).map((c) => c.categoria_id) : [],
+  }))
 }

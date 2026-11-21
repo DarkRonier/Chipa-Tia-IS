@@ -313,7 +313,7 @@ function Formulario() {
               )}
               <p className="suave chico">
                 {conLotes ? 'Lo que va al horno' : 'Lo cocinado'} pasa a «{depositos.nombre(ventaId)}»{ventaId === DEPOSITO.venta ? ', de donde lo descuenta la caja' : ''}.
-                {' '}{conLotes ? 'Lo del congelador' : 'Lo guardado'} va a «{depositos.nombre(porDefecto)}»{destinos.length > 1 ? ' o al almacén que elijas' : ''}.
+                {' '}{conLotes ? 'Lo del congelador' : 'Lo guardado'} va a «{depositos.nombre(porDefecto)}»{destinos.length > 1 ? ' o al depósito frío que elijas' : ''}.
               </p>
               <div className="lista-productos">
                 {visibles.map((p) => (

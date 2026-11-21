@@ -48,20 +48,20 @@ describe('planilla de comprobación D01–D07', () => {
     const cocina = await p.entrar('cocina')
     const admin = await p.entrar('admin')
 
-    // D01: lo guardado (8 de 38 empanadas) suma al stock: 5 en «Frío» y 3 en «Cámara 2» (otro almacén).
+    // D01: lo guardado (8 de 38 empanadas) suma al stock: 5 en «Cámara 1» y 3 en «Cámara 2» (otro almacén).
     await p.sql("INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo) VALUES ('camara2', 'Cámara 2', '', 0, 1, 11, 'almacen')")
     await mov(p, { cantidad: 5 })
     await mov(p, { cantidad: 3, deposito: 'camara2' })
     expect((await stockDe(p, cocina, EMPANADA))?.total).toBe(8)
 
-    // D02: sacar 3 para la venta: salen de «Frío» y pasan a «Venta frente» (de ahí las descuenta la caja). En los
+    // D02: sacar 3 para la venta: salen de «Cámara 1» y pasan a «Venta frente» (de ahí las descuenta la caja). En los
     // almacenes quedan 5.
     const salida = await p.pedir<Movimiento>(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 3 })
     expect(salida.status).toBe(200)
     expect(salida.body).toMatchObject({
       tipo: 'salida_venta', cantidad: -3, sector: 'cocina', productoId: EMPANADA, productoNombre: 'Empanada frita (carne)',
       usuarioId: 'usr-cocina', usuarioNombre: 'Encargado Cocina', dia: diaPY(), sucursalId: null, lote: null,
-      depositoId: 'frio', depositoNombre: 'Frío', motivo: 'De «Frío» a «Venta frente»',
+      depositoId: 'frio', depositoNombre: 'Cámara 1', motivo: 'De «Cámara 1» a «Venta frente»',
     })
     expect(Date.parse(salida.body.fecha)).toBeGreaterThan(Date.now() - 60_000)
     expect((await stockDe(p, cocina, EMPANADA))?.porDeposito).toEqual({ frio: 2, camara2: 3, venta: 3 })
@@ -87,7 +87,7 @@ describe('planilla de comprobación D01–D07', () => {
     expect(diez.status).toBe(409)
     expect(diez.body.error.codigo).toBe('stock_insuficiente')
     expect(diez.body.error.mensaje).toBe(
-      'No hay stock suficiente en «Cámara 2»: de Empanada frita (carne) hay 1 y querés sacar 10. En «Venta frente» hay 3 y en «Frío» hay 2: pasalo con «Transferir» en Depósitos si querés usarlo.',
+      'No hay stock suficiente en «Cámara 2»: de Empanada frita (carne) hay 1 y querés sacar 10. En «Venta frente» hay 3 y en «Cámara 1» hay 2: pasalo con «Transferir» en Depósitos si querés usarlo.',
     )
     expect(await fueraDeVenta()).toBe(3)
 
@@ -204,11 +204,11 @@ describe('POST /salidas (D02, D04)', () => {
     const t = await p.entrar('cocina')
     const sinNada = await p.pedir(t, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 1 })
     expect(sinNada.status).toBe(409)
-    expect(sinNada.body.error).toEqual({ codigo: 'stock_insuficiente', mensaje: 'No hay stock de Empanada frita (carne) en «Frío».' })
+    expect(sinNada.body.error).toEqual({ codigo: 'stock_insuficiente', mensaje: 'No hay stock de Empanada frita (carne) en «Cámara 1».' })
     await mov(p, { cantidad: 4 })
     const r = await p.pedir(t, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 5 })
     expect(r.status).toBe(409)
-    expect(r.body.error.mensaje).toBe('No hay stock suficiente en «Frío»: de Empanada frita (carne) hay 4 y querés sacar 5.')
+    expect(r.body.error.mensaje).toBe('No hay stock suficiente en «Cámara 1»: de Empanada frita (carne) hay 4 y querés sacar 5.')
     expect((await p.pedir(t, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 4 })).status).toBe(200)
     expect((await stockDe(p, t, EMPANADA))?.porDeposito).toEqual({ venta: 4 })
   })
@@ -239,7 +239,7 @@ describe('POST /salidas (D02, D04)', () => {
     // Hay 310 en total, pero el lote viejo solo tiene 10.
     const r = await p.pedir(t, 'POST', '/salidas', { productoId: CHIPA, lote: 'CH-261008-1', cantidad: 11 })
     expect(r.status).toBe(409)
-    expect(r.body.error.mensaje).toBe('No hay stock suficiente en «Frío»: de Chipa tradicional del lote CH-261008-1 hay 10 y querés sacar 11.')
+    expect(r.body.error.mensaje).toBe('No hay stock suficiente en «Cámara 1»: de Chipa tradicional del lote CH-261008-1 hay 10 y querés sacar 11.')
     const ok = await p.pedir<Movimiento>(t, 'POST', '/salidas', { productoId: CHIPA, lote: 'CH-261008-1', cantidad: 10 })
     expect(ok.status).toBe(200)
     expect(ok.body.lote).toBe('CH-261008-1')
@@ -305,7 +305,7 @@ describe('POST /envios (D03, D04, E05)', () => {
     })
     expect(r.status).toBe(409)
     expect(r.body.error).toEqual({
-      codigo: 'stock_insuficiente', mensaje: 'No hay stock suficiente en «Frío»: de Marinera de carne hay 2 y querés sacar 3.',
+      codigo: 'stock_insuficiente', mensaje: 'No hay stock suficiente en «Cámara 1»: de Marinera de carne hay 2 y querés sacar 3.',
     })
     expect((await p.sql("SELECT COUNT(*) AS n FROM movimientos WHERE tipo = 'envio'"))[0].n).toBe(0)
     expect((await stockDe(p, t, EMPANADA))?.total).toBe(10)
@@ -357,7 +357,7 @@ describe('POST /envios (D03, D04, E05)', () => {
       sucursalId: 'suc-ruta1', items: [{ productoId: CHIPA, lote: 'CH-261009-2', cantidad: 1 }],
     })
     expect(otra.status).toBe(409)
-    expect(otra.body.error.mensaje).toBe('No hay stock de Chipa tradicional del lote CH-261009-2 en «Frío».')
+    expect(otra.body.error.mensaje).toBe('No hay stock de Chipa tradicional del lote CH-261009-2 en «Cámara 1».')
     const historial = await p.pedir<Movimiento[]>(t, 'GET', '/movimientos?lote=CH-261009-1&tipo=envio')
     expect(historial.body.map((m) => [m.sucursalNombre, m.cantidad])).toEqual([['Sucursal Centro', -100]])
   })
@@ -418,7 +418,7 @@ describe('POST /ajustes (D06, D07) · solo admin', () => {
     expect((await p.pedir(admin, 'POST', '/ajustes', { ...base, tipo: 'merma', productoId: MBEJU, sector: 'panaderia' })).status).toBe(403)
     const r = await p.pedir(admin, 'POST', '/ajustes', { ...base, sector: undefined, tipo: 'merma', cantidad: 3 })
     expect(r.status).toBe(409)
-    expect(r.body.error.mensaje).toBe('No hay stock suficiente en «Frío»: de Empanada frita (carne) hay 2 y querés sacar 3.')
+    expect(r.body.error.mensaje).toBe('No hay stock suficiente en «Cámara 1»: de Empanada frita (carne) hay 2 y querés sacar 3.')
     expect((await p.sql('SELECT COUNT(*) AS n FROM auditoria'))[0].n).toBe(0)
     expect((await stockDe(p, admin, EMPANADA, 'cocina'))?.total).toBe(2)
   })

@@ -54,9 +54,32 @@ export async function leerDeposito(
   if (!f) throw invalido('Ese depósito no existe. Recargá la página y probá de nuevo.')
   if (!f.activo) throw invalido(`El depósito ${f.nombre} ya no existe. Elegí otro.`)
   if (tipo && f.tipo !== tipo) {
-    throw invalido(tipo === 'venta' ? `«${f.nombre}» no es un depósito de venta. Elegí Venta frente o Venta comedor.` : `«${f.nombre}» no es un almacén. Elegí un almacén.`)
+    throw invalido(tipo === 'venta' ? `«${f.nombre}» no es un depósito de venta. Elegí Venta frente o Venta comedor.` : `«${f.nombre}» no es un depósito frío. Elegí uno.`)
   }
   return { id: f.id, nombre: f.nombre }
+}
+
+/**
+ * Un depósito de venta directa admite solo los productos de sus categorías (Mati, 2026-11-21): por ejemplo, el buffet
+ * va a Venta comedor y no a Venta frente. Los productos sin categoría cuentan como «Otros». Los fríos admiten todo.
+ */
+export async function controlarCategoria(db: BaseD1, deposito: DepositoElegido, producto: { id: string; nombre: string }) {
+  const f = await una<{ tipo: TipoDeposito; admite: number; categoria: string | null }>(
+    db,
+    `SELECT d.tipo,
+            EXISTS (SELECT 1 FROM deposito_categorias dc WHERE dc.deposito_id = d.id
+                       AND dc.categoria_id = COALESCE(p.categoria_id, (SELECT id FROM categorias WHERE sistema = 1 ORDER BY orden LIMIT 1))) AS admite,
+            c.nombre AS categoria
+       FROM depositos d, productos p LEFT JOIN categorias c ON c.id = p.categoria_id
+      WHERE d.id = ? AND p.id = ?`,
+    deposito.id, producto.id,
+  )
+  if (f && f.tipo === 'venta' && !f.admite) {
+    throw invalido(
+      `«${deposito.nombre}» no recibe productos de la categoría ${f.categoria ?? 'Otros'}, así que ${producto.nombre} no va ahí. ` +
+      'Elegí otro depósito, o pedile al administrador que sume esa categoría al depósito.',
+    )
+  }
 }
 
 /** El almacén que se usa si no se elige otro: Frío, o el primero que quede. */
@@ -411,6 +434,7 @@ rutasStock.post('/salidas', requiere('stock.mover'), async (c) => {
   const desde = await leerDeposito(db, b.desde, await almacenPorDefecto(db), 'de qué depósito sale', 'almacen')
   const venta = await leerDeposito(db, b.hacia, DEPOSITO.venta, 'a qué venta va', 'venta')
   if (desde.id === venta.id) throw invalido(`Ya está en «${venta.nombre}». Elegí de qué otro depósito sale.`)
+  await controlarCategoria(db, venta, producto)
 
   const ids = [nuevoId(), nuevoId()]
   const { fecha, dia } = ahora()
@@ -543,6 +567,7 @@ rutasStock.post('/transferencias', requiere('stock.mover'), async (c) => {
   const desde = await leerDeposito(db, b.desde, null, 'de qué depósito sale')
   const hacia = await leerDeposito(db, b.hacia, null, 'a qué depósito va')
   if (desde.id === hacia.id) throw invalido('El depósito de origen y el de destino son el mismo. Elegí otro destino.')
+  await controlarCategoria(db, hacia, producto)
 
   // Primero sale del depósito de origen: si no alcanza, el trigger frena todo el par.
   const motivo = `De «${desde.nombre}» a «${hacia.nombre}»`

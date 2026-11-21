@@ -245,6 +245,8 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
   })
 
   it('B04 · una sucursal nueva aparece como destino al registrar un envío', async () => {
+    // Crear sucursales es del super-administrador (Configuración → Ajustes avanzados).
+    expect((await pedir(tk.admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     const r = await pedir<Sucursal>(tk.admin, 'POST', '/sucursales', { nombre: 'Sucursal San Lorenzo' })
     expect(r.status).toBe(200)
     sanLorenzo = r.body
@@ -324,7 +326,7 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
   })
 
   it('D03 · enviar 2 empanadas a una sucursal queda registrado y deja 3', async () => {
-    // C05: lo guardado quedó en «Frío»; de ahí sale el envío (las sucursales no tienen stock: solo se registra lo enviado).
+    // C05: lo guardado quedó en «Cámara 1»; de ahí sale el envío (las sucursales no tienen stock: solo se registra lo enviado).
     const r = await pedir<RespuestaEnvio>(tk.cocina, 'POST', '/envios', {
       sucursalId: sanLorenzo.id, items: [{ productoId: EMPANADA, cantidad: 2 }],
     })
@@ -342,7 +344,7 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     const r = await pedir(tk.cocina, 'POST', '/envios', { sucursalId: sanLorenzo.id, items: [{ productoId: EMPANADA, cantidad: 10 }] })
     expect(r.status).toBe(409)
     expect(r.body.error.codigo).toBe('stock_insuficiente')
-    expect(r.body.error.mensaje).toMatch(/^No hay stock suficiente en «Frío»: de Empanada frita \(carne\) hay 3 y querés sacar 10\. En «Venta frente» hay 33: pasalo con «Transferir»/)
+    expect(r.body.error.mensaje).toMatch(/^No hay stock suficiente en «Cámara 1»: de Empanada frita \(carne\) hay 3 y querés sacar 10\. En «Venta frente» hay 33: pasalo con «Transferir»/)
     // Un envío con una línea que no alcanza no registra ninguna.
     const mixto = await pedir(tk.cocina, 'POST', '/envios', {
       sucursalId: sanLorenzo.id, items: [{ productoId: EMPANADA, cantidad: 1 }, { productoId: MARINERA, cantidad: 5 }],
@@ -376,7 +378,7 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
     expect(await stockDe(tk.cocina, EMPANADA)).toBe(2)
     const historial = await pedir<Movimiento[]>(tk.cocina, 'GET', `/movimientos?producto=${EMPANADA}&tipo=merma,envio,salida_venta,produccion`)
     expect(historial.body.map((m) => [m.tipo, m.depositoId, m.cantidad, m.motivo])).toEqual([
-      ['merma', 'frio', -1, merma.motivo], ['envio', 'frio', -2, null], ['salida_venta', 'frio', -3, 'De «Frío» a «Venta frente»'],
+      ['merma', 'frio', -1, merma.motivo], ['envio', 'frio', -2, null], ['salida_venta', 'frio', -3, 'De «Cámara 1» a «Venta frente»'],
       ...historial.body.filter((m) => m.tipo === 'produccion').map((m) => ['produccion', m.depositoId, m.cantidad, null]),
     ])
     expect(historial.body.filter((m) => m.tipo === 'produccion').map((m) => [m.depositoId, m.cantidad]).sort()).toEqual([['frio', 8], ['venta', 30]])

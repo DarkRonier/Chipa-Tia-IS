@@ -127,11 +127,12 @@ Los `PATCH` sin ningún campo editable dan `400`.
 | POST | `/areas/:id/tareas` | `{ nombre, pideNumero? }` | `TareaLimpieza` (queda al final de la planilla) |
 | PATCH | `/tareas/:id` | `{ nombre?, pideNumero?, activo? }` | `TareaLimpieza` |
 | GET | `/sucursales` | `?todos` | `Sucursal[]` (por nombre) |
-| POST | `/sucursales` | `{ nombre }` | `Sucursal` |
-| PATCH | `/sucursales/:id` | `{ nombre?, activo? }` | `Sucursal` |
-| GET | `/depositos` | | `Deposito[]` (en orden: los de venta, los almacenes y Materia prima; sin los borrados) |
-| POST | `/depositos` | `{ nombre, descripcion? }` · super-administrador | `Deposito` (un almacén; va antes de Materia prima) |
-| PATCH | `/depositos/:id` | `{ nombre?, descripcion? }` · admin | `Deposito` |
+| POST | `/sucursales` | `{ nombre }` · super-administrador | `Sucursal` |
+| PATCH | `/sucursales/:id` | `{ nombre?, activo? }` · admin (cambiar `activo`: super-administrador) | `Sucursal` |
+| DELETE | `/sucursales/:id` | · super-administrador | `{ ok }` (con envíos queda dada de baja; sin envíos se borra) |
+| GET | `/depositos` | | `Deposito[]` (venta directa, después los fríos y Materia prima; con `maquina` y su última medición, y `categorias` en los de venta) |
+| POST | `/depositos` | `{ nombre, descripcion?, maquinaId? }` · super-administrador | `Deposito` (un depósito frío; va antes de Materia prima) |
+| PATCH | `/depositos/:id` | `{ nombre?, descripcion?, maquinaId? (solo fríos; null desvincula), categorias? (solo venta directa) }` · admin | `Deposito` |
 | DELETE | `/depositos/:id` | · super-administrador | `{ ok }` |
 
 - Nombres repetidos: `409 nombre_repetido` (ver arriba).

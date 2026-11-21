@@ -1,13 +1,13 @@
-// Depósitos (Mati, 2026-11-21): lo que hay de cada producto en cada depósito.
-//   - Venta frente y Venta comedor: cuánto hay y cuánto se vendió hoy. Los productos «sin stock» (el buffet por kilo)
-//     solo muestran lo vendido.
-//   - Almacenes en frío (varios) y Materia prima: cuánto hay, por lote en los sectores con lotes.
-//   - Sucursales: no tienen stock en el sistema; se muestra solo lo que se les envió.
-// Los productos se agrupan por categoría (Chipas y bocaditos, Chipa Sticks, Buffet, Panificados, Materia prima, Bebidas, Amandau, Otros), no por sector.
-// Abajo: «Transferir» (pasar de un depósito a otro) y, para el administrador, mermas, vencimientos y ajustes.
-// El super-administrador crea y borra almacenes.
+// Depósitos (Mati, 2026-11-21, tercera vuelta). Arriba, los TIPOS de depósito; abajo, la lista de depósitos de ese
+// tipo, y al tocar uno, lo que tiene:
+//   - Venta directa: Venta frente y Venta comedor. Cada caja descuenta de su depósito; cada uno recibe solo los
+//     productos de sus categorías (el administrador las elige). Muestra cuánto hay y cuánto se vendió hoy.
+//   - Depósito frío: varios (Materia prima, cámaras, freezers…), cada uno con su stock. Si tiene una máquina vinculada
+//     muestra su última temperatura y avisa si está fuera de rango.
+//   - Sucursal: no tiene stock; se muestra solo lo que se le envió desde la matriz.
+// El super-administrador crea y borra depósitos fríos y sucursales.
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api, patch, post } from '../cliente/api'
 import { useCategorias, useDepositos, useSectores } from '../cliente/catalogo'
 import { useAccion, useConsulta } from '../cliente/consultas'
@@ -16,18 +16,28 @@ import { normalizar } from '../components/Buscador'
 import { Aviso, ConDatos } from '../components/Estado'
 import Modal from '../components/Modal'
 import Numero from '../components/Numero'
-import { diaLegible, diaPY, sumarDias } from '../shared/hora'
+import { Flecha } from '../components/Volver'
+import { diaLegible, diaPY, fechaHoraPY, sumarDias } from '../shared/hora'
 import { sectorDeRol } from '../shared/permisos'
 import {
-  NOMBRE_TIPO_MOVIMIENTO, type Deposito, type EnvioResumen, type Movimiento, type PedidoAjuste, type PedidoTransferencia,
-  type StockFila, type TipoAjuste, type VendidoFila,
+  NOMBRE_ESTADO, NOMBRE_TIPO_DEPOSITO, NOMBRE_TIPO_MOVIMIENTO, type Categoria, type Deposito, type EnvioResumen, type Maquina,
+  type Movimiento, type PedidoAjuste, type PedidoTransferencia, type StockFila, type Sucursal, type TipoAjuste, type TipoDeposito,
+  type VendidoFila,
 } from '../shared/tipos'
 import { conSigno, TablaMovimientos } from './sector/Historial'
 import '../styles/catalogos.css'
 import '../styles/stock.css'
 
-/** Pestaña de las sucursales (no es un depósito). */
-const SUCURSALES = '__sucursales'
+type Tipo = TipoDeposito | 'sucursal'
+const TIPOS_DEPOSITO: Tipo[] = ['venta', 'almacen', 'sucursal']
+const PLURAL: Record<Tipo, string> = { venta: 'Venta directa', almacen: 'Depósitos fríos', sucursal: 'Sucursales' }
+const EXPLICACION: Record<Tipo, string> = {
+  venta: 'Lo que está listo para vender. Cada caja descuenta de su depósito, y cada uno recibe solo los productos de sus categorías.',
+  almacen: 'Donde se guarda: producción, materia prima, mercadería. Cada uno tiene su propio stock. Si tiene una máquina vinculada (heladera, freezer), se ve su última temperatura.',
+  sucursal: 'Las sucursales no llevan stock en el sistema: solo se registra lo que se les envía desde la matriz.',
+}
+/** Una medición de más de 12 horas ya no dice cómo está la máquina ahora. */
+const MEDICION_VIEJA_MS = 12 * 60 * 60 * 1000
 
 /** «12 kg», «3 unidades», «1 docena». */
 export function conUnidad(n: number, unidad: string) {
@@ -37,47 +47,205 @@ export function conUnidad(n: number, unidad: string) {
   return `${n} ${singular[u] ?? u}`
 }
 
+const grados = (t: number) => `${t.toLocaleString('es-PY', { maximumFractionDigits: 1 })} °C`
+
+/** «entre 1 y 5 °C», «−18 °C o menos», «63 °C o más». */
+export function rangoTexto(min: number | null, max: number | null) {
+  if (min !== null && max !== null) return `entre ${min.toLocaleString('es-PY')} y ${grados(max)}`
+  if (max !== null) return `${grados(max)} o menos`
+  if (min !== null) return `${grados(min)} o más`
+  return ''
+}
+
+/** «hace 5 min», «hace 3 h», «hace 2 días». */
+export function hace(iso: string, ahora = Date.now()) {
+  const min = Math.max(0, Math.round((ahora - Date.parse(iso)) / 60000))
+  if (min < 1) return 'recién'
+  if (min < 60) return `hace ${min} min`
+  const h = Math.round(min / 60)
+  if (h < 24) return `hace ${h} h`
+  const d = Math.round(h / 24)
+  return d === 1 ? 'hace 1 día' : `hace ${d} días`
+}
+
+/** Cómo está la máquina de un depósito frío: sin máquina, sin medir, bien, vieja (hace mucho) o mal (fuera de rango o rota). */
+export function estadoFrio(d: Deposito, ahora = Date.now()): 'sin_maquina' | 'sin_medir' | 'bien' | 'vieja' | 'mal' {
+  if (!d.maquina) return 'sin_maquina'
+  const u = d.maquina.ultima
+  if (!u) return 'sin_medir'
+  if (u.fueraDeRango || u.estado !== 'funciona') return 'mal'
+  if (ahora - Date.parse(u.fecha) > MEDICION_VIEJA_MS) return 'vieja'
+  return 'bien'
+}
+
+/** Si un depósito de venta recibe el producto (por su categoría; sin categoría cuenta como «Otros»). Los fríos reciben todo. */
+function admite(d: Deposito, categoriaId: string | null, otros: string | undefined) {
+  return d.tipo !== 'venta' || d.categorias.includes(categoriaId ?? otros ?? '')
+}
+
 export default function Depositos() {
+  const [params, setParams] = useSearchParams()
   const depositos = useDepositos()
-  const [elegido, setElegido] = useState('')
-  const [creando, setCreando] = useState(false)
+  const sucursales = useConsulta<Sucursal[]>('/sucursales')
+  const stock = useConsulta<StockFila[]>('/stock', { todos: 1 })
   const esSuper = useEsSuper()
-  const actual = depositos.lista.find((d) => d.id === elegido) ?? (elegido === SUCURSALES ? null : depositos.lista[0])
-  const pestana = elegido === SUCURSALES ? SUCURSALES : (actual?.id ?? '')
+  const puede = usePuede()
+  const [creando, setCreando] = useState(false)
+  const tipo = (TIPOS_DEPOSITO as string[]).includes(params.get('tipo') ?? '') ? params.get('tipo') as Tipo : 'venta'
+  const ver = params.get('ver')
+  const ir = (t: Tipo, id?: string) => setParams(id ? { tipo: t, ver: id } : { tipo: t })
+
+  const cuantos = (t: Tipo) => t === 'sucursal' ? (sucursales.datos?.length ?? 0) : depositos.lista.filter((d) => d.tipo === t).length
+  const alertas = depositos.lista.filter((d) => d.tipo === 'almacen' && estadoFrio(d) === 'mal').length
 
   return (
     <>
       <h1>Depósitos</h1>
+      <div className="segmentado stk-tipos-deposito" role="tablist" aria-label="Tipo de depósito">
+        {TIPOS_DEPOSITO.map((t) => (
+          <button key={t} type="button" role="tab" className={tipo === t ? 'activo' : ''} aria-selected={tipo === t} onClick={() => ir(t)}>
+            {PLURAL[t]} <span className="stk-cuenta">{cuantos(t)}</span>
+            {t === 'almacen' && alertas > 0 && <span className="stk-alerta-punto" title="Hay una temperatura fuera de rango" aria-label="con alerta de temperatura" />}
+          </button>
+        ))}
+      </div>
       <ConDatos consulta={depositos}>
-        {(lista) => (
-          <>
-            <div className="segmentado stk-depositos" role="tablist" aria-label="Depósito">
-              {lista.map((d) => (
-                <button key={d.id} type="button" role="tab" className={pestana === d.id ? 'activo' : ''} aria-selected={pestana === d.id} onClick={() => setElegido(d.id)}>
-                  {d.nombre}
-                </button>
-              ))}
-              <button type="button" role="tab" className={pestana === SUCURSALES ? 'activo' : ''} aria-selected={pestana === SUCURSALES} onClick={() => setElegido(SUCURSALES)}>
-                Sucursales
-              </button>
-              {esSuper && (
-                <button type="button" className="stk-nuevo" onClick={() => setCreando(true)}>+ Nuevo almacén</button>
+        {(lista) => {
+          if (ver && tipo === 'sucursal') {
+            const s = sucursales.datos?.find((x) => x.id === ver)
+            return (
+              <>
+                <VolverALista tipo={tipo} alVolver={() => ir(tipo)} />
+                {s ? <SucursalElegida key={s.id} sucursal={s} alBorrar={() => ir(tipo)} /> : sucursales.datos && <p className="suave">Esa sucursal ya no existe.</p>}
+              </>
+            )
+          }
+          const elegido = ver ? lista.find((d) => d.id === ver) : undefined
+          if (ver) {
+            return (
+              <>
+                <VolverALista tipo={tipo} alVolver={() => ir(tipo)} />
+                {elegido ? <DepositoElegido key={elegido.id} deposito={elegido} stock={stock} alBorrar={() => ir(tipo)} /> : <p className="suave">Ese depósito ya no existe.</p>}
+              </>
+            )
+          }
+          return (
+            <>
+              <p className="suave chico stk-explica">{EXPLICACION[tipo]}</p>
+              {tipo === 'sucursal' ? (
+                <ListaSucursales sucursales={sucursales.datos ?? []} alElegir={(id) => ir('sucursal', id)} alCrear={esSuper ? () => setCreando(true) : null} />
+              ) : (
+                <ListaDepositos
+                  depositos={lista.filter((d) => d.tipo === tipo)} stock={stock.datos ?? []}
+                  alElegir={(id) => ir(tipo, id)} alCrear={esSuper && tipo === 'almacen' ? () => setCreando(true) : null}
+                />
               )}
-            </div>
-            {pestana === SUCURSALES ? <Sucursales /> : actual && <DepositoElegido key={actual.id} deposito={actual} />}
-            {creando && <NuevoAlmacen alCerrar={() => setCreando(false)} alCrear={(d) => { setElegido(d.id); setCreando(false) }} />}
-          </>
-        )}
+              {!esSuper && puede('catalogos.editar') && tipo !== 'venta' && (
+                <p className="suave chico stk-explica">
+                  Para crear o borrar {tipo === 'almacen' ? 'depósitos fríos' : 'sucursales'} activá el modo super-administrador en{' '}
+                  <Link className="btn-discreto chico" to="/configuracion">Configuración → Ajustes avanzados</Link>.
+                </p>
+              )}
+              {creando && tipo === 'almacen' && <NuevoFrio alCerrar={() => setCreando(false)} alCrear={(d) => { setCreando(false); ir('almacen', d.id) }} />}
+              {creando && tipo === 'sucursal' && <NuevaSucursal alCerrar={() => setCreando(false)} alCrear={(s) => { setCreando(false); ir('sucursal', s.id) }} />}
+            </>
+          )
+        }}
       </ConDatos>
     </>
   )
 }
 
-function DepositoElegido({ deposito }: { deposito: Deposito }) {
+function VolverALista({ tipo, alVolver }: { tipo: Tipo; alVolver: () => void }) {
+  return (
+    <button type="button" className="btn-discreto stk-volver" onClick={alVolver}>
+      <Flecha /> {tipo === 'venta' ? 'Depósitos de venta directa' : PLURAL[tipo]}
+    </button>
+  )
+}
+
+/** Tarjetas de los depósitos de un tipo: nombre, cuántos productos tiene y, en los fríos, la temperatura. */
+function ListaDepositos({ depositos, stock, alElegir, alCrear }: {
+  depositos: Deposito[]; stock: StockFila[]; alElegir: (id: string) => void; alCrear: (() => void) | null
+}) {
+  const categorias = useCategorias()
+  return (
+    <ul className="stk-lista" aria-label="Depósitos">
+      {depositos.map((d) => {
+        const conStock = stock.filter((f) => (f.porDeposito[d.id] ?? 0) > 0).length
+        return (
+          <li key={d.id}>
+            <button type="button" className="tarjeta stk-item" onClick={() => alElegir(d.id)}>
+              <span className="stk-item-cabeza">
+                <strong>{d.nombre}</strong>
+                <Flecha derecha />
+              </span>
+              {d.descripcion && <span className="suave chico">{d.descripcion}</span>}
+              <span className="chico">{conStock === 0 ? 'Vacío' : conStock === 1 ? '1 producto con stock' : `${conStock} productos con stock`}</span>
+              {d.tipo === 'venta' && (
+                <span className="suave chico">Recibe: {d.categorias.map((c) => categorias.nombre(c)).filter(Boolean).join(', ') || 'ninguna categoría'}</span>
+              )}
+              {d.tipo === 'almacen' && <ChipTemperatura deposito={d} />}
+            </button>
+          </li>
+        )
+      })}
+      {alCrear && (
+        <li>
+          <button type="button" className="tarjeta stk-item stk-item-nuevo" onClick={alCrear}>+ Nuevo depósito frío</button>
+        </li>
+      )}
+    </ul>
+  )
+}
+
+/** En la tarjeta de un depósito frío: «Freezer 1 · −20 °C · hace 2 h», en rojo si está mal. */
+function ChipTemperatura({ deposito }: { deposito: Deposito }) {
+  const m = deposito.maquina
+  const estado = estadoFrio(deposito)
+  if (!m) return <span className="suave chico">Sin máquina vinculada</span>
+  const u = m.ultima
+  return (
+    <span className={`stk-temp-chip stk-temp-${estado}`}>
+      {m.nombre}
+      {u ? <> · {u.temperatura !== null ? grados(u.temperatura) : NOMBRE_ESTADO[u.estado].toLowerCase()} · {hace(u.fecha)}</> : ' · sin medir'}
+      {estado === 'mal' && ' · revisar'}
+    </span>
+  )
+}
+
+function ListaSucursales({ sucursales, alElegir, alCrear }: { sucursales: Sucursal[]; alElegir: (id: string) => void; alCrear: (() => void) | null }) {
+  const hoy = diaPY()
+  const envios = useConsulta<EnvioResumen[]>('/envios', { desde: sumarDias(hoy, -6), hasta: hoy })
+  return (
+    <ul className="stk-lista" aria-label="Sucursales">
+      {sucursales.map((s) => {
+        const de = (envios.datos ?? []).filter((e) => e.sucursalId === s.id)
+        const total = de.reduce((n, e) => n + e.cantidad, 0)
+        return (
+          <li key={s.id}>
+            <button type="button" className="tarjeta stk-item" onClick={() => alElegir(s.id)}>
+              <span className="stk-item-cabeza"><strong>{s.nombre}</strong><Flecha derecha /></span>
+              <span className="chico">{envios.datos ? (total ? `Últimos 7 días: ${total} enviados (${de.length === 1 ? '1 producto' : `${de.length} productos`})` : 'Sin envíos en los últimos 7 días') : ' '}</span>
+            </button>
+          </li>
+        )
+      })}
+      {!sucursales.length && <li className="suave">No hay sucursales cargadas.</li>}
+      {alCrear && (
+        <li><button type="button" className="tarjeta stk-item stk-item-nuevo" onClick={alCrear}>+ Nueva sucursal</button></li>
+      )}
+    </ul>
+  )
+}
+
+function DepositoElegido({ deposito, stock, alBorrar }: {
+  deposito: Deposito; stock: ReturnType<typeof useConsulta<StockFila[]>>; alBorrar: () => void
+}) {
   const u = useUsuario()
   const puede = usePuede()
   const esSuper = useEsSuper()
-  const stock = useConsulta<StockFila[]>('/stock', { todos: 1 })
+  const categorias = useCategorias()
   const esVenta = deposito.tipo === 'venta'
   const vendido = useConsulta<VendidoFila[]>(esVenta ? '/stock/vendido' : null)
   const [editando, setEditando] = useState(false)
@@ -88,19 +256,27 @@ function DepositoElegido({ deposito }: { deposito: Deposito }) {
     <>
       <div className="stk-cabeza">
         <div>
-          <h2>{deposito.nombre}</h2>
-          <p className="suave chico">
-            {deposito.descripcion || (esVenta ? 'Depósito de venta directa.' : 'Almacén.')}
-            {esVenta && ' Se registra cuánto hay y cuánto se vende.'}
-          </p>
+          <h2>{deposito.nombre} <span className="etiqueta stk-tipo-etiqueta">{NOMBRE_TIPO_DEPOSITO[deposito.tipo]}</span></h2>
+          {(deposito.descripcion || esVenta) && (
+            <p className="suave chico">
+              {deposito.descripcion}
+              {esVenta && ' Se registra cuánto hay y cuánto se vende.'}
+            </p>
+          )}
+          {esVenta && (
+            <p className="chico stk-recibe">
+              Recibe: {deposito.categorias.map((c) => categorias.nombre(c)).filter(Boolean).join(', ') || 'ninguna categoría todavía'}
+            </p>
+          )}
         </div>
         <div className="stk-cabeza-acciones">
-          {puede('catalogos.editar') && <button type="button" className="btn-discreto" onClick={() => setEditando(true)}>Cambiar nombre</button>}
+          {puede('catalogos.editar') && <button type="button" className="btn-discreto" onClick={() => setEditando(true)}>Editar</button>}
           {esSuper && deposito.tipo === 'almacen' && !deposito.sistema && (
-            <button type="button" className="btn-discreto rojo" onClick={() => setBorrando(true)}>Borrar almacén</button>
+            <button type="button" className="btn-discreto rojo" onClick={() => setBorrando(true)}>Borrar depósito</button>
           )}
         </div>
       </div>
+      {deposito.tipo === 'almacen' && deposito.maquina && <PanelTemperatura deposito={deposito} />}
       <ConDatos consulta={stock}>
         {(filas) => (
           <>
@@ -117,8 +293,49 @@ function DepositoElegido({ deposito }: { deposito: Deposito }) {
         )}
       </ConDatos>
       {editando && <EditarDeposito deposito={deposito} alCerrar={() => setEditando(false)} />}
-      {borrando && <BorrarAlmacen deposito={deposito} alCerrar={() => setBorrando(false)} />}
+      {borrando && <BorrarDeposito deposito={deposito} alCerrar={() => setBorrando(false)} alBorrar={alBorrar} />}
     </>
+  )
+}
+
+/** Última medición de la máquina vinculada y, si está mal, qué hacer. */
+function PanelTemperatura({ deposito }: { deposito: Deposito }) {
+  const puede = usePuede()
+  const m = deposito.maquina!
+  const u = m.ultima
+  const estado = estadoFrio(deposito)
+  const rango = rangoTexto(m.tempMin, m.tempMax)
+  return (
+    <div className={`tarjeta stk-temp stk-temp-${estado}`} role={estado === 'mal' ? 'alert' : undefined}>
+      <div className="stk-temp-fila">
+        <div>
+          <div className="suave chico">Máquina vinculada</div>
+          <strong>{m.nombre}</strong>
+          {rango && <div className="suave chico">Tiene que estar {rango}</div>}
+        </div>
+        <div className="stk-temp-valor">
+          {u ? (
+            <>
+              <strong>{u.temperatura !== null ? grados(u.temperatura) : '—'}</strong>
+              <div className="suave chico">{fechaHoraPY(u.fecha)} ({hace(u.fecha)}){u.usuarioNombre && ` · ${u.usuarioNombre}`}</div>
+            </>
+          ) : <span className="suave">Sin mediciones</span>}
+        </div>
+      </div>
+      {estado === 'mal' && u && (
+        <p className="stk-temp-aviso">
+          {u.fueraDeRango
+            ? <>La última temperatura está fuera de rango ({u.temperatura !== null ? grados(u.temperatura) : '—'}; tiene que estar {rango}). </>
+            : <>La máquina quedó como «{NOMBRE_ESTADO[u.estado].toLowerCase()}». </>}
+          <strong>Revisá la máquina o retirá los productos perecederos</strong> y pasalos a otro depósito con «Transferir».
+        </p>
+      )}
+      {estado === 'vieja' && <p className="stk-temp-nota">La última medición es de {hace(u!.fecha)}: conviene medir de nuevo.</p>}
+      {estado === 'sin_medir' && <p className="stk-temp-nota">Todavía no se cargó ninguna medición de esta máquina.</p>}
+      {puede('maquinas.lectura') && (estado !== 'bien') && (
+        <Link className="btn-discreto chico" to="/sector/maquinas">Cargar una medición</Link>
+      )}
+    </div>
   )
 }
 
@@ -130,13 +347,16 @@ function TablaDeposito({ deposito, filas, vendido }: { deposito: Deposito; filas
   const [buscar, setBuscar] = useState('')
   const [ocultarCeros, setOcultarCeros] = useState(true)
   const esVenta = deposito.tipo === 'venta'
+  const otros = categorias.lista.find((c) => c.sistema)?.id
   const conLotes = (f: StockFila) => sectores.lista.find((s) => s.id === f.sector)?.conLotes ?? false
   const hay = (f: { porDeposito: Record<string, number> }) => f.porDeposito[deposito.id] ?? 0
+  const corresponde = (f: StockFila) => admite(deposito, f.categoriaId, otros)
   const vendidoDe = (id: string) => vendido.find((v) => v.productoId === id && v.depositoId === deposito.id)?.cantidad ?? 0
 
   const palabras = normalizar(buscar).split(/\s+/).filter(Boolean)
   const coincide = (texto: string) => palabras.every((p) => normalizar(texto).includes(p))
   const visibles = filas.filter((f) =>
+    (corresponde(f) || hay(f) !== 0) &&
     (!categoria || (f.categoriaId ?? '') === categoria) &&
     coincide(`${f.productoNombre} ${f.subcategoria} ${f.productoId}`) &&
     (!ocultarCeros || hay(f) !== 0 || (esVenta && vendidoDe(f.productoId) > 0)))
@@ -153,7 +373,7 @@ function TablaDeposito({ deposito, filas, vendido }: { deposito: Deposito; filas
     return [...m.entries()].sort(([a], [b]) => (orden.indexOf(a) + 1 || 9999) - (orden.indexOf(b) + 1 || 9999))
   }, [visibles, categorias.lista])
 
-  const usadas = categorias.lista.filter((c) => filas.some((f) => f.categoriaId === c.id))
+  const usadas = categorias.lista.filter((c) => filas.some((f) => f.categoriaId === c.id && (corresponde(f) || hay(f) !== 0)))
   const columnas = esVenta ? 3 : 2
 
   return (
@@ -201,6 +421,7 @@ function TablaDeposito({ deposito, filas, vendido }: { deposito: Deposito; filas
                       {!f.activo && <span className="stk-desactivado">desactivado</span>}
                       {f.subcategoria && <div className="suave chico">{f.subcategoria}</div>}
                       {esVenta && n < 0 && <div className="chico stk-negativo">Se vendió más de lo que se cargó: faltan {-n} por cargar.</div>}
+                      {!corresponde(f) && <div className="chico stk-negativo">Su categoría no va en este depósito: pasalo a otro con «Transferir».</div>}
                       {lotes.length > 0 && (
                         <details className="stk-ver-lotes">
                           <summary>{lotes.length === 1 ? '1 lote' : `${lotes.length} lotes`}</summary>
@@ -246,11 +467,14 @@ function Transferir({ desde, filas }: { desde: Deposito; filas: StockFila[] }) {
   const [aviso, setAviso] = useState<string | null>(null)
   const [listo, setListo] = useState<string | null>(null)
   const registrar = useAccion((p: PedidoTransferencia) => post<Movimiento[]>('/transferencias', p))
+  const categorias = useCategorias()
+  const otros = categorias.lista.find((c) => c.sistema)?.id
 
   const hay = (f: { porDeposito: Record<string, number> }) => f.porDeposito[desde.id] ?? 0
   const conStock = filas.filter((f) => hay(f) > 0 || f.productoId === productoId)
-  const destinos = depositos.lista.filter((d) => d.id !== desde.id)
   const fila = filas.find((f) => f.productoId === productoId)
+  // A un depósito de venta va solo lo de sus categorías.
+  const destinos = depositos.lista.filter((d) => d.id !== desde.id && (!fila || admite(d, fila.categoriaId, otros)))
   const conLotes = !!fila && (sectores.lista.find((s) => s.id === fila.sector)?.conLotes ?? false)
   const lotes = (fila?.lotes ?? []).filter((l) => hay(l) > 0)
   const disponible = !fila ? 0 : conLotes ? hay(lotes.find((l) => l.lote === lote) ?? { porDeposito: {} }) : hay(fila)
@@ -269,8 +493,8 @@ function Transferir({ desde, filas }: { desde: Deposito; filas: StockFila[] }) {
 
   const guardar = async () => {
     limpiar()
-    if (!hacia) return setAviso('Elegí a qué depósito va.')
     if (!fila) return setAviso('Elegí el producto.')
+    if (!hacia || !destinos.some((d) => d.id === hacia)) return setAviso('Elegí a qué depósito va.')
     if (conLotes && !lote) return setAviso('Elegí el lote.')
     if (cantidad <= 0) return setAviso('Cargá cuánto pasa.')
     if (cantidad > disponible) return setAviso(`Solo hay ${conUnidad(disponible, fila.unidad)} en «${desde.nombre}»${conLotes ? ' en ese lote' : ''}.`)
@@ -288,21 +512,21 @@ function Transferir({ desde, filas }: { desde: Deposito; filas: StockFila[] }) {
       <h2>Transferir desde {desde.nombre}</h2>
       <div className="tarjeta">
         <p className="suave chico stk-ayuda">
-          Pasá productos de «{desde.nombre}» a otro depósito. Por ejemplo, 20 chipas de un almacén en frío a «Venta frente».
+          Pasá productos de «{desde.nombre}» a otro depósito. Por ejemplo, 20 chipas de una cámara a «Venta frente».
           Para mandar a una sucursal usá <Link className="btn-discreto chico" to="/sector/envio">Envío a sucursal</Link>.
         </p>
-        <label className="campo">
-          <span>Hacia</span>
-          <select value={hacia} onChange={(e) => { limpiar(); setHacia(e.target.value) }}>
-            <option value="">Elegí el depósito</option>
-            {destinos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
-          </select>
-        </label>
         <label className="campo">
           <span>Producto</span>
           <select value={productoId} onChange={(e) => elegirProducto(e.target.value)}>
             <option value="">Elegí un producto</option>
             {conStock.map((f) => <option key={f.productoId} value={f.productoId}>{f.productoNombre} ({conUnidad(hay(f), f.unidad)})</option>)}
+          </select>
+        </label>
+        <label className="campo">
+          <span>Hacia</span>
+          <select value={hacia} onChange={(e) => { limpiar(); setHacia(e.target.value) }}>
+            <option value="">Elegí el depósito</option>
+            {destinos.map((d) => <option key={d.id} value={d.id}>{d.nombre} ({NOMBRE_TIPO_DEPOSITO[d.tipo].toLowerCase()})</option>)}
           </select>
         </label>
         {conLotes && (
@@ -479,23 +703,28 @@ function AjusteStock({ deposito, filas }: { deposito: Deposito; filas: StockFila
   )
 }
 
-/** Sucursales: lo que se les envió en el período (no tienen stock en el sistema). */
-function Sucursales() {
+/** Una sucursal: lo que se le envió en el período (no tiene stock en el sistema). */
+function SucursalElegida({ sucursal, alBorrar }: { sucursal: Sucursal; alBorrar: () => void }) {
   const hoy = diaPY()
   const [desde, setDesde] = useState(sumarDias(hoy, -6))
   const [hasta, setHasta] = useState(hoy)
   const puede = usePuede()
+  const esSuper = useEsSuper()
+  const [editando, setEditando] = useState(false)
+  const [borrando, setBorrando] = useState(false)
   const envios = useConsulta<EnvioResumen[]>('/envios', { desde, hasta })
   return (
     <>
       <div className="stk-cabeza">
         <div>
-          <h2>Sucursales</h2>
-          <p className="suave chico">De las sucursales solo se registra lo que se les envió; lo que venden ellas no entra en el sistema.</p>
+          <h2>{sucursal.nombre} <span className="etiqueta stk-tipo-etiqueta">Sucursal</span></h2>
+          <p className="suave chico">De las sucursales solo se registra lo que se les envía; lo que venden ellas no entra en el sistema.</p>
         </div>
-        {puede('stock.mover') && (
-          <div className="stk-cabeza-acciones"><Link className="btn-secundario" to="/sector/envio">Nuevo envío</Link></div>
-        )}
+        <div className="stk-cabeza-acciones">
+          {puede('stock.mover') && <Link className="btn-secundario" to="/sector/envio">Nuevo envío</Link>}
+          {puede('catalogos.editar') && <button type="button" className="btn-discreto" onClick={() => setEditando(true)}>Cambiar nombre</button>}
+          {esSuper && <button type="button" className="btn-discreto rojo" onClick={() => setBorrando(true)}>Borrar sucursal</button>}
+        </div>
       </div>
       <div className="filtros stk-filtros">
         <label className="campo"><span>Desde</span><input type="date" value={desde} max={hasta} onChange={(e) => e.target.value && setDesde(e.target.value)} /></label>
@@ -503,30 +732,27 @@ function Sucursales() {
       </div>
       <ConDatos consulta={envios}>
         {(lista) => {
-          if (!lista.length) return <p className="suave">No hubo envíos a sucursales entre el {diaLegible(desde)} y el {diaLegible(hasta)}.</p>
-          const porSucursal = new Map<string, EnvioResumen[]>()
-          for (const e of lista) porSucursal.set(e.sucursalNombre, [...(porSucursal.get(e.sucursalNombre) ?? []), e])
+          const filas = lista.filter((e) => e.sucursalId === sucursal.id)
+          if (!filas.length) return <p className="suave">No hubo envíos a {sucursal.nombre} entre el {diaLegible(desde)} y el {diaLegible(hasta)}.</p>
           return (
             <table className="tabla stk-tabla">
               <thead><tr><th>Producto</th><th className="num">Enviado</th><th className="num">Último envío</th></tr></thead>
               <tbody>
-                {[...porSucursal.entries()].map(([nombre, filas]) => [
-                  <tr key={`g-${nombre}`} className="stk-grupo">
-                    <th colSpan={3} scope="colgroup">{nombre} · {filas.reduce((s, f) => s + f.cantidad, 0)} en total</th>
-                  </tr>,
-                  ...filas.map((f) => (
-                    <tr key={`${f.sucursalId}-${f.productoId}`}>
-                      <td>{f.productoNombre}<div className="suave chico">{f.envios === 1 ? '1 envío' : `${f.envios} envíos`}</div></td>
-                      <td className="num stk-total">{f.cantidad}</td>
-                      <td className="num">{diaLegible(f.ultimo)}</td>
-                    </tr>
-                  )),
-                ])}
+                {filas.map((f) => (
+                  <tr key={f.productoId}>
+                    <td>{f.productoNombre}<div className="suave chico">{f.envios === 1 ? '1 envío' : `${f.envios} envíos`}</div></td>
+                    <td className="num stk-total">{f.cantidad}</td>
+                    <td className="num">{diaLegible(f.ultimo)}</td>
+                  </tr>
+                ))}
               </tbody>
+              <tfoot><tr><th>Total</th><th className="num">{filas.reduce((s, f) => s + f.cantidad, 0)}</th><th /></tr></tfoot>
             </table>
           )
         }}
       </ConDatos>
+      {editando && <RenombrarSucursal sucursal={sucursal} alCerrar={() => setEditando(false)} />}
+      {borrando && <BorrarSucursal sucursal={sucursal} alCerrar={() => setBorrando(false)} alBorrar={alBorrar} />}
     </>
   )
 }
@@ -534,50 +760,145 @@ function Sucursales() {
 function EditarDeposito({ deposito, alCerrar }: { deposito: Deposito; alCerrar: () => void }) {
   const [nombre, setNombre] = useState(deposito.nombre)
   const [descripcion, setDescripcion] = useState(deposito.descripcion)
-  const guardar = useAccion((b: { nombre: string; descripcion: string }) => patch<Deposito>(`/depositos/${deposito.id}`, b))
+  const [maquinaId, setMaquinaId] = useState(deposito.maquina?.id ?? '')
+  const [cats, setCats] = useState<string[]>(deposito.categorias)
+  const categorias = useCategorias()
+  const esVenta = deposito.tipo === 'venta'
+  const guardar = useAccion((b: object) => patch<Deposito>(`/depositos/${deposito.id}`, b))
+  const alternar = (id: string) => setCats((x) => x.includes(id) ? x.filter((c) => c !== id) : [...x, id])
   return (
-    <Modal titulo={`Cambiar nombre de «${deposito.nombre}»`} alCerrar={alCerrar}>
+    <Modal titulo={`Editar «${deposito.nombre}»`} alCerrar={alCerrar}>
       <label className="campo"><span>Nombre</span><input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={60} /></label>
       <label className="campo"><span>Descripción (opcional)</span><input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={200} /></label>
+      {deposito.tipo === 'almacen' && <ElegirMaquina valor={maquinaId} onChange={setMaquinaId} />}
+      {esVenta && <ElegirCategorias lista={categorias.lista} elegidas={cats} alternar={alternar} />}
       <Aviso>{guardar.error}</Aviso>
       <button className="btn-primario" disabled={guardar.enviando || !nombre.trim()} onClick={async () => {
-        if (await guardar.ejecutar({ nombre: nombre.trim(), descripcion: descripcion.trim() })) alCerrar()
+        const b: Record<string, unknown> = { nombre: nombre.trim(), descripcion: descripcion.trim() }
+        if (deposito.tipo === 'almacen') b.maquinaId = maquinaId || null
+        if (esVenta) b.categorias = cats
+        if (await guardar.ejecutar(b)) alCerrar()
       }}>{guardar.enviando ? 'Guardando…' : 'Guardar'}</button>
     </Modal>
   )
 }
 
-function NuevoAlmacen({ alCerrar, alCrear }: { alCerrar: () => void; alCrear: (d: Deposito) => void }) {
+/** Máquina para ver la temperatura de un depósito frío (opcional: un depósito frío no tiene por qué tener una). */
+function ElegirMaquina({ valor, onChange }: { valor: string; onChange: (id: string) => void }) {
+  const maquinas = useConsulta<Maquina[]>('/maquinas')
+  const sectores = useSectores()
+  // Primero las que miden temperatura (heladeras, freezers, exhibidoras frías).
+  const lista = [...(maquinas.datos ?? [])].sort((a, b) => Number(b.tempMin !== null || b.tempMax !== null) - Number(a.tempMin !== null || a.tempMax !== null))
+  return (
+    <label className="campo">
+      <span>Máquina vinculada (opcional)</span>
+      <select value={valor} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Ninguna</option>
+        {lista.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.nombre} · {sectores.nombre(m.sector)}{m.tempMin !== null || m.tempMax !== null ? ` (${rangoTexto(m.tempMin, m.tempMax)})` : ''}
+          </option>
+        ))}
+      </select>
+      <small className="suave">Si tiene una, al abrir el depósito se ve la última temperatura medida y un aviso si está fuera de rango.</small>
+    </label>
+  )
+}
+
+function ElegirCategorias({ lista, elegidas, alternar }: { lista: Categoria[]; elegidas: string[]; alternar: (id: string) => void }) {
+  return (
+    <fieldset className="campo stk-categorias">
+      <legend>Categorías que recibe</legend>
+      <small className="suave">Solo los productos de estas categorías se pueden pasar a este depósito. Por ejemplo, el buffet va a Venta comedor.</small>
+      {lista.filter((c) => c.activo || elegidas.includes(c.id)).map((c) => (
+        <label key={c.id} className="check">
+          <input type="checkbox" checked={elegidas.includes(c.id)} onChange={() => alternar(c.id)} />
+          {c.nombre}
+        </label>
+      ))}
+    </fieldset>
+  )
+}
+
+function NuevoFrio({ alCerrar, alCrear }: { alCerrar: () => void; alCrear: (d: Deposito) => void }) {
   const [nombre, setNombre] = useState('')
   const [descripcion, setDescripcion] = useState('')
-  const crear = useAccion((b: { nombre: string; descripcion: string }) => post<Deposito>('/depositos', b))
+  const [maquinaId, setMaquinaId] = useState('')
+  const crear = useAccion((b: object) => post<Deposito>('/depositos', b))
   return (
-    <Modal titulo="Nuevo almacén" alCerrar={alCerrar}>
-      <p className="suave chico">Un almacén en frío más, por ejemplo «Cámara 2» o «Freezer del fondo». De acá se lleva a la venta o a las sucursales.</p>
+    <Modal titulo="Nuevo depósito frío" alCerrar={alCerrar}>
+      <p className="suave chico">Un lugar más donde guardar, con su propio stock: por ejemplo «Cámara 2», «Freezer del fondo» o «Depósito seco».</p>
       <label className="campo"><span>Nombre</span><input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={60} placeholder="Ej.: Cámara 2" autoFocus /></label>
       <label className="campo"><span>Descripción (opcional)</span><input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={200} /></label>
+      <ElegirMaquina valor={maquinaId} onChange={setMaquinaId} />
       <Aviso>{crear.error}</Aviso>
       <button className="btn-primario" disabled={crear.enviando || !nombre.trim()} onClick={async () => {
-        const d = await crear.ejecutar({ nombre: nombre.trim(), descripcion: descripcion.trim() })
+        const d = await crear.ejecutar({ nombre: nombre.trim(), descripcion: descripcion.trim(), maquinaId: maquinaId || null })
         if (d) alCrear(d)
-      }}>{crear.enviando ? 'Creando…' : 'Crear almacén'}</button>
+      }}>{crear.enviando ? 'Creando…' : 'Crear depósito'}</button>
     </Modal>
   )
 }
 
-function BorrarAlmacen({ deposito, alCerrar }: { deposito: Deposito; alCerrar: () => void }) {
+function BorrarDeposito({ deposito, alCerrar, alBorrar }: { deposito: Deposito; alCerrar: () => void; alBorrar: () => void }) {
   const borrar = useAccion(() => api(`/depositos/${deposito.id}`, { metodo: 'DELETE' }))
   return (
     <Modal titulo={`Borrar «${deposito.nombre}»`} alCerrar={alCerrar}>
       <p>
-        El almacén tiene que estar vacío: si le queda algo, pasalo antes a otro depósito con «Transferir».
+        El depósito tiene que estar vacío: si le queda algo, pasalo antes a otro con «Transferir».
         Lo que pasó por acá sigue en el historial.
       </p>
       <Aviso>{borrar.error}</Aviso>
       <div className="stk-botones">
         <button className="btn-secundario" onClick={alCerrar} disabled={borrar.enviando}>Cancelar</button>
         <button className="btn-primario peligro" disabled={borrar.enviando} onClick={async () => {
-          if (await borrar.ejecutar()) alCerrar()
+          if (await borrar.ejecutar()) { alCerrar(); alBorrar() }
+        }}>{borrar.enviando ? 'Borrando…' : 'Sí, borrar'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+function NuevaSucursal({ alCerrar, alCrear }: { alCerrar: () => void; alCrear: (s: Sucursal) => void }) {
+  const [nombre, setNombre] = useState('')
+  const crear = useAccion((b: { nombre: string }) => post<Sucursal>('/sucursales', b))
+  return (
+    <Modal titulo="Nueva sucursal" alCerrar={alCerrar}>
+      <p className="suave chico">Aparece como destino en «Envío a sucursal». No lleva stock: solo se registra lo que se le manda.</p>
+      <label className="campo"><span>Nombre</span><input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={80} placeholder="Ej.: Sucursal Luque" autoFocus /></label>
+      <Aviso>{crear.error}</Aviso>
+      <button className="btn-primario" disabled={crear.enviando || !nombre.trim()} onClick={async () => {
+        const s = await crear.ejecutar({ nombre: nombre.trim() })
+        if (s) alCrear(s)
+      }}>{crear.enviando ? 'Creando…' : 'Crear sucursal'}</button>
+    </Modal>
+  )
+}
+
+function RenombrarSucursal({ sucursal, alCerrar }: { sucursal: Sucursal; alCerrar: () => void }) {
+  const [nombre, setNombre] = useState(sucursal.nombre)
+  const guardar = useAccion((b: { nombre: string }) => patch<Sucursal>(`/sucursales/${sucursal.id}`, b))
+  return (
+    <Modal titulo={`Cambiar nombre de «${sucursal.nombre}»`} alCerrar={alCerrar}>
+      <label className="campo"><span>Nombre</span><input value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={80} /></label>
+      <Aviso>{guardar.error}</Aviso>
+      <button className="btn-primario" disabled={guardar.enviando || !nombre.trim()} onClick={async () => {
+        if (await guardar.ejecutar({ nombre: nombre.trim() })) alCerrar()
+      }}>{guardar.enviando ? 'Guardando…' : 'Guardar'}</button>
+    </Modal>
+  )
+}
+
+function BorrarSucursal({ sucursal, alCerrar, alBorrar }: { sucursal: Sucursal; alCerrar: () => void; alBorrar: () => void }) {
+  const borrar = useAccion(() => api(`/sucursales/${sucursal.id}`, { metodo: 'DELETE' }))
+  return (
+    <Modal titulo={`Borrar «${sucursal.nombre}»`} alCerrar={alCerrar}>
+      <p>Deja de aparecer como destino de los envíos. Lo que ya se le envió sigue en el historial y en la trazabilidad.</p>
+      <Aviso>{borrar.error}</Aviso>
+      <div className="stk-botones">
+        <button className="btn-secundario" onClick={alCerrar} disabled={borrar.enviando}>Cancelar</button>
+        <button className="btn-primario peligro" disabled={borrar.enviando} onClick={async () => {
+          if (await borrar.ejecutar()) { alCerrar(); alBorrar() }
         }}>{borrar.enviando ? 'Borrando…' : 'Sí, borrar'}</button>
       </div>
     </Modal>

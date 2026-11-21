@@ -10,7 +10,7 @@ import { sentenciaAuditoria } from '../auditoria'
 import { leerDepositos } from '../consultas'
 import { nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, ValorSQL } from '../entorno'
-import { conflicto, invalido, noEncontrado } from '../errores'
+import { conflicto, invalido, noEncontrado, prohibido } from '../errores'
 import { esSector, requiere, sectorPara, soloSuper } from '../sesion'
 
 const soloAdmin = requiere('catalogos.editar', 'Solo el administrador puede hacer esto.')
@@ -544,7 +544,8 @@ rutasCatalogos.get('/sucursales', async (c) => {
   return c.json<Sucursal[]>(filas.map(aSucursal))
 })
 
-rutasCatalogos.post('/sucursales', soloAdmin, async (c) => {
+// Sucursales nuevas: solo el super-administrador (Mati, 2026-11-21).
+rutasCatalogos.post('/sucursales', soloAdmin, soloSuper, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
   const nombre = texto(b.nombre, 'el nombre de la sucursal', { max: 80 })
@@ -567,6 +568,10 @@ rutasCatalogos.patch('/sucursales/:id', soloAdmin, async (c) => {
   const despues: Sucursal = { ...antes }
   if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre de la sucursal', { max: 80 })
   if (b.activo !== undefined) despues.activo = booleano(b.activo, 'activo')
+  // Dar de baja o volver a activar una sucursal es como borrarla o crearla: solo el super-administrador.
+  if (despues.activo !== antes.activo && !c.get('usuario').superHasta) {
+    throw prohibido('Esto lo hace solo el super-administrador. Activalo en Configuración → Ajustes avanzados.')
+  }
   if (despues.nombre !== antes.nombre) await sucursalSinRepetir(db, despues.nombre, antes.id)
   await db.batch([
     sentencia(db, 'UPDATE sucursales SET nombre = ?, activo = ? WHERE id = ?', despues.nombre, despues.activo, antes.id),
@@ -577,66 +582,124 @@ rutasCatalogos.patch('/sucursales/:id', soloAdmin, async (c) => {
   return c.json<Sucursal>(despues)
 })
 
+// Borrar una sucursal: solo el super-administrador. Si ya se le envió algo queda guardada (dada de baja) para el
+// historial; si no, se borra del todo.
+rutasCatalogos.delete('/sucursales/:id', soloAdmin, soloSuper, async (c) => {
+  const db = c.env.DB
+  const fila = await una<FilaSucursal>(db, 'SELECT id, nombre, activo FROM sucursales WHERE id = ?', c.req.param('id'))
+  if (!fila) throw noEncontrado('No se encontró esa sucursal.')
+  const usada = await una<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM movimientos WHERE sucursal_id = ?', fila.id)
+  await db.batch([
+    usada?.n
+      ? sentencia(db, 'UPDATE sucursales SET activo = 0 WHERE id = ?', fila.id)
+      : sentencia(db, 'DELETE FROM sucursales WHERE id = ?', fila.id),
+    sentenciaAuditoria(db, { tabla: 'sucursales', registroId: fila.id, accion: 'borrar', usuarioId: c.get('usuario').id, antes: aSucursal(fila) }),
+  ])
+  return c.json({ ok: true })
+})
+
 // ---------- Depósitos (Mati, 2026-11-21) ----------
-// Venta frente, Venta comedor y Materia prima son fijos: el administrador les cambia el nombre. Los almacenes en frío
-// los crea y los borra solo el super-administrador. Todos los ven (las pantallas de stock los nombran).
+// Tipos: venta directa (Venta frente, Venta comedor: fijos), depósito frío (Materia prima fijo; los demás los crea y
+// los borra solo el super-administrador) y sucursal (más arriba: sin stock). El administrador les cambia el nombre,
+// vincula una máquina a un frío y elige qué categorías admite cada depósito de venta. Todos los ven.
 
 interface FilaDeposito { id: string; nombre: string; descripcion: string; sistema: number; activo: number; tipo: TipoDeposito }
-const aDeposito = (f: FilaDeposito): Deposito => ({
-  id: f.id, nombre: f.nombre, descripcion: f.descripcion, sistema: !!f.sistema, activo: !!f.activo, tipo: f.tipo,
-})
 const COLUMNAS_DEPOSITO = 'id, nombre, descripcion, sistema, activo, tipo'
 
 async function depositoSinRepetir(db: BaseD1, nombre: string, propio: string | null) {
   sinRepetir(await todas<FilaDeposito>(db, `SELECT ${COLUMNAS_DEPOSITO} FROM depositos WHERE borrado_en IS NULL`), nombre, propio, 'un depósito')
 }
 
-async function depositoVigente(db: BaseD1, id: string): Promise<FilaDeposito> {
-  const f = await una<FilaDeposito>(db, `SELECT ${COLUMNAS_DEPOSITO} FROM depositos WHERE id = ? AND borrado_en IS NULL`, id)
-  if (!f) throw noEncontrado('No se encontró ese depósito.')
-  return f
+async function depositoVigente(db: BaseD1, id: string): Promise<Deposito> {
+  const d = (await leerDepositos(db)).find((x) => x.id === id)
+  if (!d) throw noEncontrado('No se encontró ese depósito.')
+  return d
+}
+
+/** Máquina para vincular a un depósito frío: `null` la desvincula. */
+async function leerMaquinaDeposito(db: BaseD1, v: unknown): Promise<string | null> {
+  if (v === null || v === '') return null
+  const id = texto(v, 'la máquina', { max: 100 })
+  const m = await una<{ id: string; activo: number; nombre: string }>(db, 'SELECT id, activo, nombre FROM maquinas WHERE id = ?', id)
+  if (!m) throw invalido('Esa máquina no existe. Recargá la página y probá de nuevo.')
+  if (!m.activo) throw invalido(`La máquina ${m.nombre} está desactivada. Elegí otra.`)
+  return m.id
+}
+
+async function leerCategoriasDeposito(db: BaseD1, v: unknown): Promise<string[]> {
+  if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw invalido('Las categorías no son válidas.')
+  const ids = [...new Set(v as string[])]
+  if (ids.length > 200) throw invalido('Las categorías no son válidas.')
+  const existen = await todasPorTrozos<{ id: string }>(db, ids, (m) => `SELECT id FROM categorias WHERE id IN (${m})`)
+  if (existen.length !== ids.length) throw invalido('Alguna categoría ya no existe. Recargá la página y probá de nuevo.')
+  return ids
 }
 
 // Todos los ven (para elegir de dónde sale o adónde va algo).
 rutasCatalogos.get('/depositos', async (c) => c.json<Deposito[]>(await leerDepositos(c.env.DB)))
 
-// Almacenes nuevos (ej.: «Cámara 2»): solo el super-administrador. Los depósitos de venta son dos y fijos.
+// Depósitos fríos nuevos (ej.: «Cámara 2»): solo el super-administrador. Los de venta directa son dos y fijos.
 rutasCatalogos.post('/depositos', soloAdmin, soloSuper, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  const nombre = texto(b.nombre, 'el nombre del almacén', { max: 60 })
+  const nombre = texto(b.nombre, 'el nombre del depósito', { max: 60 })
   const descripcion = textoOpcional(b.descripcion, 'La descripción', 200) ?? ''
+  const maquinaId = b.maquinaId === undefined ? null : await leerMaquinaDeposito(db, b.maquinaId)
   await depositoSinRepetir(db, nombre, null)
-  const nuevo: Deposito = { id: nuevoId(), nombre, descripcion, sistema: false, activo: true, tipo: 'almacen' }
+  const id = nuevoId()
   await db.batch([
     sentencia(db,
-      `INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo)
-       VALUES (?, ?, ?, 0, 1, (SELECT COALESCE(MAX(orden), 0) + 1 FROM depositos WHERE tipo = 'almacen' AND id <> 'materia_prima'), 'almacen')`,
-      nuevo.id, nombre, descripcion),
-    sentenciaAuditoria(db, { tabla: 'depositos', registroId: nuevo.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nuevo }),
+      `INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo, maquina_id)
+       VALUES (?, ?, ?, 0, 1, (SELECT COALESCE(MAX(orden), 0) + 1 FROM depositos WHERE tipo = 'almacen' AND id <> 'materia_prima'), 'almacen', ?)`,
+      id, nombre, descripcion, maquinaId),
+    sentenciaAuditoria(db, {
+      tabla: 'depositos', registroId: id, accion: 'crear', usuarioId: c.get('usuario').id,
+      despues: { id, nombre, descripcion, tipo: 'almacen', maquinaId },
+    }),
   ])
-  return c.json<Deposito>(nuevo)
+  return c.json<Deposito>(await depositoVigente(db, id))
 })
 
-// El administrador les cambia el nombre o la descripción a todos.
+// El administrador les cambia el nombre o la descripción a todos, vincula una máquina a los fríos y elige las
+// categorías de los de venta directa.
 rutasCatalogos.patch('/depositos/:id', soloAdmin, async (c) => {
   const b = await cuerpo(c)
   const db = c.env.DB
-  algoParaCambiar(b, ['nombre', 'descripcion'])
-  const antes = aDeposito(await depositoVigente(db, c.req.param('id')))
-  const despues: Deposito = { ...antes }
-  if (b.nombre !== undefined) despues.nombre = texto(b.nombre, 'el nombre del depósito', { max: 60 })
-  if (b.descripcion !== undefined) despues.descripcion = textoOpcional(b.descripcion, 'La descripción', 200) ?? ''
-  if (despues.nombre !== antes.nombre) await depositoSinRepetir(db, despues.nombre, antes.id)
+  algoParaCambiar(b, ['nombre', 'descripcion', 'maquinaId', 'categorias'])
+  const antes = await depositoVigente(db, c.req.param('id'))
+  let nombre = antes.nombre
+  let descripcion = antes.descripcion
+  let maquinaId = antes.maquina?.id ?? null
+  let categorias = antes.categorias
+  if (b.nombre !== undefined) nombre = texto(b.nombre, 'el nombre del depósito', { max: 60 })
+  if (b.descripcion !== undefined) descripcion = textoOpcional(b.descripcion, 'La descripción', 200) ?? ''
+  if (b.maquinaId !== undefined) {
+    if (antes.tipo !== 'almacen') throw invalido('Solo a un depósito frío se le vincula una máquina.')
+    maquinaId = await leerMaquinaDeposito(db, b.maquinaId)
+  }
+  if (b.categorias !== undefined) {
+    if (antes.tipo !== 'venta') throw invalido('Las categorías se eligen solo en los depósitos de venta directa.')
+    categorias = await leerCategoriasDeposito(db, b.categorias)
+  }
+  if (nombre !== antes.nombre) await depositoSinRepetir(db, nombre, antes.id)
+  const resumen = (d: { nombre: string; descripcion: string; maquinaId: string | null; categorias: string[] }) => d
   await db.batch([
-    sentencia(db, 'UPDATE depositos SET nombre = ?, descripcion = ? WHERE id = ?', despues.nombre, despues.descripcion, antes.id),
-    sentenciaAuditoria(db, { tabla: 'depositos', registroId: antes.id, accion: 'editar', usuarioId: c.get('usuario').id, antes, despues }),
+    sentencia(db, 'UPDATE depositos SET nombre = ?, descripcion = ?, maquina_id = ? WHERE id = ?', nombre, descripcion, maquinaId, antes.id),
+    ...(b.categorias === undefined ? [] : [
+      sentencia(db, 'DELETE FROM deposito_categorias WHERE deposito_id = ?', antes.id),
+      ...categorias.map((cat) => sentencia(db, 'INSERT INTO deposito_categorias (deposito_id, categoria_id) VALUES (?, ?)', antes.id, cat)),
+    ]),
+    sentenciaAuditoria(db, {
+      tabla: 'depositos', registroId: antes.id, accion: 'editar', usuarioId: c.get('usuario').id,
+      antes: resumen({ nombre: antes.nombre, descripcion: antes.descripcion, maquinaId: antes.maquina?.id ?? null, categorias: antes.categorias }),
+      despues: resumen({ nombre, descripcion, maquinaId, categorias }),
+    }),
   ])
-  return c.json<Deposito>(despues)
+  return c.json<Deposito>(await depositoVigente(db, antes.id))
 })
 
-// Borrar un almacén: solo el super-administrador, vacío y quedando al menos otro almacén en frío. Si tuvo movimientos
-// queda guardado (oculto) para el historial; si no, se borra del todo.
+// Borrar un depósito frío: solo el super-administrador, vacío y quedando al menos otro frío (además de Materia prima).
+// Si tuvo movimientos queda guardado (oculto) para el historial; si no, se borra del todo.
 rutasCatalogos.delete('/depositos/:id', soloAdmin, soloSuper, async (c) => {
   const db = c.env.DB
   const f = await depositoVigente(db, c.req.param('id'))
@@ -646,7 +709,7 @@ rutasCatalogos.delete('/depositos/:id', soloAdmin, soloSuper, async (c) => {
   const otros = await una<{ n: number }>(
     db, "SELECT COUNT(*) AS n FROM depositos WHERE tipo = 'almacen' AND sistema = 0 AND borrado_en IS NULL AND id <> ?", f.id,
   )
-  if (!otros?.n) throw conflicto('ultimo_almacen', `«${f.nombre}» es el único almacén en frío: creá otro antes de borrarlo.`)
+  if (!otros?.n) throw conflicto('ultimo_almacen', `«${f.nombre}» es el único depósito frío para guardar producción: creá otro antes de borrarlo.`)
   const conStock = await una<{ n: number }>(
     db, 'SELECT COUNT(*) AS n FROM (SELECT producto_id FROM movimientos WHERE deposito_id = ? GROUP BY producto_id, lote HAVING SUM(cantidad) <> 0)', f.id,
   )
@@ -656,12 +719,14 @@ rutasCatalogos.delete('/depositos/:id', soloAdmin, soloSuper, async (c) => {
   const usado = await una<{ n: number }>(
     db, 'SELECT (SELECT COUNT(*) FROM movimientos WHERE deposito_id = ?) + (SELECT COUNT(*) FROM produccion_items WHERE deposito_id = ?) AS n', f.id, f.id,
   )
-  const antes = aDeposito(f)
   await db.batch([
     usado?.n
       ? sentencia(db, 'UPDATE depositos SET activo = 0, borrado_en = ? WHERE id = ?', new Date().toISOString(), f.id)
       : sentencia(db, 'DELETE FROM depositos WHERE id = ?', f.id),
-    sentenciaAuditoria(db, { tabla: 'depositos', registroId: f.id, accion: 'borrar', usuarioId: c.get('usuario').id, antes }),
+    sentenciaAuditoria(db, {
+      tabla: 'depositos', registroId: f.id, accion: 'borrar', usuarioId: c.get('usuario').id,
+      antes: { id: f.id, nombre: f.nombre, descripcion: f.descripcion, tipo: f.tipo, maquinaId: f.maquina?.id ?? null },
+    }),
   ])
   return c.json({ ok: true })
 })
@@ -715,6 +780,8 @@ rutasCatalogos.post('/categorias', soloAdmin, async (c) => {
   await db.batch([
     sentencia(db, 'INSERT INTO categorias (id, nombre, activo, orden) VALUES (?, ?, 1, (SELECT COALESCE(MAX(orden), -1) + 1 FROM categorias WHERE sistema = 0))', nueva.id, nombre),
     ...sentenciasCategoriaSectores(db, nueva.id, sectores),
+    // Una categoría nueva entra en Venta frente; el administrador la saca o la suma a Venta comedor en Depósitos.
+    sentencia(db, "INSERT INTO deposito_categorias (deposito_id, categoria_id) SELECT id, ? FROM depositos WHERE id = 'venta'", nueva.id),
     sentenciaAuditoria(db, { tabla: 'categorias', registroId: nueva.id, accion: 'crear', usuarioId: c.get('usuario').id, despues: nueva }),
   ])
   return c.json<Categoria>(nueva)
