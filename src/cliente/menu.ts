@@ -44,11 +44,10 @@ export function menuDe(rol: Rol, conLotes: boolean, sectores: { id: SectorId; no
     agregar('Administración', [
       p('reportes.ver') && { a: '/admin', texto: 'Resumen', icono: 'resumen', exacta: true },
       p('reportes.ver') && { a: '/admin/reportes', texto: 'Reportes', icono: 'reportes' },
-      // Productos tiene su propia entrada; «Catálogos» abre el resto (categorías, máquinas, limpieza, sucursales, sectores).
-      p('catalogos.editar') && { a: '/admin/catalogos?ver=productos', texto: 'Productos', icono: 'productos', ver: ['productos', ''] },
-      p('catalogos.editar') && {
-        a: '/admin/catalogos?ver=categorias', texto: 'Catálogos', icono: 'catalogos', ver: ['categorias', 'maquinas', 'limpieza', 'sucursales', 'sectores'],
-      },
+      // Productos, Catálogos (categorías) y Mantenimiento (máquinas y limpieza) son pantallas separadas (Mati, 2026-11-21).
+      p('catalogos.editar') && { a: '/admin/productos', texto: 'Productos', icono: 'productos' },
+      p('catalogos.editar') && { a: '/admin/catalogos', texto: 'Catálogos', icono: 'catalogos' },
+      p('catalogos.editar') && { a: '/admin/mantenimiento', texto: 'Mantenimiento', icono: 'mantenimiento' },
       p('usuarios.gestionar') && { a: '/admin/usuarios', texto: 'Usuarios', icono: 'usuarios' },
       p('datos.gestionar') && { a: '/admin/datos', texto: 'Datos', icono: 'datos' },
     ])

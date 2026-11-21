@@ -20,6 +20,8 @@ import Trazabilidad from './pages/sector/Trazabilidad'
 import Resumen from './pages/admin/Resumen'
 import Usuarios from './pages/admin/Usuarios'
 import Catalogos from './pages/admin/Catalogos'
+import Mantenimiento from './pages/admin/Mantenimiento'
+import { PaginaProductos } from './pages/admin/Productos'
 import Ajustes from './pages/admin/Ajustes'
 import Registros from './pages/admin/Registros'
 import Controles from './pages/admin/Controles'
@@ -67,7 +69,9 @@ export default function App() {
         <Route path="configuracion" element={<Configuracion />} />
         {ruta('admin', 'reportes.ver', <Resumen />)}
         {ruta('admin/usuarios', 'usuarios.gestionar', <Usuarios />)}
+        {ruta('admin/productos', 'catalogos.editar', <PaginaProductos />)}
         {ruta('admin/catalogos', 'catalogos.editar', <Catalogos />)}
+        {ruta('admin/mantenimiento', 'catalogos.editar', <Mantenimiento />)}
         {ruta('admin/stock', 'stock.ver', <Ajustes />)}
         {ruta('admin/registros', 'produccion.ver', <Registros />)}
         {ruta('admin/controles', 'limpieza.ver', <Controles />)}

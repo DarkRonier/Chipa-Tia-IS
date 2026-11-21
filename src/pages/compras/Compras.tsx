@@ -229,7 +229,7 @@ export function NuevaCompra() {
       {sinProductos && (
         <Aviso>
           {libre
-            ? 'No hay productos activos. Cargalos en Catálogos.'
+            ? 'No hay productos activos. Cargalos en Productos.'
             : 'Tu sector todavía no tiene categorías habilitadas para comprar. Pedíselo al administrador.'}
         </Aviso>
       )}

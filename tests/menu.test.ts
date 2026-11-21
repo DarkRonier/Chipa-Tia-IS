@@ -18,7 +18,9 @@ const RUTAS: Record<string, Permiso[][]> = {
   '/trazabilidad': [['trazabilidad.ver']],
   '/admin': [['reportes.ver']],
   '/admin/usuarios': [['usuarios.gestionar']],
+  '/admin/productos': [['catalogos.editar']],
   '/admin/catalogos': [['catalogos.editar']],
+  '/admin/mantenimiento': [['catalogos.editar']],
   '/admin/stock': [['stock.ver']],
   '/admin/registros': [['produccion.ver']],
   '/admin/controles': [['limpieza.ver']],
@@ -59,7 +61,7 @@ describe('menú lateral', () => {
 
   it('el administrador ve todo: gestión, finanzas completas y la vista del sector', () => {
     const t = textos('admin')
-    for (const x of ['Resumen', 'Producción', 'Stock', 'Caja', 'Compras', 'Proveedores', 'Finanzas', 'Reportes', 'Productos', 'Catálogos', 'Usuarios', 'Datos']) {
+    for (const x of ['Resumen', 'Producción', 'Stock', 'Caja', 'Compras', 'Proveedores', 'Finanzas', 'Reportes', 'Productos', 'Catálogos', 'Mantenimiento', 'Usuarios', 'Datos']) {
       expect(t).toContain(x)
     }
   })
@@ -79,20 +81,19 @@ describe('menú lateral', () => {
     expect(textos('admin')).not.toContain('Vista del sector')
   })
 
-  it('Productos y Catálogos abren la misma pantalla en pestañas distintas y no se marcan a la vez', () => {
+  it('Productos, Catálogos y Mantenimiento son pantallas separadas, cada una con su acceso', () => {
     const opciones = menuDe('admin', true, [...SECTORES]).flatMap((g) => g.opciones)
-    const productos = opciones.find((o) => o.texto === 'Productos')!
-    const catalogos = opciones.find((o) => o.texto === 'Catálogos')!
-    expect(productos.a).toBe('/admin/catalogos?ver=productos')
-    expect(productos.ver).toContain('')
-    expect(productos.ver!.filter((v) => catalogos.ver!.includes(v))).toEqual([])
+    const a = (texto: string) => opciones.find((o) => o.texto === texto)?.a
+    expect(a('Productos')).toBe('/admin/productos')
+    expect(a('Catálogos')).toBe('/admin/catalogos')
+    expect(a('Mantenimiento')).toBe('/admin/mantenimiento')
   })
 
   it('el supervisor no ve gestión ni caja; de ingresos y egresos solo «Egresos»', () => {
     const t = textos('supervisor')
     expect(t).toContain('Egresos')
     expect(t).toContain('Compras')
-    for (const x of ['Finanzas', 'Caja', 'Usuarios', 'Catálogos', 'Datos', 'Chipería']) expect(t).not.toContain(x)
+    for (const x of ['Finanzas', 'Caja', 'Usuarios', 'Catálogos', 'Mantenimiento', 'Productos', 'Datos', 'Chipería']) expect(t).not.toContain(x)
   })
 
   it('el cajero ve solo la caja', () => {
