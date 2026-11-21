@@ -1,11 +1,16 @@
 name: Pruebas
 
+# Corre en cada PR. En main no hace falta: «Publicar en Cloudflare» ya corre las pruebas antes de publicar.
 on:
-  push:
-    branches: [main]
   pull_request:
 
+# Si se sube otro commit al mismo PR, se cancela la corrida vieja.
+concurrency:
+  group: pruebas-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Las pruebas y la compilación van en paralelo.
   pruebas:
     runs-on: ubuntu-latest
     steps:
@@ -15,6 +20,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx tsc -b
       - run: npm test
+
+  compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # build:pages ya incluye la revisión de tipos (tsc -b).
       - run: npm run build:pages

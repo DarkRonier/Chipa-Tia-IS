@@ -23,8 +23,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # Las pruebas de main las corre «Publicar en Cloudflare»; acá solo se arma la demo.
       - run: npm ci
-      - run: npm test
       - run: npm run build:pages
       - name: Subir dist/ a la rama gh-pages
         run: |
