@@ -1,6 +1,6 @@
 // Consultas de catálogo que usan muchas pantallas.
 import { NOMBRE_ROL_GENERAL, sectorDeRol } from '../shared/permisos'
-import type { Maquina, Rol, Sector, SectorId } from '../shared/tipos'
+import type { Deposito, Maquina, Rol, Sector, SectorId } from '../shared/tipos'
 import { useConsulta } from './consultas'
 
 export function useSectores() {
@@ -8,6 +8,14 @@ export function useSectores() {
   const lista = c.datos ?? []
   const nombre = (id: SectorId | null | undefined) => lista.find((s) => s.id === id)?.nombre ?? id ?? ''
   return { ...c, lista, nombre }
+}
+
+/** Depósitos (todos, también los desactivados: el stock viejo puede seguir ahí). `nombre(id)` para mostrarlos. */
+export function useDepositos() {
+  const c = useConsulta<Deposito[]>('/depositos', { todos: true })
+  const lista = c.datos ?? []
+  const nombre = (id: string) => lista.find((d) => d.id === id)?.nombre ?? id
+  return { ...c, lista, activos: lista.filter((d) => d.activo), nombre }
 }
 
 /** "Chipería", "Cocina y buffet"…, "Supervisor", "Cajero" o "Administrador". */

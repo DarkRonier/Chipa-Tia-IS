@@ -2,12 +2,13 @@
 // usan esta misma tabla, así un permiso se cambia en un solo lugar.
 //
 // Roles (Mati, 2026-11-14):
-// - Administrador: todo, incluido lo del cajero.
+// - Administrador: todo menos registrar ventas (Mati, 2026-11-21: solo el cajero vende). Abre y cierra la caja,
+//   anula ventas e imprime facturas.
 // - Supervisor: «admin liviano». Ve producción, stock, máquinas, limpieza, lotes, trazabilidad y reportes de
 //   producción de todos los sectores. Reporta fallas o incidencias de máquinas (no carga estado ni temperatura) y
 //   da el visto bueno de la limpieza. No carga producción ni mueve stock. Gestiona proveedores, registra compras de
 //   cualquier categoría, marca pagos y ve los reportes simples de compras y pagos.
-// - Cajero: abre, arquea y cierra la caja, registra ventas e imprime facturas.
+// - Cajero: abre, arquea y cierra la caja, registra y anula ventas e imprime facturas. Es el único que vende.
 // - Sectores (Chipería, Chipitas, Panadería, Cocina/Buffet): cargan y ven lo de su sector. Lotes y trazabilidad
 //   son solo de Chipería. Cargan compras solo de productos de su sector en las categorías que el administrador les
 //   habilitó; no marcan pagos.
@@ -19,9 +20,9 @@ export type Permiso =
   | 'produccion.ver'
   | 'produccion.cargar'
   | 'produccion.corregir'
-  // Stock en frío
+  // Stock por depósito
   | 'stock.ver'
-  /** Salidas a venta, envíos a sucursales y cambios de finalidad. */
+  /** Sacar para la venta, envíos a sucursales y transferencias entre depósitos. */
   | 'stock.mover'
   /** Mermas, vencimientos, ajustes y stock inicial. */
   | 'stock.ajustar'
@@ -62,8 +63,10 @@ export type Permiso =
   // Caja, ventas y facturas (M11–M13)
   /** Abrir la caja, cargar ingresos y retiros, arquear y cerrar. */
   | 'caja.operar'
-  /** Registrar y anular ventas (con la caja abierta). */
+  /** Registrar ventas (con la caja abierta). Solo el cajero. */
   | 'ventas.registrar'
+  /** Anular una venta de la caja abierta. */
+  | 'ventas.anular'
   /** Imprimir la factura preimpresa de una venta. */
   | 'facturas.generar'
   /** Formato, numeración y calibración de la factura preimpresa. */
@@ -84,7 +87,7 @@ export const PERMISOS: readonly Permiso[] = [
   'reportes.ver', 'reportes.correo',
   'catalogos.editar', 'usuarios.gestionar', 'datos.gestionar',
   'compras.registrar', 'compras.pagar', 'proveedores.gestionar', 'reportes.compras',
-  'caja.operar', 'ventas.registrar', 'facturas.generar', 'facturas.configurar',
+  'caja.operar', 'ventas.registrar', 'ventas.anular', 'facturas.generar', 'facturas.configurar',
   'ie.egresos_proveedores', 'ie.completo', 'reportes.detallados',
 ]
 
@@ -98,7 +101,8 @@ const DE_SECTOR: Permiso[] = [
 ]
 
 const TABLA: Record<Rol, readonly Permiso[]> = {
-  admin: PERMISOS,
+  // Todo menos vender: las ventas las registra solo el cajero.
+  admin: PERMISOS.filter((p) => p !== 'ventas.registrar'),
   supervisor: [
     'produccion.ver',
     'stock.ver',
@@ -108,7 +112,7 @@ const TABLA: Record<Rol, readonly Permiso[]> = {
     'reportes.ver',
     'compras.registrar', 'compras.pagar', 'proveedores.gestionar', 'reportes.compras', 'ie.egresos_proveedores',
   ],
-  cajero: ['caja.operar', 'ventas.registrar', 'facturas.generar'],
+  cajero: ['caja.operar', 'ventas.registrar', 'ventas.anular', 'facturas.generar'],
   chiperia: [...DE_SECTOR, 'lotes.ver', 'lotes.cargar', 'trazabilidad.ver'],
   chipitas: DE_SECTOR,
   panaderia: DE_SECTOR,

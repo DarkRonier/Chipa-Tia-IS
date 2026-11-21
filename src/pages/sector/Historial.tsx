@@ -1,6 +1,8 @@
-// D05, D06: historial de salidas del frío (ventas, envíos, mermas, vencimientos y ajustes),
-// filtrable por fecha, sucursal, producto y tipo. Cada fila dice quién, cuándo y por qué.
+// D05, D06: historial de movimientos del stock (salidas a venta, envíos, mermas, vencimientos, ajustes, transferencias,
+// compras y ventas), filtrable por fecha, depósito, sucursal, producto y tipo. Cada fila dice quién, cuándo, en qué
+// depósito y por qué.
 import { useState } from 'react'
+import { useDepositos } from '../../cliente/catalogo'
 import { useConsulta } from '../../cliente/consultas'
 import { ConDatos } from '../../components/Estado'
 import { SelectorSector, useSectorActivo } from '../../components/Layout'
@@ -9,7 +11,7 @@ import Volver from '../../components/Volver'
 import { useUsuario } from '../../cliente/sesion'
 import { inicioDe } from '../../shared/permisos'
 import { fechaHoraPY } from '../../shared/hora'
-import { NOMBRE_FINALIDAD, NOMBRE_TIPO_MOVIMIENTO, type Movimiento, type Producto, type Sucursal, type TipoMovimiento } from '../../shared/tipos'
+import { NOMBRE_TIPO_MOVIMIENTO, type Movimiento, type Producto, type Sucursal, type TipoMovimiento } from '../../shared/tipos'
 import { useStock } from './Stock'
 import '../../styles/stock.css'
 import BotonIcono from '../../components/BotonIcono'
@@ -27,7 +29,7 @@ const OPCIONES_TIPO: { valor: string; texto: string }[] = [
   { valor: 'merma', texto: NOMBRE_TIPO_MOVIMIENTO.merma },
   { valor: 'vencimiento', texto: NOMBRE_TIPO_MOVIMIENTO.vencimiento },
   { valor: 'ajuste', texto: 'Ajustes' },
-  { valor: 'reasignacion', texto: 'Cambios de finalidad' },
+  { valor: 'transferencia', texto: 'Transferencias entre depósitos' },
   { valor: 'stock_inicial', texto: NOMBRE_TIPO_MOVIMIENTO.stock_inicial },
   { valor: 'compra', texto: 'Compras a proveedores' },
   { valor: 'venta', texto: 'Ventas en caja' },
@@ -56,8 +58,15 @@ export function TablaMovimientos({ movimientos }: { movimientos: Movimiento[] })
             <td className="stk-tipo">
               <span className={`stk-etiqueta stk-${m.tipo}`}>{NOMBRE_TIPO_MOVIMIENTO[m.tipo]}</span>
               {m.sucursalNombre && <div className="chico">{m.sucursalNombre}</div>}
-              {m.tipo !== 'salida_venta' && m.tipo !== 'envio' && <div className="suave chico">{NOMBRE_FINALIDAD[m.finalidad]}</div>}
-              {m.motivo && <div className="suave chico">Motivo: {m.motivo}</div>}
+              {m.tipo === 'salida_venta' || m.tipo === 'transferencia' ? (
+                // Sale de un depósito y entra en otro: el motivo dice «De «Frío» a «Directo a Venta»».
+                m.motivo && <div className="suave chico">{m.motivo}</div>
+              ) : (
+                <>
+                  <div className="suave chico">{m.depositoNombre}</div>
+                  {m.motivo && <div className="suave chico">Motivo: {m.motivo}</div>}
+                </>
+              )}
             </td>
             <td className={`num stk-cant ${m.cantidad < 0 ? 'stk-resta' : 'stk-suma'}`}>{conSigno(m.cantidad)}</td>
           </tr>
@@ -81,6 +90,8 @@ function Pantalla() {
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [sucursal, setSucursal] = useState('')
+  const [deposito, setDeposito] = useState('')
+  const depositos = useDepositos()
   const [producto, setProducto] = useState('')
   const [tipo, setTipo] = useState(OPCIONES_TIPO[0].valor)
 
@@ -89,7 +100,7 @@ function Pantalla() {
   const stock = useStock(sector)
   const fechasAlReves = !!desde && !!hasta && desde > hasta
   const movimientos = useConsulta<Movimiento[]>(fechasAlReves ? null : '/movimientos', {
-    sector, desde, hasta, sucursal, producto, tipo,
+    sector, desde, hasta, sucursal, producto, tipo, deposito,
   })
 
   // Productos para filtrar: los del catálogo y los desactivados que todavía tienen stock.
@@ -97,11 +108,12 @@ function Pantalla() {
   for (const f of stock.datos ?? []) {
     if (!opcionesProducto.some((p) => p.id === f.productoId)) opcionesProducto.push({ id: f.productoId, nombre: f.productoNombre })
   }
-  const hayFiltros = !!(desde || hasta || sucursal || producto || tipo !== OPCIONES_TIPO[0].valor)
+  const hayFiltros = !!(desde || hasta || sucursal || deposito || producto || tipo !== OPCIONES_TIPO[0].valor)
   const limpiar = () => {
     setDesde('')
     setHasta('')
     setSucursal('')
+    setDeposito('')
     setProducto('')
     setTipo(OPCIONES_TIPO[0].valor)
   }
@@ -113,6 +125,13 @@ function Pantalla() {
       <div className="tarjeta filtros stk-filtros">
         <label className="campo"><span>Desde</span><input type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} /></label>
         <label className="campo"><span>Hasta</span><input type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} /></label>
+        <label className="campo">
+          <span>Depósito</span>
+          <select value={deposito} onChange={(e) => setDeposito(e.target.value)}>
+            <option value="">Todos</option>
+            {depositos.lista.map((d) => <option key={d.id} value={d.id}>{d.nombre}{d.activo ? '' : ' (desactivado)'}</option>)}
+          </select>
+        </label>
         <label className="campo">
           <span>Sucursal</span>
           <select value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
@@ -141,7 +160,7 @@ function Pantalla() {
         <ConDatos consulta={movimientos}>
           {(lista) => {
             if (lista.length === 0) return <p className="suave">{hayFiltros ? 'No hay movimientos con esos filtros.' : 'Todavía no hay salidas registradas.'}</p>
-            const reales = lista.filter((m) => m.tipo !== 'reasignacion') // pasar de un stock a otro no es entrar ni salir
+            const reales = lista.filter((m) => m.tipo !== 'transferencia') // pasar de un depósito a otro no es entrar ni salir
             const salieron = reales.filter((m) => m.cantidad < 0).reduce((s, m) => s - m.cantidad, 0)
             const entraron = reales.filter((m) => m.cantidad > 0).reduce((s, m) => s + m.cantidad, 0)
             return (

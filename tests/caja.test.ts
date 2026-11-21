@@ -21,34 +21,35 @@ interface Escenario {
 }
 
 /**
- * Precios: chipa 3.000 (la venta no descuenta: sale del frío), cocido 5.000 (sin stock obligatorio, la venta descuenta),
- * gaseosa 7.000 (stock obligatorio, la venta descuenta, IVA 10). La empanada queda sin precio.
+ * Precios: chipa 3.000, cocido 5.000 (IVA 5) y gaseosa 7.000 (IVA 10). La empanada queda sin precio. Todo lo que se vende
+ * descuenta del depósito «Directo a Venta».
  */
 async function escenario(): Promise<Escenario> {
   const p = await nuevaPrueba()
   const admin = await p.entrar('admin')
   await p.pedir(admin, 'PATCH', `/productos/${CHIPA}`, { precioVenta: 3000 })
-  await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { precioVenta: '5.000', ventaDescuentaStock: true, stockObligatorio: false, iva: 5 })
+  await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { precioVenta: '5.000', iva: 5 })
   const gaseosa = (await p.pedir<Producto>(admin, 'POST', '/productos', {
-    sector: 'cocina', nombre: 'Gaseosa 500 ml', precioVenta: 7000, ventaDescuentaStock: true,
+    sector: 'cocina', nombre: 'Gaseosa 500 ml', precioVenta: 7000, tipo: 'reventa',
   })).body
   return { p, admin, cajero: await p.entrar('cajero'), gaseosa }
 }
 
-const stockDe = async (p: Prueba, token: string, sector: string, producto: string) =>
-  (await p.pedir<StockFila[]>(token, 'GET', `/stock?sector=${sector}`)).body.find((f) => f.productoId === producto)?.total
+/** Lo que hay de un producto en un depósito (sin indicarlo, en Directo a Venta). */
+const stockDe = async (p: Prueba, token: string, sector: string, producto: string, deposito = 'venta') =>
+  (await p.pedir<StockFila[]>(token, 'GET', `/stock?sector=${sector}`)).body.find((f) => f.productoId === producto)?.porDeposito[deposito] ?? 0
 
-/** Stock de gaseosas cargado con un ajuste del administrador. */
+/** Gaseosas cargadas en Directo a Venta con un ajuste del administrador. */
 async function cargarGaseosas(e: Escenario, n: number) {
-  const r = await e.p.pedir(e.admin, 'POST', '/ajustes', { sector: 'cocina', tipo: 'stock_inicial', productoId: e.gaseosa.id, cantidad: n, motivo: 'Inicial' })
+  const r = await e.p.pedir(e.admin, 'POST', '/ajustes', { sector: 'cocina', tipo: 'stock_inicial', productoId: e.gaseosa.id, cantidad: n, motivo: 'Inicial', depositoId: 'venta' })
   expect(r.status).toBe(200)
 }
 
 describe('permisos de caja, ventas y finanzas', () => {
-  it('cajero: caja, ventas y facturas; admin todo; supervisor solo egresos a proveedores; sectores nada', () => {
-    for (const x of ['caja.operar', 'ventas.registrar', 'facturas.generar'] as const) {
+  it('cajero: caja, ventas y facturas; admin todo menos vender; supervisor solo egresos a proveedores; sectores nada', () => {
+    for (const x of ['caja.operar', 'ventas.registrar', 'ventas.anular', 'facturas.generar'] as const) {
       expect(puede('cajero', x)).toBe(true)
-      expect(puede('admin', x)).toBe(true)
+      expect(puede('admin', x)).toBe(x !== 'ventas.registrar')
       expect(puede('supervisor', x)).toBe(false)
       expect(puede('cocina', x)).toBe(false)
     }
@@ -61,13 +62,15 @@ describe('permisos de caja, ventas y finanzas', () => {
 })
 
 describe('precios de venta', () => {
-  it('el admin carga precio, IVA y la marca de stock; se listan solo los productos con precio', async () => {
-    const { p, cajero, gaseosa } = await escenario()
-    expect(gaseosa).toMatchObject({ precioVenta: 7000, iva: 10, ventaDescuentaStock: true })
+  it('el admin carga precio e IVA; se listan solo los productos con precio, con lo que hay en Directo a Venta', async () => {
+    const e = await escenario()
+    const { p, cajero, gaseosa } = e
+    expect(gaseosa).toMatchObject({ precioVenta: 7000, iva: 10 })
+    await cargarGaseosas(e, 6)
     const lista = (await p.pedir<ProductoVenta[]>(cajero, 'GET', '/ventas/productos')).body
     expect(lista.map((x) => x.nombre)).toEqual(['Chipa tradicional', 'Cocido con leche', 'Gaseosa 500 ml'])
-    expect(lista.find((x) => x.id === COCIDO)).toMatchObject({ precio: 5000, iva: 5, descuentaStock: true })
-    expect(lista.find((x) => x.id === CHIPA)).toMatchObject({ descuentaStock: false, stock: null })
+    expect(lista.find((x) => x.id === COCIDO)).toMatchObject({ precio: 5000, iva: 5, stock: 0 })
+    expect(lista.find((x) => x.id === gaseosa.id)).toMatchObject({ stock: 6 })
     const sup = await p.entrar('supervisor')
     expect((await p.pedir(sup, 'PATCH', `/productos/${CHIPA}`, { precioVenta: 1 })).status).toBe(403)
     expect((await p.pedir(sup, 'GET', '/ventas/productos')).status).toBe(403)
@@ -128,35 +131,57 @@ describe('caja', () => {
   })
 })
 
-describe('circuito de stock de la venta (sin descontar dos veces)', () => {
-  it('la chipa baja al sacarla del frío y la venta no la toca; la gaseosa baja al venderla', async () => {
+describe('stock de la venta: todo sale de «Directo a Venta»', () => {
+  it('lo del frío se pasa a Directo a Venta y cada venta descuenta de ahí (la chipa por lote, el más viejo primero)', async () => {
     const e = await escenario()
     const { p, admin, cajero, gaseosa } = e
     const chiperia = await p.entrar('chiperia')
-    // 50 chipas al frío, se sacan 20 para la venta.
+    // 50 chipas del lote viejo en el frío, 20 se pasan a la venta; después se cargan 10 de un lote nuevo directo en la venta.
     await p.pedir(admin, 'POST', '/ajustes', { sector: 'chiperia', tipo: 'stock_inicial', productoId: CHIPA, lote: 'CH-261101-1', cantidad: 50, motivo: 'Inicial' })
     expect((await p.pedir(chiperia, 'POST', '/salidas', { productoId: CHIPA, lote: 'CH-261101-1', cantidad: 20 })).status).toBe(200)
+    const loteNuevo = 'CH-261110-1'
+    await p.pedir(admin, 'POST', '/ajustes', { sector: 'chiperia', tipo: 'stock_inicial', productoId: CHIPA, lote: loteNuevo, cantidad: 10, motivo: 'Del horno', depositoId: 'venta' })
+    expect(await stockDe(p, admin, 'chiperia', CHIPA)).toBe(30)
     await cargarGaseosas(e, 24)
     await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
-    const v = await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 15 }, { productoId: gaseosa.id, cantidad: 3 }], medio: 'efectivo' })
+    const v = await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 25 }, { productoId: gaseosa.id, cantidad: 3 }], medio: 'efectivo' })
     expect(v.status).toBe(200)
-    expect(await stockDe(p, admin, 'chiperia', CHIPA)).toBe(30)
+    expect(await stockDe(p, admin, 'chiperia', CHIPA)).toBe(5)
+    expect(await stockDe(p, admin, 'chiperia', CHIPA, 'frio')).toBe(30)
     expect(await stockDe(p, admin, 'cocina', gaseosa.id)).toBe(21)
-    const movs = await p.sql(`SELECT producto_id, cantidad FROM movimientos WHERE tipo = 'venta'`)
-    expect(movs).toEqual([{ producto_id: gaseosa.id, cantidad: -3 }])
+    const movs = await p.sql(`SELECT producto_id, lote, deposito_id, cantidad FROM movimientos WHERE tipo = 'venta' ORDER BY producto_id, cantidad`)
+    expect(movs).toEqual([
+      { producto_id: gaseosa.id, lote: null, deposito_id: 'venta', cantidad: -3 },
+      { producto_id: CHIPA, lote: 'CH-261101-1', deposito_id: 'venta', cantidad: -20 },
+      { producto_id: CHIPA, lote: loteNuevo, deposito_id: 'venta', cantidad: -5 },
+    ].sort((a, b) => a.producto_id.localeCompare(b.producto_id) || a.cantidad - b.cantidad))
   })
 
-  it('stock obligatorio frena la venta que no alcanza; sin stock obligatorio puede quedar negativo', async () => {
+  it('la venta nunca se frena: si no se cargó lo que se vende, Directo a Venta queda en negativo', async () => {
     const e = await escenario()
     const { p, admin, cajero, gaseosa } = e
     await cargarGaseosas(e, 2)
     await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
-    const r = await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: gaseosa.id, cantidad: 3 }], medio: 'efectivo' })
-    expect(r.status).toBe(409)
-    expect(r.body.error.mensaje).toContain('hay 2')
-    expect(await stockDe(p, admin, 'cocina', gaseosa.id)).toBe(2)
+    expect((await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: gaseosa.id, cantidad: 3 }], medio: 'efectivo' })).status).toBe(200)
+    expect(await stockDe(p, admin, 'cocina', gaseosa.id)).toBe(-1)
     expect((await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: COCIDO, cantidad: 4 }], medio: 'efectivo' })).status).toBe(200)
     expect(await stockDe(p, admin, 'cocina', COCIDO)).toBe(-4)
+    const lista = (await p.pedir<ProductoVenta[]>(cajero, 'GET', '/ventas/productos')).body
+    expect(lista.find((x) => x.id === COCIDO)?.stock).toBe(-4)
+  })
+
+  it('el administrador y el supervisor no venden; el administrador ve las ventas y puede anularlas', async () => {
+    const e = await escenario()
+    const { p, admin, cajero } = e
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const venta = { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'efectivo' }
+    const r = await p.pedir(admin, 'POST', '/ventas', venta)
+    expect(r.status).toBe(403)
+    expect((await p.pedir(await p.entrar('supervisor'), 'POST', '/ventas', venta)).status).toBe(403)
+    const v = (await p.pedir<Venta>(cajero, 'POST', '/ventas', venta)).body
+    expect((await p.pedir<Venta[]>(admin, 'GET', '/ventas')).body.map((x) => x.id)).toContain(v.id)
+    expect((await p.pedir(admin, 'POST', `/ventas/${v.id}/anular`, { motivo: 'Mal cobrada' })).status).toBe(200)
+    expect((await p.pedir(await p.entrar('supervisor'), 'GET', '/ventas')).status).toBe(403)
   })
 
   it('anular una venta (caja abierta) devuelve el stock y anula su factura', async () => {

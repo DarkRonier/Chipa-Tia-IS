@@ -15,7 +15,7 @@ import {
   diaLegible, diaPY, esDiaValido, fechaHoraPY, inicioDeMes, inicioDeSemana, rangoResumen, sumarDias,
 } from '../../shared/hora'
 import {
-  NOMBRE_ESTADO, NOMBRE_FINALIDAD, NOMBRE_MOMENTO, NOMBRE_TIPO_MOVIMIENTO, SECTOR_IDS, textoUsoMP,
+  NOMBRE_ESTADO, NOMBRE_MOMENTO, NOMBRE_TIPO_MOVIMIENTO, SECTOR_IDS, textoUsoMP,
   type Configuracion, type Lectura, type PeriodoResumen, type Reporte, type ResumenCorreo, type SectorId,
 } from '../../shared/tipos'
 import '../../styles/reportes.css'
@@ -156,6 +156,7 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
 }) {
   const [excel, setExcel] = useState<{ estado: 'armando' | 'listo' | 'error'; texto?: string } | null>(null)
   const t = r.totales
+  const columnasDeposito = depositosConStock(r)
   const sectoresCon = <T extends { sector: SectorId }>(xs: T[]) =>
     SECTOR_IDS.map((s) => ({ s, filas: xs.filter((x) => x.sector === s) })).filter((g) => g.filas.length > 0)
 
@@ -237,21 +238,22 @@ function VistaReporte({ r, sector, nombre, actualizando }: {
         )}
       </Seccion>
 
-      <Seccion titulo="Stock en frío actual">
-        {r.stock.length === 0 ? <Vacio>No hay stock en frío.</Vacio> : (
-          <Tabla etiqueta="Stock en frío actual" columnas={[{ titulo: 'Producto' }, { titulo: NOMBRE_FINALIDAD.reposicion, num: true }, { titulo: NOMBRE_FINALIDAD.distribucion, num: true }, { titulo: 'Unidades', num: true }]}>
+      <Seccion titulo="Stock actual por depósito">
+        {r.stock.length === 0 ? <Vacio>No hay stock.</Vacio> : (
+          <Tabla etiqueta="Stock actual por depósito" columnas={[{ titulo: 'Producto' }, ...columnasDeposito.map((d) => ({ titulo: d.nombre, num: true })), { titulo: 'Unidades', num: true }]}>
             {sectoresCon(r.stock).map(({ s, filas }) => [
               <tr key={s} className="rep-grupo">
                 <td>{nombre(s)}</td>
-                <td className="num">{num(filas.reduce((a, f) => a + f.reposicion, 0))}</td>
-                <td className="num">{num(filas.reduce((a, f) => a + f.distribucion, 0))}</td>
+                {columnasDeposito.map((d) => <td key={d.id} className="num">{num(filas.reduce((a, f) => a + (f.porDeposito[d.id] ?? 0), 0))}</td>)}
                 <td className="num">{num(filas.reduce((a, f) => a + f.total, 0))}</td>
               </tr>,
               ...filas.map((f) => (
                 <tr key={`${s}-${f.productoId}`}>
                   <td>{f.productoNombre}</td>
-                  <td className={`num${f.reposicion < 0 ? ' rep-negativo' : ''}`}>{num(f.reposicion)}</td>
-                  <td className={`num${f.distribucion < 0 ? ' rep-negativo' : ''}`}>{num(f.distribucion)}</td>
+                  {columnasDeposito.map((d) => {
+                    const n = f.porDeposito[d.id] ?? 0
+                    return <td key={d.id} className={`num${n < 0 ? ' rep-negativo' : ''}`}>{num(n)}</td>
+                  })}
                   <td className={`num${f.total < 0 ? ' rep-negativo' : ''}`}>{num(f.total)}</td>
                 </tr>
               )),
@@ -421,9 +423,9 @@ function hojasDelReporte(r: Reporte, sector: SectorId | '', nombre: (s: SectorId
     },
     {
       nombre: 'Stock actual',
-      arriba: [[negrita(`Stock en frío al ${fechaHoraPY(r.generadoEn)}`)]],
-      encabezados: ['Sector', 'Producto', NOMBRE_FINALIDAD.reposicion, NOMBRE_FINALIDAD.distribucion, 'Unidades'],
-      filas: r.stock.map((s) => [nombre(s.sector), s.productoNombre, s.reposicion, s.distribucion, s.total]),
+      arriba: [[negrita(`Stock por depósito al ${fechaHoraPY(r.generadoEn)}`)]],
+      encabezados: ['Sector', 'Producto', ...depositosConStock(r).map((d) => d.nombre), 'Unidades'],
+      filas: r.stock.map((s) => [nombre(s.sector), s.productoNombre, ...depositosConStock(r).map((d) => s.porDeposito[d.id] ?? 0), s.total]),
     },
     {
       nombre: 'Envíos',
@@ -578,4 +580,9 @@ export function IrAlEnlacePendiente() {
     if (destino) navigate(destino, { replace: true })
   }, [navigate])
   return null
+}
+
+/** Depósitos que tienen algo en el stock del reporte, en su orden: las columnas de la tabla y del Excel. */
+export function depositosConStock(r: Reporte) {
+  return r.depositos.filter((d) => r.stock.some((f) => (f.porDeposito[d.id] ?? 0) !== 0))
 }

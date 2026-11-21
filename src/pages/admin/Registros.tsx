@@ -129,17 +129,17 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
     setFilas((fs) => fs && fs.map((f, j) => (j === idx ? { ...f, [campo]: v } : f)))
   }
 
-  // Lo que cambió respecto del registro y su efecto en el stock en frío.
+  // Lo que cambió respecto del registro y su efecto en el stock: lo cocinado en Directo a Venta, lo guardado en su depósito.
   const cambios = (filas ?? []).flatMap((f) => {
     const cocinado = leer(f.cocinado)
     const guardado = leer(f.guardado)
     if (cocinado === null || guardado === null) return []
     const antes = p.items.find((i) => i.productoId === f.productoId)
     const igual = antes ? antes.cocinado === cocinado && antes.guardado === guardado : cocinado + guardado === 0
-    return igual ? [] : [{ productoId: f.productoId, productoNombre: f.productoNombre, cocinado, guardado, diferencia: guardado - (antes?.guardado ?? 0) }]
+    return igual ? [] : [{ productoId: f.productoId, productoNombre: f.productoNombre, cocinado, guardado, difCocinado: cocinado - (antes?.cocinado ?? 0), diferencia: guardado - (antes?.guardado ?? 0) }]
   })
   const invalidas = (filas ?? []).filter((f) => leer(f.cocinado) === null || leer(f.guardado) === null)
-  const efecto = cambios.filter((c) => c.diferencia !== 0)
+  const efecto = cambios.filter((c) => c.diferencia !== 0 || c.difCocinado !== 0)
   const paraAgregar = productos.filter((x) => x.activo && !(filas ?? []).some((f) => f.productoId === x.id))
 
   const guardar = async () => {
@@ -225,8 +225,13 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
           )}
           {efecto.length > 0 && (
             <div className="prod-efecto">
-              El stock en frío se ajusta{p.lote ? <> en el lote <span className="prod-codigo">{p.lote.codigo}</span></> : null}:
-              <ul>{efecto.map((c) => <li key={c.productoId}>{c.productoNombre}: {conSigno(c.diferencia)}</li>)}</ul>
+              El stock se ajusta{p.lote ? <> en el lote <span className="prod-codigo">{p.lote.codigo}</span></> : null}:
+              <ul>{efecto.map((c) => (
+                <li key={c.productoId}>
+                  {c.productoNombre}:{' '}
+                  {[c.difCocinado !== 0 && `${conSigno(c.difCocinado)} en Directo a Venta`, c.diferencia !== 0 && `${conSigno(c.diferencia)} en lo guardado`].filter(Boolean).join(' · ')}
+                </li>
+              ))}</ul>
             </div>
           )}
           <Aviso>{aviso ?? corregir.error}</Aviso>

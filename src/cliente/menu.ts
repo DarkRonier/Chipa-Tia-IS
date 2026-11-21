@@ -77,7 +77,7 @@ export function menuDe(rol: Rol, conLotes: boolean, sectores: { id: SectorId; no
     agregar('Mi sector', [
       { a: '/sector', texto: 'Inicio', icono: 'inicio', exacta: true },
       p('produccion.cargar') && { a: '/sector/produccion', texto: 'Registrar producción', icono: 'produccion' },
-      p('stock.mover') && { a: '/sector/stock', texto: 'Stock en frío', icono: 'stock' },
+      p('stock.mover') && { a: '/sector/stock', texto: 'Stock', icono: 'stock' },
       p('stock.mover') && { a: '/sector/salida', texto: 'Sacar para la venta', icono: 'venta' },
       p('stock.mover') && { a: '/sector/envio', texto: 'Envío a sucursal', icono: 'envio' },
       p('stock.ver') && { a: '/sector/historial', texto: 'Historial de salidas', icono: 'historial' },

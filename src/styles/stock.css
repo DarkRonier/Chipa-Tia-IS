@@ -1,4 +1,4 @@
-/* Stock en frío (D01–D07): stock por producto y lote, salidas, envíos, historial y ajustes del administrador. */
+/* Stock por depósito (D01–D07): stock por producto y lote, salidas, envíos, historial y ajustes del administrador. */
 
 /* Tabla de stock */
 .stk-total { font-weight: 700; font-size: 1.1rem; }
@@ -6,24 +6,9 @@
   display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.45rem; border-radius: 999px;
   border: 1px solid var(--borde); color: var(--suave); font-size: 0.75rem; vertical-align: middle;
 }
-/* Stock libre: sin stock obligatorio, puede quedar sin cargar o en negativo. */
-.stk-libre {
-  display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.45rem; border-radius: 999px;
-  border: 1px dashed var(--borde); color: var(--suave); font-size: 0.75rem; vertical-align: middle;
-}
 .stk-negativo { color: var(--error, #b42318); }
-/* Finalidad (C05) y stock mínimo (C08) */
 .stk-reparto { margin-top: 0.15rem; }
-.stk-bajo {
-  display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.45rem; border-radius: 999px;
-  background: var(--error-fondo); color: var(--error); font-size: 0.75rem; font-weight: 600; vertical-align: middle;
-}
-.stk-alertas {
-  margin: 0 0 1rem; padding: 0.7rem 0.9rem; border: 1px solid var(--error); border-radius: 12px;
-  background: var(--error-fondo); color: var(--error);
-}
-.stk-alertas ul { margin: 0.3rem 0 0; padding-left: 1.2rem; }
-.stk-etiqueta.stk-reasignacion { background: var(--fondo); border: 1px solid var(--borde); }
+.stk-etiqueta.stk-transferencia { background: var(--fondo); border: 1px solid var(--borde); }
 .stk-lotes { list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 0.15rem; font-size: 0.85rem; color: var(--suave); }
 .stk-lotes li {
   display: flex; justify-content: space-between; gap: 0.75rem; max-width: 260px;
@@ -90,3 +75,10 @@
   .filtros.stk-filtros .campo:nth-child(n+3) { grid-column: auto; }
   .segmentado.stk-tipos { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* Stock por depósito */
+.segmentado.stk-depositos { flex-wrap: wrap; margin-bottom: 0.75rem; }
+.segmentado.stk-depositos button { flex: 1 1 auto; white-space: nowrap; padding-inline: 0.75rem; }
+.stk-de-a { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.5rem; align-items: end; }
+.stk-de-a select { min-width: 0; }
+.stk-flecha { padding-bottom: 0.65rem; color: var(--suave); font-size: 1.2rem; }

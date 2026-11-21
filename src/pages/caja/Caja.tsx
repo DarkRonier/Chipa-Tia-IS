@@ -1,6 +1,6 @@
-// M11–M13: la caja del local. El cajero (y el administrador) abre la caja con el fondo inicial, vende, imprime la
-// factura preimpresa, carga ingresos y retiros, arquea y cierra. El administrador además configura la factura y ve el
-// historial de cajas.
+// M11–M13: la caja del local. El cajero abre la caja con el fondo inicial, vende, imprime la factura preimpresa, carga
+// ingresos y retiros, arquea y cierra. Solo el cajero vende (Mati, 2026-11-21): el administrador ve las ventas, las
+// anula, opera la caja, configura la factura y ve el historial de cajas, pero no tiene la pestaña Vender.
 import { Fragment, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { post } from '../../cliente/api'
@@ -26,14 +26,14 @@ export default function Caja() {
   const [params, setParams] = useSearchParams()
   const caja = useConsulta<TipoCaja | null>('/caja')
   const pestanas: [Pestana, string][] = [
-    ['vender', 'Vender'],
+    ...(puede('ventas.registrar') ? [['vender', 'Vender'] as [Pestana, string]] : []),
     ['ventas', 'Ventas'],
     ['caja', 'Caja y cierre'],
     ...(puede('facturas.configurar') ? [['factura', 'Factura'] as [Pestana, string]] : []),
     ...(puede('reportes.detallados') ? [['historial', 'Cajas anteriores'] as [Pestana, string]] : []),
   ]
   const pedida = params.get('ver')
-  const pestana: Pestana = pestanas.some(([p]) => p === pedida) ? (pedida as Pestana) : 'vender'
+  const pestana: Pestana = pestanas.some(([p]) => p === pedida) ? (pedida as Pestana) : pestanas[0][0]
   const ir = (p: Pestana) => setParams({ ver: p }, { replace: true })
   const necesitaCaja = pestana === 'vender' || pestana === 'ventas' || pestana === 'caja'
   return (
@@ -181,12 +181,14 @@ function Vender() {
         {() => (
           <div className="grilla-venta">
             {filtrados.map((p) => {
-              const agotado = p.descuentaStock && p.stockObligatorio && (p.stock ?? 0) - (carrito.get(p.id) ?? 0) <= 0
+              // Lo que queda en Directo a Venta con lo que ya está en el carrito. Sin stock igual se vende (el cliente ya lo
+              // tiene en la mano): solo se avisa, para que alguien lo cargue.
+              const quedan = p.stock - (carrito.get(p.id) ?? 0)
               return (
-                <button key={p.id} type="button" className="producto-venta" disabled={agotado} onClick={() => sumar(p.id, 1)}>
+                <button key={p.id} type="button" className={`producto-venta${quedan <= 0 ? ' sin-stock' : ''}`} onClick={() => sumar(p.id, 1)}>
                   <strong>{p.nombre}</strong>
                   <span>{gs(p.precio)}</span>
-                  {p.descuentaStock && <span className="suave chico">Stock: {p.stock ?? 0}</span>}
+                  <span className={quedan <= 0 ? 'chico stk-negativo' : 'suave chico'}>{quedan <= 0 ? 'Sin stock cargado' : `Quedan ${quedan}`}</span>
                   {carrito.get(p.id) ? <span className="etq-compra pagada">× {carrito.get(p.id)}</span> : null}
                 </button>
               )
@@ -250,6 +252,7 @@ function Vender() {
 }
 
 function VentasDeLaCaja({ cajaId }: { cajaId: string }) {
+  const puede = usePuede()
   const ventas = useConsulta<Venta[]>('/ventas', { caja: cajaId })
   const factura = useFactura()
   const [anulando, setAnulando] = useState<string | null>(null)
@@ -290,8 +293,10 @@ function VentasDeLaCaja({ cajaId }: { cajaId: string }) {
                       {!v.anulada && (
                         <Acciones>
                           <BotonIcono icono="imprimir" texto={v.factura ? 'Reimprimir factura' : 'Imprimir factura'} disabled={factura.enviando} onClick={() => void factura.imprimir(v.id)} />
-                          <BotonIcono icono="anular" texto={`Anular la venta N° ${v.numero}`} tono="peligro" presionado={anulando === v.id}
-                            onClick={() => { setAnulando(anulando === v.id ? null : v.id); setMotivo('') }} />
+                          {puede('ventas.anular') && (
+                            <BotonIcono icono="anular" texto={`Anular la venta N° ${v.numero}`} tono="peligro" presionado={anulando === v.id}
+                              onClick={() => { setAnulando(anulando === v.id ? null : v.id); setMotivo('') }} />
+                          )}
                         </Acciones>
                       )}
                     </td>

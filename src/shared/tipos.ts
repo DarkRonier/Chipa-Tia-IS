@@ -9,14 +9,33 @@ export const ROLES: Rol[] = [...SECTOR_IDS, 'supervisor', 'cajero', 'admin']
 
 export type Turno = 'dia' | 'noche'
 export type TipoMovimiento =
-  | 'produccion' | 'stock_inicial' | 'salida_venta' | 'envio' | 'merma' | 'vencimiento' | 'ajuste' | 'reasignacion'
+  | 'produccion' | 'stock_inicial' | 'envio' | 'merma' | 'vencimiento' | 'ajuste'
+  /** «Sacar para la venta»: pasa de un depósito (Frío) a Directo a Venta. Un par: sale de uno y entra en el otro. */
+  | 'salida_venta'
+  /** Pasa de un depósito a otro. Un par: sale de uno y entra en el otro. */
+  | 'transferencia'
   /** Lo comprado a un proveedor suma al stock (M10). Al anular la compra se descuenta con el mismo tipo. */
   | 'compra'
-  /** Lo vendido en caja descuenta el stock (M11), solo en los productos marcados para eso. */
+  /** Lo vendido en caja descuenta de Directo a Venta (M11). Al anular la venta vuelve con el mismo tipo. */
   | 'venta'
-/** C05: para qué se guardó lo que está en frío: reponer la venta del propio sector o enviarlo a sucursales. */
-export type Finalidad = 'reposicion' | 'distribucion'
-export const FINALIDADES: Finalidad[] = ['reposicion', 'distribucion']
+
+/**
+ * Depósitos del sistema (2026-11-21). Se pueden renombrar pero no desactivar: el sistema los usa solo.
+ * - venta: «Directo a Venta». Las ventas de caja descuentan de acá; las compras de venta directa entran acá.
+ * - frio: lo guardado en frío para reponer la venta. Es el depósito por defecto de lo producido.
+ * - sucursales: lo guardado para enviar a sucursales. Los envíos salen de acá.
+ * - materia_prima: lo comprado para producir.
+ */
+export const DEPOSITO = { venta: 'venta', frio: 'frio', sucursales: 'sucursales', materiaPrima: 'materia_prima' } as const
+
+export interface Deposito {
+  id: string
+  nombre: string
+  descripcion: string
+  /** De los cuatro del sistema: no se desactiva. */
+  sistema: boolean
+  activo: boolean
+}
 export type TipoAjuste = 'merma' | 'vencimiento' | 'ajuste' | 'stock_inicial'
 export type Marca = 'X' | 'XX' | '-'
 export type EstadoMaquina = 'funciona' | 'con_fallas' | 'fuera_de_servicio'
@@ -34,13 +53,9 @@ export const NOMBRE_TIPO_MOVIMIENTO: Record<TipoMovimiento, string> = {
   merma: 'Merma',
   vencimiento: 'Vencimiento',
   ajuste: 'Ajuste',
-  reasignacion: 'Cambio de finalidad',
+  transferencia: 'Transferencia',
   compra: 'Compra',
   venta: 'Venta',
-}
-export const NOMBRE_FINALIDAD: Record<Finalidad, string> = {
-  reposicion: 'Reponer venta',
-  distribucion: 'Sucursales',
 }
 export const NOMBRE_ESTADO: Record<EstadoMaquina, string> = {
   funciona: 'Funciona',
@@ -113,24 +128,12 @@ export interface Producto {
   nombre: string
   unidad: string
   activo: boolean
-  /** C08: con menos que esto en frío (sumando finalidades y lotes) el sistema avisa. null = sin aviso. */
-  stockMinimo: number | null
-  /**
-   * Stock obligatorio: el stock nunca puede quedar negativo y frena las salidas que no alcanzan (por ejemplo, la chipa).
-   * Sin stock obligatorio (por ejemplo, cocido o harina) puede quedar sin cargar o en negativo y nunca frena nada.
-   */
-  stockObligatorio: boolean
   /** Categoría para compras (M10); null = sin categoría (solo la compran el administrador y el supervisor). */
   categoriaId: string | null
   /** Precio de venta en caja (M11), en guaraníes; null = no se vende en caja. */
   precioVenta: number | null
   /** IVA de la factura: 10, 5 o 0 (exenta). */
   iva: Iva
-  /**
-   * La venta en caja descuenta su stock (por ejemplo, una gaseosa comprada para revender). Sin la marca (la chipa y lo
-   * que sale del frío) la venta no toca el stock: ya bajó con «Sacar para la venta».
-   */
-  ventaDescuentaStock: boolean
   /** Código del producto (opcional), para buscarlo. */
   codigo: string
   /** Elaborado (se produce), materia prima o venta directa (reventa). Solo los dos últimos se compran. */
@@ -241,7 +244,7 @@ export interface LoteChipa {
   dia: string
   horno: number
   congelador: number
-  /** Lo que queda en el congelador de este lote. */
+  /** Lo que queda guardado de este lote (en todos los depósitos menos Directo a Venta). */
   stock: number
   lotesMP: UsoLoteMP[]
 }
@@ -251,8 +254,8 @@ export interface ProduccionItem {
   productoNombre: string
   cocinado: number
   guardado: number
-  /** Para qué se guardó lo guardado. */
-  finalidad: Finalidad
+  /** Depósito al que fue lo guardado. */
+  depositoId: string
 }
 
 export interface Produccion {
@@ -278,7 +281,8 @@ export interface Movimiento {
   lote: string | null
   tipo: TipoMovimiento
   cantidad: number
-  finalidad: Finalidad
+  depositoId: string
+  depositoNombre: string
   motivo: string | null
   sucursalId: string | null
   sucursalNombre: string | null
@@ -295,16 +299,9 @@ export interface StockFila {
   productoNombre: string
   activo: boolean
   total: number
-  /** Del total, lo guardado para reponer la venta y lo guardado para sucursales. */
-  reposicion: number
-  distribucion: number
-  /** Stock mínimo configurado (C08); null si no tiene. */
-  minimo: number | null
-  /** El producto tiene stock obligatorio (no puede quedar negativo). */
-  obligatorio: boolean
-  /** Hay al menos un movimiento cargado. Sin stock obligatorio y sin movimientos, el stock está «sin cargar». */
-  conMovimientos: boolean
-  lotes: { lote: string; cantidad: number; reposicion: number; distribucion: number }[]
+  /** Del total, cuánto hay en cada depósito (id → cantidad). Los depósitos sin nada no aparecen. */
+  porDeposito: Record<string, number>
+  lotes: { lote: string; cantidad: number; porDeposito: Record<string, number> }[]
 }
 
 export interface Lectura {
@@ -415,7 +412,9 @@ export interface Reporte {
     cocinado: number
     guardado: number
   }[]
-  stock: { sector: SectorId; productoId: string; productoNombre: string; total: number; reposicion: number; distribucion: number }[]
+  stock: { sector: SectorId; productoId: string; productoNombre: string; total: number; porDeposito: Record<string, number> }[]
+  /** Los depósitos, en orden, para nombrar las columnas del stock. */
+  depositos: Deposito[]
   envios: { sucursalId: string; sucursalNombre: string; productoNombre: string; sector: SectorId; cantidad: number }[]
   salidas: { sector: SectorId; tipo: TipoMovimiento; cantidad: number }[]
   lotesChipa: LoteChipa[]
@@ -494,12 +493,13 @@ export interface PedidoProduccion {
   /** Solo el administrador lo indica; un operador carga siempre en su sector. */
   sector?: SectorId
   turno: Turno
-  items: { productoId: string; cocinado: number; guardado: number; finalidad?: Finalidad }[]
+  items: { productoId: string; cocinado: number; guardado: number; depositoId?: string }[]
   /** Chipería: lotes de materia prima usados y cuánto de cada uno, en la unidad del lote (E02, E03). */
   lotesMP?: { id: string; cantidad: number }[]
 }
 
-export interface PedidoSalida { sector?: SectorId; productoId: string; lote?: string | null; cantidad: number }
+/** «Sacar para la venta»: pasa `cantidad` de `desde` (por defecto, Frío) a Directo a Venta. */
+export interface PedidoSalida { sector?: SectorId; productoId: string; lote?: string | null; cantidad: number; desde?: string }
 
 export interface PedidoEnvio {
   sector?: SectorId
@@ -515,18 +515,19 @@ export interface PedidoAjuste {
   /** Positivo. Merma y vencimiento restan, stock inicial suma, el ajuste usa `sentido`. */
   cantidad: number
   sentido?: 1 | -1
-  /** De cuál de los dos stocks suma o resta. Si falta, reposición. */
-  finalidad?: Finalidad
+  /** Depósito del que suma o resta. Si falta, Frío. */
+  depositoId?: string
   motivo: string
 }
 
-/** Pasa `cantidad` de un producto (y lote) de la finalidad `desde` a la otra. */
-export interface PedidoReasignacion {
+/** Pasa `cantidad` de un producto (y lote) del depósito `desde` al depósito `hacia`. */
+export interface PedidoTransferencia {
   sector?: SectorId
   productoId: string
   lote?: string | null
   cantidad: number
-  desde: Finalidad
+  desde: string
+  hacia: string
 }
 
 export interface PedidoLectura {
@@ -805,10 +806,8 @@ export interface ProductoVenta {
   sectorNombre: string
   precio: number
   iva: Iva
-  descuentaStock: boolean
-  /** Stock actual si la venta lo descuenta; null si no. */
-  stock: number | null
-  stockObligatorio: boolean
+  /** Lo que hay en Directo a Venta (puede ser negativo si se vendió sin cargarlo). */
+  stock: number
 }
 
 export interface VentaItem {

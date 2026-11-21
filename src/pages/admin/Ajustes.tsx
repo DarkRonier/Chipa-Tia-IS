@@ -1,17 +1,18 @@
-// D06, D07: el administrador ve el stock en frío del sector elegido en la pantalla y registra mermas,
-// vencimientos, ajustes (+/−) y el stock inicial, siempre con motivo y diciendo de cuál stock (C05: «Reponer venta»
-// o «Sucursales»). Quedan en el historial y en la auditoría.
+// D06, D07: el administrador ve el stock por depósito del sector elegido en la pantalla y registra mermas,
+// vencimientos, ajustes (+/−) y el stock inicial, siempre con motivo y diciendo en qué depósito. Quedan en el historial
+// y en la auditoría.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
+import { useDepositos } from '../../cliente/catalogo'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { usePuede } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { SelectorSector, useSector, useSectorActivo } from '../../components/Layout'
 import Numero from '../../components/Numero'
-import { NOMBRE_FINALIDAD, NOMBRE_TIPO_MOVIMIENTO, type Finalidad, type Movimiento, type PedidoAjuste, type TipoAjuste } from '../../shared/tipos'
+import { DEPOSITO, NOMBRE_TIPO_MOVIMIENTO, type Movimiento, type PedidoAjuste, type TipoAjuste } from '../../shared/tipos'
 import { conSigno, TablaMovimientos } from '../sector/Historial'
-import { AlertasStock, CambiarFinalidad, TablaStock, useStock } from '../sector/Stock'
+import { TablaStock, Transferir, useStock } from '../sector/Stock'
 import '../../styles/stock.css'
 
 const TIPOS: TipoAjuste[] = ['merma', 'vencimiento', 'ajuste', 'stock_inicial']
@@ -46,7 +47,8 @@ function Pantalla() {
   const recientes = useConsulta<Movimiento[]>('/movimientos', { sector, tipo: TIPOS_AJUSTE })
   const [tipo, setTipo] = useState<TipoAjuste>('merma')
   const [sentido, setSentido] = useState<1 | -1>(-1)
-  const [finalidad, setFinalidad] = useState<Finalidad>('reposicion')
+  const depositos = useDepositos()
+  const [deposito, setDeposito] = useState<string>(DEPOSITO.frio)
   const [productoId, setProductoId] = useState('')
   const [lote, setLote] = useState('')
   const [cantidad, setCantidad] = useState(0)
@@ -59,11 +61,13 @@ function Pantalla() {
   const signo = tipo === 'stock_inicial' ? 1 : tipo === 'ajuste' ? sentido : -1
   const filas = stock.datos ?? []
   const fila = filas.find((f) => f.productoId === productoId)
-  // Para restar solo cuentan los lotes con stock de la finalidad elegida.
-  const lotes = (fila?.lotes ?? []).filter((l) => signo > 0 || l[finalidad] > 0)
+  const hay = (f: { porDeposito: Record<string, number> }) => f.porDeposito[deposito] ?? 0
+  // Para restar solo cuentan los lotes con stock en el depósito elegido.
+  const lotes = (fila?.lotes ?? []).filter((l) => signo > 0 || hay(l) > 0)
   // Para sumar se puede escribir un lote (por ejemplo, uno anterior al sistema); para restar se elige uno con stock.
   const loteEscrito = conLotes && signo > 0
-  const disponible = !fila ? 0 : conLotes ? (lotes.find((l) => l.lote === lote.trim().toUpperCase())?.[finalidad] ?? 0) : fila[finalidad]
+  const loteElegido = lotes.find((l) => l.lote === lote.trim().toUpperCase())
+  const disponible = !fila ? 0 : conLotes ? (loteElegido ? hay(loteElegido) : 0) : hay(fila)
 
   const limpiarMensajes = () => {
     setAviso(null)
@@ -86,9 +90,9 @@ function Pantalla() {
     if (conLotes && !lote.trim()) return setAviso(loteEscrito ? 'Escribí el lote.' : 'Elegí el lote.')
     if (cantidad <= 0) return setAviso('Cargá una cantidad mayor que cero.')
     if (!motivo.trim()) return setAviso('Escribí el motivo.')
-    if (signo < 0 && fila.obligatorio && cantidad > disponible) return setAviso(`Solo hay ${disponible} en «${NOMBRE_FINALIDAD[finalidad]}»${conLotes ? ' en ese lote' : ''}.`)
+    if (signo < 0 && cantidad > disponible) return setAviso(`Solo hay ${disponible} en «${depositos.nombre(deposito)}»${conLotes ? ' en ese lote' : ''}.`)
     const r = await guardarAjuste.ejecutar({
-      sector, productoId, tipo, cantidad, finalidad, motivo: motivo.trim(),
+      sector, productoId, tipo, cantidad, depositoId: deposito, motivo: motivo.trim(),
       ...(conLotes ? { lote: lote.trim() } : {}),
       ...(tipo === 'ajuste' ? { sentido } : {}),
     })
@@ -104,14 +108,13 @@ function Pantalla() {
 
   return (
     <>
-      <h1>Stock en frío · {nombre}</h1>
+      <h1>Stock · {nombre}</h1>
       <SelectorSector />
-      <AlertasStock sector={sector} />
       <ConDatos consulta={stock}>
         {(datos) => (
           <>
             <TablaStock filas={datos} conLotes={conLotes} ocultarCeros />
-            {puede('stock.mover') && <CambiarFinalidad key={sector} sector={sector} conLotes={conLotes} filas={datos} />}
+            {puede('stock.mover') && <Transferir key={sector} sector={sector} conLotes={conLotes} filas={datos} />}
           </>
         )}
       </ConDatos>
@@ -134,19 +137,18 @@ function Pantalla() {
             <button type="button" className={sentido === -1 ? 'activo' : ''} aria-pressed={sentido === -1} onClick={() => { limpiarMensajes(); setSentido(-1); setLote('') }}>Restar (−)</button>
           </div>
         )}
-        <div className="segmentado" role="group" aria-label="Stock al que afecta">
-          {(['reposicion', 'distribucion'] as Finalidad[]).map((f) => (
-            <button key={f} type="button" className={finalidad === f ? 'activo' : ''} aria-pressed={finalidad === f} onClick={() => { limpiarMensajes(); setFinalidad(f); setLote('') }}>
-              {NOMBRE_FINALIDAD[f]}
-            </button>
-          ))}
-        </div>
+        <label className="campo">
+          <span>Depósito</span>
+          <select value={deposito} onChange={(e) => { limpiarMensajes(); setDeposito(e.target.value); setLote('') }}>
+            {depositos.activos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+          </select>
+        </label>
         <label className="campo">
           <span>Producto</span>
           <select value={productoId} onChange={(e) => { limpiarMensajes(); setProductoId(e.target.value); setLote('') }}>
             <option value="">{stock.datos ? 'Elegí un producto' : 'Cargando…'}</option>
             {filas.map((f) => (
-              <option key={f.productoId} value={f.productoId}>{f.productoNombre} ({f[finalidad]}){f.activo ? '' : ' · desactivado'}</option>
+              <option key={f.productoId} value={f.productoId}>{f.productoNombre} ({hay(f)}){f.activo ? '' : ' · desactivado'}</option>
             ))}
           </select>
         </label>
@@ -164,13 +166,13 @@ function Pantalla() {
                   maxLength={40}
                 />
                 <datalist id="stk-lotes-producto">
-                  {lotes.map((l) => <option key={l.lote} value={l.lote}>{l[finalidad]} en stock</option>)}
+                  {lotes.map((l) => <option key={l.lote} value={l.lote}>{hay(l)} en stock</option>)}
                 </datalist>
               </>
             ) : (
               <select value={lote} onChange={(e) => { limpiarMensajes(); setLote(e.target.value) }}>
                 <option value="">{lotes.length ? 'Elegí un lote' : 'Este producto no tiene lotes con stock'}</option>
-                {lotes.map((l) => <option key={l.lote} value={l.lote}>{l.lote} ({l[finalidad]})</option>)}
+                {lotes.map((l) => <option key={l.lote} value={l.lote}>{l.lote} ({hay(l)})</option>)}
               </select>
             )}
           </label>

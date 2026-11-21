@@ -1,4 +1,4 @@
-// Etapa 1 de la ampliación: los 7 roles (supervisor y cajero nuevos), incidencias de máquinas y stock obligatorio.
+// Etapa 1 de la ampliación: los 7 roles (supervisor y cajero nuevos), incidencias de máquinas y stock (hoy, por depósitos).
 import { describe, expect, it } from 'vitest'
 import type { Alerta } from '../src/shared/alertas'
 import { PERMISOS, permisosDe, puede } from '../src/shared/permisos'
@@ -18,9 +18,11 @@ async function limpiezaDePanaderia(p: Prueba, token: string) {
 }
 
 describe('tabla de permisos', () => {
-  it('el administrador tiene todos los permisos, incluidos los del cajero', () => {
-    expect(permisosDe('admin')).toEqual(PERMISOS)
-    for (const p of permisosDe('cajero')) expect(puede('admin', p)).toBe(true)
+  it('el administrador tiene todos los permisos menos vender: opera la caja, anula y factura, pero no registra ventas', () => {
+    expect(permisosDe('admin')).toEqual(PERMISOS.filter((p) => p !== 'ventas.registrar'))
+    for (const p of permisosDe('cajero')) expect(puede('admin', p)).toBe(p !== 'ventas.registrar')
+    expect(puede('supervisor', 'ventas.registrar')).toBe(false)
+    expect(puede('cajero', 'ventas.registrar')).toBe(true)
   })
 
   it('los sectores siguen igual: cargan lo suyo, sin reportes, ventas ni administración; lotes solo Chipería', () => {
@@ -69,13 +71,13 @@ describe('supervisor', () => {
     expect(prod.status).toBe(200)
     expect(prod.body).toHaveLength(1)
     for (const ruta of [
-      '/stock?sector=cocina', '/stock/alertas', '/movimientos?sector=cocina', '/lecturas', '/incidencias', '/limpiezas',
+      '/stock?sector=cocina', '/depositos', '/movimientos?sector=cocina', '/lecturas', '/incidencias', '/limpiezas',
       '/limpieza/alertas', '/lotes-mp', '/lotes-chipa', '/lotes/alertas', '/reportes', '/reportes/serie', '/alertas',
     ]) {
       expect((await p.pedir(sup, 'GET', ruta)).status, ruta).toBe(200)
     }
     const stock = await p.pedir<StockFila[]>(sup, 'GET', '/stock?sector=cocina')
-    expect(stock.body.find((f) => f.productoId === EMPANADA)?.total).toBe(5)
+    expect(stock.body.find((f) => f.productoId === EMPANADA)).toMatchObject({ total: 15, porDeposito: { venta: 10, frio: 5 } })
   })
 
   it('no carga producción, no mueve ni ajusta stock, no carga lecturas ni limpieza y no corrige', async () => {
@@ -88,13 +90,15 @@ describe('supervisor', () => {
       ['PATCH', `/producciones/${carga.body.id}`, { items: [{ productoId: EMPANADA, cocinado: 1, guardado: 1 }] }],
       ['POST', '/salidas', { sector: 'cocina', productoId: EMPANADA, cantidad: 1 }],
       ['POST', '/envios', { sector: 'cocina', sucursalId: 'suc-centro', items: [{ productoId: EMPANADA, cantidad: 1 }] }],
-      ['POST', '/reasignaciones', { sector: 'cocina', productoId: EMPANADA, cantidad: 1, desde: 'reposicion' }],
+      ['POST', '/transferencias', { sector: 'cocina', productoId: EMPANADA, cantidad: 1, desde: 'frio', hacia: 'sucursales' }],
+      ['POST', '/ventas', { items: [{ productoId: EMPANADA, cantidad: 1 }], pagos: [{ medio: 'efectivo', importe: 1 }] }],
+      ['POST', '/depositos', { nombre: 'Cámara 2' }],
       ['POST', '/ajustes', { sector: 'cocina', productoId: EMPANADA, tipo: 'merma', cantidad: 1, motivo: 'x' }],
       ['POST', '/lecturas', { maquinaId: 'maq-cocina-1', momento: 'inicio', estado: 'funciona', temperatura: 3 }],
       ['POST', '/limpiezas', { areaId: 'panaderia', sector: 'panaderia', marcas: [] }],
       ['POST', '/lotes-mp', { insumo: 'Queso', proveedor: 'X', fechaIngreso: '2026-11-01', cantidad: 1, vencimiento: '2026-12-01' }],
       ['POST', '/productos', { sector: 'cocina', nombre: 'Nuevo' }],
-      ['PATCH', `/productos/${COCIDO}`, { stockObligatorio: false }],
+      ['PATCH', `/productos/${COCIDO}`, { nombre: 'Cocido' }],
       ['GET', '/usuarios', undefined],
       ['GET', '/config', undefined],
       ['GET', '/exportar', undefined],
@@ -188,62 +192,24 @@ describe('cajero', () => {
   })
 })
 
-describe('stock obligatorio', () => {
-  it('todos los productos que ya existían quedan con stock obligatorio y uno nuevo también, salvo que se indique', async () => {
+describe('stock sin campos por producto (depósitos)', () => {
+  it('los productos ya no tienen stock mínimo, stock obligatorio ni «la venta descuenta stock»', async () => {
     const p = await nuevaPrueba()
-    expect(await p.sql('SELECT id FROM productos WHERE stock_obligatorio <> 1')).toEqual([])
+    const columnas = (await p.sql("SELECT name FROM pragma_table_info('productos')")).map((c) => c.name)
+    for (const c of ['stock_minimo', 'stock_obligatorio', 'venta_descuenta_stock']) expect(columnas).not.toContain(c)
     const admin = await p.entrar('admin')
-    const nuevo = await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Azúcar', unidad: 'kg', stockObligatorio: false })
-    expect(nuevo.body.stockObligatorio).toBe(false)
-    expect((await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Pastel' })).body.stockObligatorio).toBe(true)
-    expect((await p.pedir(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Otro', stockObligatorio: 'no' })).status).toBe(400)
+    const nuevo = await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Azúcar', unidad: 'kg', stockObligatorio: false, stockMinimo: 3 })
+    expect(nuevo.status).toBe(200)
+    expect(Object.keys(nuevo.body)).not.toContain('stockObligatorio')
+    expect(Object.keys(nuevo.body)).not.toContain('stockMinimo')
   })
 
-  it('con stock obligatorio frena la salida que no alcanza; sin él, queda en negativo y no frena', async () => {
+  it('ninguna salida de un sector deja un depósito en negativo', async () => {
     const p = await nuevaPrueba()
-    const admin = await p.entrar('admin')
     const cocina = await p.entrar('cocina')
-    // Obligatorio (como hasta ahora): no hay nada, no sale.
-    expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 1 })).status).toBe(409)
-
-    // El cocido no lleva stock obligatorio: sin nada cargado aparece «sin cargar».
-    const cambio = await p.pedir<Producto>(admin, 'PATCH', `/productos/${COCIDO}`, { stockObligatorio: false })
-    expect(cambio.status).toBe(200)
-    expect(cambio.body.stockObligatorio).toBe(false)
-    let fila = (await p.pedir<StockFila[]>(cocina, 'GET', '/stock')).body.find((f) => f.productoId === COCIDO)!
-    expect(fila).toMatchObject({ obligatorio: false, conMovimientos: false, total: 0 })
-    expect((await p.pedir<StockFila[]>(cocina, 'GET', '/stock')).body.find((f) => f.productoId === EMPANADA))
-      .toMatchObject({ obligatorio: true, conMovimientos: false })
-
-    // Sale igual: el stock queda en negativo, y un envío tampoco frena.
-    expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: COCIDO, cantidad: 3 })).status).toBe(200)
-    expect((await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: COCIDO, cantidad: 2 }] })).status).toBe(200)
-    fila = (await p.pedir<StockFila[]>(cocina, 'GET', '/stock')).body.find((f) => f.productoId === COCIDO)!
-    expect(fila).toMatchObject({ obligatorio: false, conMovimientos: true, total: -5, reposicion: -3, distribucion: -2 })
-    // Una merma del administrador tampoco frena.
-    expect((await p.pedir(admin, 'POST', '/ajustes', { sector: 'cocina', productoId: COCIDO, tipo: 'merma', cantidad: 1, motivo: 'Se volcó' })).status).toBe(200)
-
-    // Volver a marcarlo obligatorio con el stock en negativo no se puede: primero hay que corregirlo.
-    const mal = await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { stockObligatorio: true })
-    expect(mal.status).toBe(409)
-    expect(mal.body.error.codigo).toBe('stock_negativo')
-    expect(mal.body.error.mensaje).toMatch(/Cocido con leche/)
-    await p.pedir(admin, 'POST', '/ajustes', { sector: 'cocina', productoId: COCIDO, tipo: 'ajuste', sentido: 1, cantidad: 4, motivo: 'Conteo', finalidad: 'reposicion' })
-    await p.pedir(admin, 'POST', '/ajustes', { sector: 'cocina', productoId: COCIDO, tipo: 'ajuste', sentido: 1, cantidad: 2, motivo: 'Conteo', finalidad: 'distribucion' })
-    const ok = await p.pedir<Producto>(admin, 'PATCH', `/productos/${COCIDO}`, { stockObligatorio: true })
-    expect(ok.status).toBe(200)
-    expect(ok.body.stockObligatorio).toBe(true)
-    // Ahora sí frena otra vez.
     expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: COCIDO, cantidad: 1 })).status).toBe(409)
-  })
-
-  it('el aviso de stock mínimo también funciona con stock en negativo', async () => {
-    const p = await nuevaPrueba()
-    const admin = await p.entrar('admin')
-    await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { stockObligatorio: false, stockMinimo: 2 })
-    const cocina = await p.entrar('cocina')
-    await p.pedir(cocina, 'POST', '/salidas', { productoId: COCIDO, cantidad: 3 })
-    const avisos = await p.pedir<Alerta[]>(cocina, 'GET', '/stock/alertas')
-    expect(avisos.body).toEqual([expect.objectContaining({ tipo: 'stock_minimo', texto: 'Cocido con leche: no queda nada en frío (mínimo 2).' })])
+    expect((await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: COCIDO, cantidad: 1 }] })).status).toBe(409)
+    expect((await p.pedir(cocina, 'POST', '/transferencias', { productoId: COCIDO, cantidad: 1, desde: 'frio', hacia: 'sucursales' })).status).toBe(409)
+    expect(await p.sql('SELECT id FROM movimientos')).toEqual([])
   })
 })
