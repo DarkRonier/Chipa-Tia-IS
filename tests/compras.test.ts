@@ -29,7 +29,9 @@ interface Escenario {
 async function escenario(): Promise<Escenario> {
   const p = await nuevaPrueba()
   const admin = await p.entrar('admin')
-  const bebidas = (await p.pedir<Categoria>(admin, 'POST', '/categorias', { nombre: 'Bebidas', sectores: ['cocina'] })).body
+  // Bebidas viene de fábrica (migración 0015); se habilita para Cocina.
+  const deFabrica = (await p.pedir<Categoria[]>(admin, 'GET', '/categorias')).body.find((k) => k.nombre === 'Bebidas')!
+  const bebidas = (await p.pedir<Categoria>(admin, 'PATCH', `/categorias/${deFabrica.id}`, { sectores: ['cocina'] })).body
   const insumos = (await p.pedir<Categoria>(admin, 'POST', '/categorias', { nombre: 'Insumos', sectores: [] })).body
   const gaseosa = (await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Gaseosa 500 ml', categoriaId: bebidas.id, tipo: 'reventa' })).body
   await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { categoriaId: insumos.id, tipo: 'materia_prima' })
@@ -65,8 +67,12 @@ describe('categorías', () => {
     expect((await p.pedir(admin, 'POST', '/categorias', { nombre: 'bebidas' })).status).toBe(409)
     expect((await p.pedir(sup, 'POST', '/categorias', { nombre: 'Otra' })).status).toBe(403)
     expect((await p.pedir(admin, 'PATCH', `/productos/${gaseosa.id}`, { categoriaId: 'no-existe' })).status).toBe(400)
+    // Sin categoría queda en «Otros», la de los productos que no entran en ninguna.
+    const otros = (await p.pedir<Categoria[]>(admin, 'GET', '/categorias')).body.find((k) => k.sistema)!
+    expect(otros.nombre).toBe('Otros')
     const sinCat = await p.pedir<Producto>(admin, 'PATCH', `/productos/${gaseosa.id}`, { categoriaId: null })
-    expect(sinCat.body.categoriaId).toBeNull()
+    expect(sinCat.body.categoriaId).toBe(otros.id)
+    expect((await p.pedir(admin, 'PATCH', `/categorias/${otros.id}`, { activo: false })).status).toBe(409)
   })
 })
 

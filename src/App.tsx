@@ -9,7 +9,7 @@ import CambiarClave from './pages/CambiarClave'
 import Configuracion from './pages/Configuracion'
 import InicioSector from './pages/sector/Inicio'
 import Produccion from './pages/sector/Produccion'
-import Stock from './pages/sector/Stock'
+import Depositos from './pages/Depositos'
 import Salida from './pages/sector/Salida'
 import Envio from './pages/sector/Envio'
 import Historial from './pages/sector/Historial'
@@ -22,7 +22,6 @@ import Usuarios from './pages/admin/Usuarios'
 import Catalogos from './pages/admin/Catalogos'
 import Mantenimiento from './pages/admin/Mantenimiento'
 import { PaginaProductos } from './pages/admin/Productos'
-import Ajustes from './pages/admin/Ajustes'
 import Registros from './pages/admin/Registros'
 import Controles from './pages/admin/Controles'
 import Reportes, { RecordarEnlaceReporte } from './pages/admin/Reportes'
@@ -57,7 +56,10 @@ export default function App() {
         {/* Inicio del sector: los sectores y el administrador (que carga en cualquier sector). */}
         {ruta('sector', 'produccion.cargar', <InicioSector />)}
         {ruta('sector/produccion', 'produccion.cargar', <Produccion />)}
-        {ruta('sector/stock', 'stock.mover', <Stock />)}
+        {ruta('depositos', 'stock.ver', <Depositos />)}
+        {/* Las pantallas de stock de antes ahora son Depósitos. */}
+        <Route path="sector/stock" element={<Navigate to="/depositos" replace />} />
+        <Route path="admin/stock" element={<Navigate to="/depositos" replace />} />
         {ruta('sector/salida', 'stock.mover', <Salida />)}
         {ruta('sector/envio', 'stock.mover', <Envio />)}
         {ruta('sector/historial', 'stock.ver', <Historial />)}
@@ -72,7 +74,6 @@ export default function App() {
         {ruta('admin/productos', 'catalogos.editar', <PaginaProductos />)}
         {ruta('admin/catalogos', 'catalogos.editar', <Catalogos />)}
         {ruta('admin/mantenimiento', 'catalogos.editar', <Mantenimiento />)}
-        {ruta('admin/stock', 'stock.ver', <Ajustes />)}
         {ruta('admin/registros', 'produccion.ver', <Registros />)}
         {ruta('admin/controles', 'limpieza.ver', <Controles />)}
         {ruta('admin/historial', 'stock.ver', <Historial />)}

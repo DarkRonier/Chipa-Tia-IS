@@ -34,7 +34,11 @@ describe('productos (B01)', () => {
 
     const r = await p.pedir(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Hamburguesa doble' })
     expect(r.status).toBe(200)
-    expect(r.body).toEqual({ id: expect.any(String), sector: 'cocina', nombre: 'Hamburguesa doble', unidad: 'unidades', activo: true, categoriaId: null, precioVenta: null, iva: 10, codigo: '', tipo: 'elaborado' })
+    // Sin categoría elegida queda en «Otros».
+    expect(r.body).toEqual({
+      id: expect.any(String), sector: 'cocina', nombre: 'Hamburguesa doble', unidad: 'unidades', activo: true, categoriaId: 'cat-otros',
+      subcategoria: '', sinStock: false, precioVenta: null, iva: 10, codigo: '', tipo: 'elaborado',
+    })
     const id = r.body.id
 
     const ren = await p.pedir(admin, 'PATCH', `/productos/${id}`, { nombre: 'Hamburguesa completa' })

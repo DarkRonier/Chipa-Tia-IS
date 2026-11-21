@@ -106,21 +106,30 @@ describe('registrar producción (C01–C03)', () => {
     expect(await stock(p, 'cocina', EMPANADA, undefined, 'venta')).toBe(30)
   })
 
-  it('lo guardado va al depósito elegido; un depósito que no existe o desactivado se rechaza', async () => {
+  it('lo guardado va al almacén elegido y lo del horno al depósito de venta elegido; los que no sirven se rechazan', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('cocina')
+    await p.sql("INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo) VALUES ('camara2', 'Cámara 2', '', 0, 1, 11, 'almacen')")
     const r = await p.pedir<Produccion>(t, 'POST', '/producciones', {
-      turno: 'dia', items: [{ productoId: EMPANADA, cocinado: 0, guardado: 6, depositoId: 'sucursales' }, { productoId: MARINERA, cocinado: 0, guardado: 2 }],
+      turno: 'dia', depositoVentaId: 'comedor',
+      items: [{ productoId: EMPANADA, cocinado: 4, guardado: 6, depositoId: 'camara2' }, { productoId: MARINERA, cocinado: 0, guardado: 2 }],
     })
     expect(r.status).toBe(200)
-    expect(r.body.items.map((i) => [i.productoId, i.depositoId])).toEqual([[EMPANADA, 'sucursales'], [MARINERA, 'frio']])
-    expect(await stock(p, 'cocina', EMPANADA, undefined, 'sucursales')).toBe(6)
+    expect(r.body.depositoVentaId).toBe('comedor')
+    expect(r.body.items.map((i) => [i.productoId, i.depositoId])).toEqual([[EMPANADA, 'camara2'], [MARINERA, 'frio']])
+    expect(await stock(p, 'cocina', EMPANADA, undefined, 'camara2')).toBe(6)
+    expect(await stock(p, 'cocina', EMPANADA, undefined, 'comedor')).toBe(4)
+    // Lo guardado no va a un depósito de venta, ni lo del horno a un almacén.
+    const aVenta = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: EMPANADA, cocinado: 0, guardado: 1, depositoId: 'venta' }] })
+    expect(aVenta.body.error.mensaje).toBe('Lo guardado va a un almacén, no a «Venta frente».')
+    const hornoAFrio = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', depositoVentaId: 'frio', items: [{ productoId: EMPANADA, cocinado: 1, guardado: 0 }] })
+    expect(hornoAFrio.body.error.mensaje).toBe('«Frío» no es un depósito de venta. Elegí Venta frente o Venta comedor.')
     const malo = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: EMPANADA, cocinado: 0, guardado: 1, depositoId: 'nada' }] })
     expect(malo.status).toBe(400)
     expect(malo.body.error.mensaje).toBe('Ese depósito no existe. Recargá la página y probá de nuevo.')
     await p.sql("INSERT INTO depositos (id, nombre, activo) VALUES ('viejo', 'Cámara vieja', 0)")
     const apagado = await p.pedir(t, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: EMPANADA, cocinado: 0, guardado: 1, depositoId: 'viejo' }] })
-    expect(apagado.body.error.mensaje).toBe('El depósito Cámara vieja está desactivado. Elegí otro.')
+    expect(apagado.body.error.mensaje).toBe('El depósito Cámara vieja ya no existe. Elegí otro.')
   })
 
   it('valida turno, cantidades y productos', async () => {

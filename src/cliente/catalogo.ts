@@ -1,6 +1,6 @@
 // Consultas de catálogo que usan muchas pantallas.
 import { NOMBRE_ROL_GENERAL, sectorDeRol } from '../shared/permisos'
-import type { Deposito, Maquina, Rol, Sector, SectorId } from '../shared/tipos'
+import type { Categoria, Deposito, Maquina, Rol, Sector, SectorId } from '../shared/tipos'
 import { useConsulta } from './consultas'
 
 export function useSectores() {
@@ -10,12 +10,27 @@ export function useSectores() {
   return { ...c, lista, nombre }
 }
 
-/** Depósitos (todos, también los desactivados: el stock viejo puede seguir ahí). `nombre(id)` para mostrarlos. */
+/**
+ * Depósitos que existen, en su orden: los de venta (Venta frente, Venta comedor), los almacenes y Materia prima.
+ * `nombre(id)` para mostrarlos; `venta` y `almacenes` para elegir.
+ */
 export function useDepositos() {
-  const c = useConsulta<Deposito[]>('/depositos', { todos: true })
+  const c = useConsulta<Deposito[]>('/depositos')
   const lista = c.datos ?? []
   const nombre = (id: string) => lista.find((d) => d.id === id)?.nombre ?? id
-  return { ...c, lista, activos: lista.filter((d) => d.activo), nombre }
+  return {
+    ...c, lista, activos: lista, nombre,
+    venta: lista.filter((d) => d.tipo === 'venta'),
+    almacenes: lista.filter((d) => d.tipo === 'almacen'),
+  }
+}
+
+/** Categorías de productos (Chipería, Chipitas, Bebidas, Heladería, Otros…). `nombre(id)` para mostrarlas. */
+export function useCategorias() {
+  const c = useConsulta<Categoria[]>('/categorias')
+  const lista = c.datos ?? []
+  const nombre = (id: string | null | undefined) => lista.find((x) => x.id === id)?.nombre ?? ''
+  return { ...c, lista, nombre }
 }
 
 /** "Chipería", "Cocina y buffet"…, "Supervisor", "Cajero" o "Administrador". */

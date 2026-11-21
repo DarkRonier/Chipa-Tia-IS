@@ -16,7 +16,7 @@ administrador vea reportes, los exporte a Excel y los reciba por correo. Reempla
 | Usuarios y accesos (A) | Entrada con usuario y contraseña; 7 roles (4 sectores, supervisor, cajero y administrador) con sus permisos en `src/shared/permisos.ts`; cada sector ve solo lo suyo |
 | Catálogos (B) | Productos, máquinas con rango de temperatura, áreas y tareas de limpieza, sucursales |
 | Producción (C) | Un registro por carga con cocinado y guardado por producto; correcciones del administrador con quién y cuándo |
-| Stock por depósitos (D) | Stock por producto y depósito (Directo a Venta, Frío, Para sucursales, Materia prima y los que agregue el administrador), salidas a venta, transferencias, envíos a sucursales, mermas, vencimientos, ajustes y stock inicial; las ventas de caja descuentan de Directo a Venta |
+| Stock por depósitos (D) | Depósitos: dos de venta (Venta frente y Venta comedor), almacenes en frío (los crea y borra el super-administrador) y Materia prima; sucursales con solo lo enviado. Productos agrupados por categoría; salidas a venta, transferencias, envíos, mermas, vencimientos, ajustes y stock inicial; las ventas de caja descuentan de Venta frente |
 | Chipería y lotes (E) | Lotes de materia prima, lote propio por producción, horno / congelador, stock y envíos por lote, trazabilidad en los dos sentidos |
 | Máquinas (F) | Estado, temperatura obligatoria en equipos fríos, foto achicada en el celular, fuera de rango en rojo, historial; fallas e incidencias que reporta el supervisor |
 | Limpieza (G) | Planilla por área con X / XX / -, N° de equipo, comentario, control del supervisor e historial |

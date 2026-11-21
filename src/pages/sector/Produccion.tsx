@@ -1,7 +1,7 @@
 // C01–C03, E02–E04: el operador carga en un solo registro todo lo que produjo, con lo cocinado
 // (o al horno) y lo guardado en frío (o al congelador). En Chipería elige los lotes de materia prima
-// y el sistema le devuelve el código del lote de chipa. Lo cocinado (horno) va al depósito «Directo a Venta», de donde lo
-// descuenta la caja. Lo guardado va al depósito que se elija por producto: «Frío» (por defecto), «Para sucursales» u otro.
+// y el sistema le devuelve el código del lote de chipa. Lo cocinado (horno) va a un depósito de venta: «Venta frente» (por
+// defecto, de ahí lo descuenta la caja) o «Venta comedor». Lo guardado va al almacén que se elija por producto.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { post } from '../../cliente/api'
@@ -41,8 +41,11 @@ function Formulario() {
   const lotes = useConsulta<LoteMP[]>(conLotes ? '/lotes-mp' : null, { disponibles: true })
   const deHoy = useConsulta<Registro[]>('/producciones', { sector, desde: hoy, hasta: hoy })
   const depositos = useDepositos()
-  // Adónde puede ir lo guardado: los depósitos activos menos Directo a Venta (ahí va lo cocinado) y Materia prima.
-  const destinos = depositos.activos.filter((d) => d.id !== DEPOSITO.venta && d.id !== DEPOSITO.materiaPrima)
+  // Adónde puede ir lo guardado: los almacenes (menos Materia prima). Lo cocinado va a un depósito de venta.
+  const destinos = depositos.almacenes.filter((d) => d.id !== DEPOSITO.materiaPrima)
+  const porDefecto = destinos.find((d) => d.id === DEPOSITO.frio)?.id ?? destinos[0]?.id ?? DEPOSITO.frio
+  // Cocina y buffet vende sobre todo en el comedor; los demás, en el frente. Se puede cambiar.
+  const [ventaId, setVentaId] = useState<string>(sector === 'cocina' ? DEPOSITO.comedor : DEPOSITO.venta)
 
   const [turno, setTurno] = useState<Turno>(() => turnoActual())
   const [cant, setCant] = useState<Cantidades>({})
@@ -72,7 +75,7 @@ function Formulario() {
   const amasadas = (deHoy.datos ?? []).map((p) => p.lote?.amasada ?? 0)
   const proximaAmasada = deHoy.datos ? Math.max(0, ...amasadas) + 1 : null
 
-  const valor = (id: string) => cant[id] ?? { cocinado: 0, guardado: 0, depositoId: DEPOSITO.frio as string }
+  const valor = (id: string) => cant[id] ?? { cocinado: 0, guardado: 0, depositoId: porDefecto }
   const conValor = (id: string) => valor(id).cocinado + valor(id).guardado > 0
   const setValor = (id: string, campo: 'cocinado' | 'guardado', n: number) => {
     setAviso(null)
@@ -95,7 +98,7 @@ function Formulario() {
     const mala = conLotes ? lotesElegidos.find((l) => problemaCantidad(l)) : undefined
     if (mala) return setAviso(problemaCantidad(mala))
     const lotesUsados = lotesElegidos.map((l) => ({ id: l.id, cantidad: cantidadUsada(l)! }))
-    const r = await guardarProduccion.ejecutar({ sector, turno, items, ...(conLotes ? { lotesMP: lotesUsados } : {}) })
+    const r = await guardarProduccion.ejecutar({ sector, turno, items, depositoVentaId: ventaId, ...(conLotes ? { lotesMP: lotesUsados } : {}) })
     if (r) {
       setListo(r)
       setCant({})
@@ -251,9 +254,21 @@ function Formulario() {
                   onChange={(e) => setBuscar(e.target.value)}
                 />
               )}
+              {depositos.venta.length > 1 && (
+                <div className="campo">
+                  <span>{conLotes ? 'Lo del horno va a' : 'Lo cocinado va a'}</span>
+                  <div className="segmentado" role="group" aria-label="Depósito de venta de lo cocinado">
+                    {depositos.venta.map((d) => (
+                      <button key={d.id} type="button" className={ventaId === d.id ? 'activo' : ''} aria-pressed={ventaId === d.id} onClick={() => { setAviso(null); setVentaId(d.id) }}>
+                        {d.nombre}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <p className="suave chico">
-                {conLotes ? 'Lo que va al horno' : 'Lo cocinado'} pasa a «{depositos.nombre(DEPOSITO.venta)}», de donde lo descuenta la caja.
-                {' '}{conLotes ? 'Lo del congelador' : 'Lo guardado'} va a «{depositos.nombre(DEPOSITO.frio)}»{destinos.length > 1 ? ' o al depósito que elijas' : ''}.
+                {conLotes ? 'Lo que va al horno' : 'Lo cocinado'} pasa a «{depositos.nombre(ventaId)}»{ventaId === DEPOSITO.venta ? ', de donde lo descuenta la caja' : ''}.
+                {' '}{conLotes ? 'Lo del congelador' : 'Lo guardado'} va a «{depositos.nombre(porDefecto)}»{destinos.length > 1 ? ' o al almacén que elijas' : ''}.
               </p>
               <div className="lista-productos">
                 {visibles.map((p) => (

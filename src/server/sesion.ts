@@ -44,6 +44,7 @@ interface FilaSesion {
   activo: number
   debe_cambiar_clave: number
   vence_en: string
+  super_hasta: string | null
 }
 
 /** Exige sesión válida y deja el usuario en `c.get('usuario')`. */
@@ -52,12 +53,13 @@ export const conSesion: MiddlewareHandler<Entorno> = async (c, next) => {
   if (!token) throw noAutorizado()
   const fila = await una<FilaSesion>(
     c.env.DB,
-    `SELECT u.id, u.nombre, u.usuario, u.rol, u.activo, u.debe_cambiar_clave, s.vence_en
+    `SELECT u.id, u.nombre, u.usuario, u.rol, u.activo, u.debe_cambiar_clave, s.vence_en, s.super_hasta
        FROM sesiones s JOIN usuarios u ON u.id = s.usuario_id
       WHERE s.token_hash = ?`,
     await sha256(token),
   )
-  if (!fila || !fila.activo || fila.vence_en < new Date().toISOString()) {
+  const ahora = new Date().toISOString()
+  if (!fila || !fila.activo || fila.vence_en < ahora) {
     throw noAutorizado('Tu sesión venció. Volvé a entrar.')
   }
   c.set('usuario', {
@@ -68,6 +70,7 @@ export const conSesion: MiddlewareHandler<Entorno> = async (c, next) => {
     sector: sectorDeRol(fila.rol),
     // Solo un administrador puede cambiar su contraseña, así que solo a él se le exige.
     debeCambiarClave: !!fila.debe_cambiar_clave && fila.rol === 'admin',
+    superHasta: fila.rol === 'admin' && fila.super_hasta && fila.super_hasta > ahora ? fila.super_hasta : null,
   })
   await next()
 }
@@ -84,6 +87,21 @@ export const conClavePropia: MiddlewareHandler<Entorno> = async (c, next) => {
 }
 
 export const esAdmin = (u: UsuarioSesion) => u.rol === 'admin'
+
+/** Minutos que dura el modo super-administrador después de activarlo. */
+export const MINUTOS_SUPER = 30
+
+/**
+ * Solo el super-administrador (Mati, 2026-11-17): un administrador con el modo activado en Configuración → Ajustes
+ * avanzados. Por ahora: crear y borrar almacenes.
+ */
+export const soloSuper: MiddlewareHandler<Entorno> = async (c, next) => {
+  const u = c.get('usuario')
+  if (u.rol !== 'admin' || !u.superHasta) {
+    throw prohibido('Esto lo hace solo el super-administrador. Activalo en Configuración → Ajustes avanzados.')
+  }
+  await next()
+}
 
 /**
  * Exige un permiso de la tabla de roles (src/shared/permisos.ts); si no lo tiene, 403 con `mensaje`.

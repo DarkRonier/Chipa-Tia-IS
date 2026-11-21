@@ -10,31 +10,33 @@ export const ROLES: Rol[] = [...SECTOR_IDS, 'supervisor', 'cajero', 'admin']
 export type Turno = 'dia' | 'noche'
 export type TipoMovimiento =
   | 'produccion' | 'stock_inicial' | 'envio' | 'merma' | 'vencimiento' | 'ajuste'
-  /** «Sacar para la venta»: pasa de un depósito (Frío) a Directo a Venta. Un par: sale de uno y entra en el otro. */
+  /** «Sacar para la venta»: pasa de un almacén (Frío) a un depósito de venta. Un par: sale de uno y entra en el otro. */
   | 'salida_venta'
   /** Pasa de un depósito a otro. Un par: sale de uno y entra en el otro. */
   | 'transferencia'
   /** Lo comprado a un proveedor suma al stock (M10). Al anular la compra se descuenta con el mismo tipo. */
   | 'compra'
-  /** Lo vendido en caja descuenta de Directo a Venta (M11). Al anular la venta vuelve con el mismo tipo. */
+  /** Lo vendido en caja descuenta de Venta frente (M11). Al anular la venta vuelve con el mismo tipo. */
   | 'venta'
 
 /**
- * Depósitos del sistema (2026-11-21). Se pueden renombrar pero no desactivar: el sistema los usa solo.
- * - venta: «Directo a Venta». Las ventas de caja descuentan de acá; las compras de venta directa entran acá.
- * - frio: lo guardado en frío para reponer la venta. Es el depósito por defecto de lo producido.
- * - sucursales: lo guardado para enviar a sucursales. Los envíos salen de acá.
- * - materia_prima: lo comprado para producir.
+ * Depósitos fijos. `venta` es «Venta frente» (la caja del cajero descuenta de acá) y `comedor` «Venta comedor». `frio`
+ * es el primer almacén en frío (el super-administrador crea y borra otros) y `materia_prima` el de lo comprado para
+ * producir. Las sucursales no son un depósito: solo se registra lo que se les envía.
  */
-export const DEPOSITO = { venta: 'venta', frio: 'frio', sucursales: 'sucursales', materiaPrima: 'materia_prima' } as const
+export const DEPOSITO = { venta: 'venta', comedor: 'comedor', frio: 'frio', materiaPrima: 'materia_prima' } as const
+
+/** Venta directa (frente, comedor) o almacén (en frío, materia prima). */
+export type TipoDeposito = 'venta' | 'almacen'
 
 export interface Deposito {
   id: string
   nombre: string
   descripcion: string
-  /** De los cuatro del sistema: no se desactiva. */
+  /** Venta frente, Venta comedor y Materia prima: se renombran pero no se borran. */
   sistema: boolean
   activo: boolean
+  tipo: TipoDeposito
 }
 export type TipoAjuste = 'merma' | 'vencimiento' | 'ajuste' | 'stock_inicial'
 export type Marca = 'X' | 'XX' | '-'
@@ -120,6 +122,8 @@ export interface Usuario {
   activo: boolean
   debeCambiarClave: boolean
   creadoEn: string
+  /** Solo en /auth/yo: hasta cuándo está activo el modo super-administrador en esta sesión (null si no lo está). */
+  superHasta?: string | null
 }
 
 export interface Producto {
@@ -128,8 +132,12 @@ export interface Producto {
   nombre: string
   unidad: string
   activo: boolean
-  /** Categoría para compras (M10); null = sin categoría (solo la compran el administrador y el supervisor). */
+  /** Categoría (Chipería, Chipitas, Bebidas, Heladería, Otros…). También decide qué sectores la compran (M10). */
   categoriaId: string | null
+  /** Subcategoría, texto libre (ej.: Gaseosas). */
+  subcategoria: string
+  /** Sin stock: solo se registran sus ventas (el buffet por kilo). */
+  sinStock: boolean
   /** Precio de venta en caja (M11), en guaraníes; null = no se vende en caja. */
   precioVenta: number | null
   /** IVA de la factura: 10, 5 o 0 (exenta). */
@@ -244,7 +252,7 @@ export interface LoteChipa {
   dia: string
   horno: number
   congelador: number
-  /** Lo que queda guardado de este lote (en todos los depósitos menos Directo a Venta). */
+  /** Lo que queda guardado de este lote (en los almacenes; no cuenta lo que está en venta). */
   stock: number
   lotesMP: UsoLoteMP[]
 }
@@ -266,6 +274,8 @@ export interface Produccion {
   fecha: string
   dia: string
   turno: Turno
+  /** Depósito de venta al que fue lo del horno. */
+  depositoVentaId: string
   items: ProduccionItem[]
   lote: LoteChipa | null
   corregidoPor: string | null
@@ -297,6 +307,11 @@ export interface Movimiento {
 export interface StockFila {
   productoId: string
   productoNombre: string
+  /** Sector que lo produce (y que lo puede mover). */
+  sector: SectorId
+  categoriaId: string | null
+  subcategoria: string
+  unidad: string
   activo: boolean
   total: number
   /** Del total, cuánto hay en cada depósito (id → cantidad). Los depósitos sin nada no aparecen. */
@@ -493,17 +508,37 @@ export interface PedidoProduccion {
   /** Solo el administrador lo indica; un operador carga siempre en su sector. */
   sector?: SectorId
   turno: Turno
+  /** A qué depósito de venta va lo del horno (Venta frente por defecto). */
+  depositoVentaId?: string
   items: { productoId: string; cocinado: number; guardado: number; depositoId?: string }[]
   /** Chipería: lotes de materia prima usados y cuánto de cada uno, en la unidad del lote (E02, E03). */
   lotesMP?: { id: string; cantidad: number }[]
 }
 
-/** «Sacar para la venta»: pasa `cantidad` de `desde` (por defecto, Frío) a Directo a Venta. */
-export interface PedidoSalida { sector?: SectorId; productoId: string; lote?: string | null; cantidad: number; desde?: string }
+/** «Sacar para la venta»: pasa `cantidad` de `desde` (por defecto, Frío) a `hacia` (por defecto, Venta frente). */
+export interface PedidoSalida { sector?: SectorId; productoId: string; lote?: string | null; cantidad: number; desde?: string; hacia?: string }
+
+/** Lo vendido de un producto en un depósito de venta, en un período. */
+export interface VendidoFila { productoId: string; productoNombre: string; depositoId: string; cantidad: number }
+
+/** Lo enviado a una sucursal de un producto (las sucursales no tienen stock en el sistema). */
+export interface EnvioResumen {
+  sucursalId: string
+  sucursalNombre: string
+  productoId: string
+  productoNombre: string
+  cantidad: number
+  /** En cuántos envíos. */
+  envios: number
+  /** Día del último envío. */
+  ultimo: string
+}
 
 export interface PedidoEnvio {
   sector?: SectorId
   sucursalId: string
+  /** De qué depósito sale (el primer almacén por defecto). */
+  desde?: string
   items: { productoId: string; lote?: string | null; cantidad: number }[]
 }
 
@@ -583,6 +618,8 @@ export interface Categoria {
   activo: boolean
   /** Sectores que pueden cargar compras de los productos de esta categoría. */
   sectores: SectorId[]
+  /** «Otros», la de los productos que no entran en ninguna: no se desactiva. */
+  sistema: boolean
 }
 
 export interface Proveedor {
@@ -806,8 +843,10 @@ export interface ProductoVenta {
   sectorNombre: string
   precio: number
   iva: Iva
-  /** Lo que hay en Directo a Venta (puede ser negativo si se vendió sin cargarlo). */
+  /** Lo que hay en Venta frente (puede ser negativo si se vendió sin cargarlo). */
   stock: number
+  /** Sin stock (el buffet): solo se registra la venta. */
+  sinStock: boolean
 }
 
 export interface VentaItem {

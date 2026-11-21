@@ -514,7 +514,7 @@ async function leerRenglones(base: BaseD1, u: UsuarioSesion, v: unknown): Promis
 const sentenciaMovimientoCompra = (base: BaseD1, r: Renglon, compraId: string, cantidad: number, motivo: string, usuarioId: string, fecha: string, dia: string) =>
   sentencia(
     base,
-    // Depósito: lo de venta directa entra en Directo a Venta; la materia prima, en Materia prima. Al anular, sale del
+    // Depósito: lo de venta directa entra en Venta frente; la materia prima, en Materia prima. Al anular, sale del
     // mismo depósito al que había entrado.
     `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, deposito_id, motivo, usuario_id, fecha, dia, compra_id)
      VALUES (?, ?, ?, ?, 'compra', ?,

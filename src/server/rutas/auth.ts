@@ -6,7 +6,8 @@ import { ejecutar, una } from '../db'
 import type { Entorno } from '../entorno'
 import { ErrorApi, invalido, prohibido } from '../errores'
 import { aUsuario, COLUMNAS_USUARIO, type FilaUsuario } from '../mapeo'
-import { cerrarSesion, cerrarSesionesDe, conSesion, crearSesion, tokenDe } from '../sesion'
+import { cerrarSesion, cerrarSesionesDe, conSesion, crearSesion, MINUTOS_SUPER, tokenDe } from '../sesion'
+import { sha256 } from '../clave'
 import { cuerpo, texto } from '../validar'
 
 export const rutasAuth = new Hono<Entorno>()
@@ -30,7 +31,27 @@ rutasAuth.post('/login', async (c) => {
 rutasAuth.use('/yo', conSesion)
 rutasAuth.get('/yo', async (c) => {
   const fila = await una<FilaUsuario>(c.env.DB, `SELECT ${COLUMNAS_USUARIO} FROM usuarios WHERE id = ?`, c.get('usuario').id)
-  return c.json(aUsuario(fila!))
+  return c.json({ ...aUsuario(fila!), superHasta: c.get('usuario').superHasta })
+})
+
+// Modo super-administrador: el administrador lo activa con su contraseña, por MINUTOS_SUPER minutos, solo en esta sesión.
+rutasAuth.use('/super', conSesion)
+rutasAuth.post('/super', async (c) => {
+  const u = c.get('usuario')
+  if (u.rol !== 'admin') throw prohibido('Solo un administrador puede activar el modo super-administrador.')
+  const b = await cuerpo(c)
+  const clave = texto(b.clave, 'tu contraseña', { max: 200, recortar: false })
+  const fila = await una<{ clave_hash: string }>(c.env.DB, 'SELECT clave_hash FROM usuarios WHERE id = ?', u.id)
+  if (!fila || !(await verificarClave(clave, fila.clave_hash))) throw invalido('La contraseña no es correcta.')
+  const superHasta = new Date(Date.now() + MINUTOS_SUPER * 60_000).toISOString()
+  await ejecutar(c.env.DB, 'UPDATE sesiones SET super_hasta = ? WHERE token_hash = ?', superHasta, await sha256(tokenDe(c)!))
+  return c.json({ superHasta })
+})
+
+rutasAuth.use('/super/salir', conSesion)
+rutasAuth.post('/super/salir', async (c) => {
+  await ejecutar(c.env.DB, 'UPDATE sesiones SET super_hasta = NULL WHERE token_hash = ?', await sha256(tokenDe(c)!))
+  return c.json({ superHasta: null })
 })
 
 rutasAuth.use('/logout', conSesion)

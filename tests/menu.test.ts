@@ -8,7 +8,7 @@ import { ROLES, type Rol } from '../src/shared/tipos'
 const RUTAS: Record<string, Permiso[][]> = {
   '/sector': [['produccion.cargar']],
   '/sector/produccion': [['produccion.cargar']],
-  '/sector/stock': [['stock.mover']],
+  '/depositos': [['stock.ver']],
   '/sector/salida': [['stock.mover']],
   '/sector/envio': [['stock.mover']],
   '/sector/historial': [['stock.ver']],
@@ -21,7 +21,6 @@ const RUTAS: Record<string, Permiso[][]> = {
   '/admin/productos': [['catalogos.editar']],
   '/admin/catalogos': [['catalogos.editar']],
   '/admin/mantenimiento': [['catalogos.editar']],
-  '/admin/stock': [['stock.ver']],
   '/admin/registros': [['produccion.ver']],
   '/admin/controles': [['limpieza.ver']],
   '/admin/historial': [['stock.ver']],
@@ -61,7 +60,7 @@ describe('menú lateral', () => {
 
   it('el administrador ve todo: gestión, finanzas completas y la vista del sector', () => {
     const t = textos('admin')
-    for (const x of ['Resumen', 'Producción', 'Stock', 'Caja', 'Compras', 'Proveedores', 'Finanzas', 'Reportes', 'Productos', 'Catálogos', 'Mantenimiento', 'Usuarios', 'Datos']) {
+    for (const x of ['Resumen', 'Producción', 'Depósitos', 'Caja', 'Compras', 'Proveedores', 'Finanzas', 'Reportes', 'Productos', 'Catálogos', 'Mantenimiento', 'Usuarios', 'Datos']) {
       expect(t).toContain(x)
     }
   })
@@ -96,8 +95,16 @@ describe('menú lateral', () => {
     for (const x of ['Finanzas', 'Caja', 'Usuarios', 'Catálogos', 'Mantenimiento', 'Productos', 'Datos', 'Chipería']) expect(t).not.toContain(x)
   })
 
-  it('el cajero ve solo la caja', () => {
-    expect(rutas('cajero')).toEqual(['/caja'])
+  it('el cajero ve la caja y los depósitos (cuánto hay y cuánto se vendió)', () => {
+    expect(rutas('cajero')).toEqual(['/caja', '/depositos'])
+  })
+
+  it('Depósitos está en los accesos de Producción', () => {
+    for (const rol of ['admin', 'supervisor'] as const) {
+      const grupo = menuDe(rol, true, [...SECTORES]).find((g) => g.titulo === 'Producción')!
+      expect(grupo.opciones.find((o) => o.texto === 'Depósitos')?.a).toBe('/depositos')
+    }
+    expect(rutas('chipitas', false)).toContain('/depositos')
   })
 
   it('un sector ve sus tareas; lotes y trazabilidad solo en Chipería', () => {

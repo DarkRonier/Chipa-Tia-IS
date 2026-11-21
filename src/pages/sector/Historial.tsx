@@ -59,7 +59,7 @@ export function TablaMovimientos({ movimientos }: { movimientos: Movimiento[] })
               <span className={`stk-etiqueta stk-${m.tipo}`}>{NOMBRE_TIPO_MOVIMIENTO[m.tipo]}</span>
               {m.sucursalNombre && <div className="chico">{m.sucursalNombre}</div>}
               {m.tipo === 'salida_venta' || m.tipo === 'transferencia' ? (
-                // Sale de un depósito y entra en otro: el motivo dice «De «Frío» a «Directo a Venta»».
+                // Sale de un depósito y entra en otro: el motivo dice «De «Frío» a «Venta frente»».
                 m.motivo && <div className="suave chico">{m.motivo}</div>
               ) : (
                 <>

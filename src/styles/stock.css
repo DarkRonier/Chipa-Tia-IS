@@ -82,3 +82,19 @@
 .stk-de-a { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.5rem; align-items: end; }
 .stk-de-a select { min-width: 0; }
 .stk-flecha { padding-bottom: 0.65rem; color: var(--suave); font-size: 1.2rem; }
+
+/* Pantalla Depósitos */
+.segmentado.stk-depositos .stk-nuevo { border-style: dashed; color: var(--marca-texto); }
+.stk-cabeza { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 0.5rem 1rem; margin: 0.25rem 0 0.75rem; }
+.stk-cabeza h2 { margin: 0 0 0.15rem; }
+.stk-cabeza p { margin: 0; }
+.stk-cabeza-acciones { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.stk-cabeza-acciones .btn-secundario { margin-bottom: 0; }
+.tabla.stk-tabla .stk-grupo th {
+  text-align: left; background: var(--fondo); color: var(--suave); font-size: 0.8rem; text-transform: uppercase;
+  letter-spacing: 0.03em; padding-top: 0.6rem;
+}
+.tabla.stk-tabla .num { white-space: nowrap; }
+.stk-unidad { display: block; font-size: 0.75rem; font-weight: 400; color: var(--suave); }
+.stk-ver-lotes summary { cursor: pointer; font-size: 0.82rem; color: var(--marca-texto); margin-top: 0.2rem; width: fit-content; }
+.stk-cabeza-acciones a { text-decoration: none; }

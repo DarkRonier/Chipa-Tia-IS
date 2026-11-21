@@ -1,5 +1,5 @@
-// D02, D04: sacar para la venta. Pasa unidades de un depósito (por defecto, Frío) a «Directo a Venta», que es de donde
-// descuentan las ventas de caja. Muestra lo que hay y no deja sacar de más. En Chipería se elige el lote (aparece
+// D02, D04: sacar para la venta. Pasa unidades de un almacén (por defecto, el primero con algo) a un depósito de venta:
+// «Venta frente» (de ahí descuentan las ventas de la caja) o «Venta comedor». Muestra lo que hay y no deja sacar de más. En Chipería se elige el lote (aparece
 // primero el más viejo).
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -29,7 +29,8 @@ function Formulario() {
   const hoy = diaPY()
   const deHoy = useConsulta<Movimiento[]>('/movimientos', { sector, desde: hoy, hasta: hoy, tipo: 'salida_venta' })
   const depositos = useDepositos()
-  const [desde, setDesde] = useState<string>(DEPOSITO.frio)
+  const [elegido, setElegido] = useState('')
+  const [hacia, setHacia] = useState<string>(DEPOSITO.venta)
   const [productoId, setProductoId] = useState('')
   const [lote, setLote] = useState('')
   const [cantidad, setCantidad] = useState(0)
@@ -39,16 +40,17 @@ function Formulario() {
 
   const filas = stock.datos ?? []
   const fila = filas.find((f) => f.productoId === productoId)
-  // Depósitos de donde se puede sacar: los que tienen algo (menos Directo a Venta, que es el destino). Frío siempre.
-  const origenes = depositos.lista.filter((d) =>
-    d.id !== DEPOSITO.venta && (d.id === DEPOSITO.frio || filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0)))
+  // Se saca de un almacén: los que tienen algo (y los almacenes en frío aunque estén vacíos).
+  const origenes = depositos.almacenes.filter((d) =>
+    d.id !== DEPOSITO.materiaPrima || filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0))
+  const desde = (origenes.find((d) => d.id === elegido) ?? origenes.find((d) => filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0)) ?? origenes[0])?.id ?? ''
   const hay = (f: { porDeposito: Record<string, number> }) => f.porDeposito[desde] ?? 0
   // Se listan los productos con stock en el depósito elegido (y el elegido, aunque se haya quedado en 0).
   const conStock = filas.filter((f) => hay(f) > 0 || f.productoId === productoId)
   const lotes = (fila?.lotes ?? []).filter((l) => hay(l) > 0)
   const disponible = !fila ? 0 : conLotes ? hay(lotes.find((l) => l.lote === lote) ?? { porDeposito: {} }) : hay(fila)
   const enOtros = origenes.filter((d) => d.id !== desde && filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0))
-  const nombreVenta = depositos.nombre(DEPOSITO.venta)
+  const nombreVenta = depositos.nombre(hacia)
 
   const limpiarMensajes = () => {
     setAviso(null)
@@ -65,7 +67,7 @@ function Formulario() {
 
   const elegirOrigen = (id: string) => {
     limpiarMensajes()
-    setDesde(id)
+    setElegido(id)
     setProductoId('')
     setLote('')
   }
@@ -78,7 +80,7 @@ function Formulario() {
     if (cantidad > disponible) {
       return setAviso(disponible === 0 ? 'No queda stock de eso.' : `Solo hay ${disponible} en «${depositos.nombre(desde)}»${conLotes ? ' en ese lote' : ''}.`)
     }
-    const r = await registrar.ejecutar({ sector, productoId, lote: conLotes ? lote : null, cantidad, desde })
+    const r = await registrar.ejecutar({ sector, productoId, lote: conLotes ? lote : null, cantidad, desde, hacia })
     if (r) {
       const quedan = disponible - cantidad
       setListo(`Listo: pasaron ${cantidad} de ${r.productoNombre}${r.lote ? ` (lote ${r.lote})` : ''} a «${nombreVenta}». Quedan ${quedan} en «${depositos.nombre(desde)}»${r.lote ? ' en ese lote' : ''}.`)
@@ -95,10 +97,19 @@ function Formulario() {
   return (
     <>
       <Volver titulo="Sacar para la venta" icono={<IconoVenta />} />
-      <p className="suave chico">Pasa lo que sacás a «{nombreVenta}»: de ahí descuentan las ventas de la caja.</p>
+      <p className="suave chico">Pasa lo que sacás a un depósito de venta. Las ventas de la caja del frente descuentan de «{depositos.nombre(DEPOSITO.venta)}».</p>
       <ConDatos consulta={stock}>
         {() => (
           <div className="tarjeta">
+            {depositos.venta.length > 1 && (
+              <div className="segmentado" role="group" aria-label="Va a">
+                {depositos.venta.map((d) => (
+                  <button key={d.id} type="button" className={hacia === d.id ? 'activo' : ''} aria-pressed={hacia === d.id} onClick={() => { limpiarMensajes(); setHacia(d.id) }}>
+                    A {d.nombre}
+                  </button>
+                ))}
+              </div>
+            )}
             {origenes.length > 1 && (
               <label className="campo">
                 <span>Sale de</span>
@@ -110,7 +121,8 @@ function Formulario() {
             {conStock.length === 0 && !listo ? (
               <p className="suave">
                 No hay nada en «{depositos.nombre(desde)}».
-                {enOtros.length > 0 && <> Hay en {enOtros.map((d) => `«${d.nombre}»`).join(' y ')}: elegilo arriba o pasalo con «Transferir» en <Link className="btn-discreto chico" to="/sector/stock">Stock</Link>.</>}
+                {enOtros.length > 0 && <> Hay en {enOtros.map((d) => `«${d.nombre}»`).join(' y ')}: elegilo arriba.</>}
+                {' '}Mirá lo que hay en <Link className="btn-discreto chico" to="/depositos">Depósitos</Link>.
               </p>
             ) : (<>
             <label className="campo">

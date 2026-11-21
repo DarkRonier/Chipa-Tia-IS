@@ -12,6 +12,9 @@ interface Sesion {
   entrar(usuario: string, clave: string): Promise<void>
   salir(): Promise<void>
   cambiarClave(actual: string, nueva: string): Promise<void>
+  /** Modo super-administrador (Ajustes avanzados): se activa con la contraseña, por un rato, en esta sesión. */
+  activarSuper(clave: string): Promise<void>
+  salirSuper(): Promise<void>
 }
 
 const Contexto = createContext<Sesion | null>(null)
@@ -53,7 +56,19 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     invalidar()
   }, [])
 
-  return <Contexto.Provider value={{ usuario, cargando, entrar, salir, cambiarClave }}>{children}</Contexto.Provider>
+  const activarSuper = useCallback(async (clave: string) => {
+    const r = await post<{ superHasta: string }>('/auth/super', { clave })
+    setUsuario((u) => (u ? { ...u, superHasta: r.superHasta } : u))
+  }, [])
+
+  const salirSuper = useCallback(async () => {
+    await post('/auth/super/salir')
+    setUsuario((u) => (u ? { ...u, superHasta: null } : u))
+  }, [])
+
+  return (
+    <Contexto.Provider value={{ usuario, cargando, entrar, salir, cambiarClave, activarSuper, salirSuper }}>{children}</Contexto.Provider>
+  )
 }
 
 export function useSesion(): Sesion {
@@ -67,6 +82,12 @@ export function useUsuario(): Usuario {
   const u = useSesion().usuario
   if (!u) throw new Error('useUsuario sin sesión')
   return u
+}
+
+/** Si el modo super-administrador está activo ahora (vence solo a los 30 minutos). */
+export function useEsSuper(): boolean {
+  const u = useUsuario()
+  return u.rol === 'admin' && !!u.superHasta && u.superHasta > new Date().toISOString()
 }
 
 /** `puede('stock.ver')`: si el usuario con sesión tiene ese permiso (src/shared/permisos.ts). */

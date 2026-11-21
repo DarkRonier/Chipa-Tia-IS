@@ -1,8 +1,11 @@
-// Configuración de este aparato: tema claro / oscuro y, para el administrador, el acceso a cambiar su contraseña.
+// Configuración de este aparato: tema claro / oscuro y, para el administrador, el acceso a cambiar su contraseña y los
+// ajustes avanzados (modo super-administrador: por un rato, con la contraseña, para crear y borrar almacenes).
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import Volver from '../components/Volver'
-import { useUsuario } from '../cliente/sesion'
+import { useEsSuper, useSesion, useUsuario } from '../cliente/sesion'
+import { Aviso } from '../components/Estado'
+import { fechaHoraPY } from '../shared/hora'
 
 type Tema = 'claro' | 'oscuro' | 'sistema'
 
@@ -84,6 +87,56 @@ export default function Configuracion() {
           <Link className="btn-discreto" to="/clave">Cambiar mi contraseña</Link>
         </div>
       )}
+      {usuario.rol === 'admin' && <AjustesAvanzados />}
     </div>
+  )
+}
+
+/** Modo super-administrador: se pide la contraseña y dura 30 minutos en esta sesión. Escondido en «Ajustes avanzados». */
+function AjustesAvanzados() {
+  const { usuario, activarSuper, salirSuper } = useSesion()
+  const esSuper = useEsSuper()
+  const [clave, setClave] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const hasta = usuario?.superHasta ? fechaHoraPY(usuario.superHasta).slice(11) : ''
+
+  const correr = async (f: () => Promise<void>) => {
+    setError(null)
+    setEnviando(true)
+    try {
+      await f()
+      setClave('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <details className="tarjeta ajustes-avanzados" open={esSuper}>
+      <summary>Ajustes avanzados</summary>
+      {esSuper ? (
+        <>
+          <p><strong>Modo super-administrador activo</strong> hasta las {hasta}. Ahora podés crear y borrar almacenes en Depósitos.</p>
+          <Aviso>{error}</Aviso>
+          <button className="btn-secundario" disabled={enviando} onClick={() => void correr(salirSuper)}>Salir del modo super-administrador</button>
+        </>
+      ) : (
+        <form onSubmit={(e) => { e.preventDefault(); if (clave) void correr(() => activarSuper(clave)) }}>
+          <p className="suave chico">
+            El modo super-administrador habilita cambios que se hacen cada tanto, como crear o borrar almacenes en frío.
+            Dura 30 minutos y solo en este aparato.
+          </p>
+          <label className="campo">
+            <span>Tu contraseña</span>
+            <input type="password" autoComplete="current-password" value={clave} onChange={(e) => setClave(e.target.value)} />
+          </label>
+          <Aviso>{error}</Aviso>
+          <button className="btn-primario" type="submit" disabled={enviando || !clave}>{enviando ? 'Activando…' : 'Activar modo super-administrador'}</button>
+        </form>
+      )}
+    </details>
   )
 }
