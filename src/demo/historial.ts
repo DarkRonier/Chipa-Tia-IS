@@ -272,6 +272,8 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
         { productoId: 'prod-panaderia-02', cocinado: entre(80, 120), guardado: entre(20, 40) },
         { productoId: 'prod-panaderia-03', cocinado: entre(50, 80), guardado: entre(30, 50) },
       ],
+      // Desde que llegó la harina comprada, Panadería anota cuánto usó: sale del depósito Materia prima.
+      ...(dia > sumarDias(inicio, 3) ? { materiaPrima: [{ productoId: deCompra.get('Harina 000'), cantidad: 12.5 }] } : {}),
     }))
     await el(dia, 8, () => pedir(t.panaderia, 'POST', '/envios', {
       sucursalId: 'suc-ruta1',

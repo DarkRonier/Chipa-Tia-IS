@@ -96,3 +96,29 @@ describe('materia prima de Chipería comprada', () => {
     expect(aMano.body).toMatchObject({ productoId: null, compraId: null })
   })
 })
+
+describe('materia prima usada en los sectores sin lotes', () => {
+  it('Panadería anota la harina usada y sale del depósito Materia prima', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const harina = (await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'panaderia', nombre: 'Harina 000', unidad: 'kg', tipo: 'materia_prima' })).body
+    await p.pedir(admin, 'POST', '/compras', { items: [{ productoId: harina.id, cantidad: 50, precioUnitario: 4500 }] })
+    const panaderia = await p.entrar('panaderia')
+    const r = await p.pedir<Produccion>(panaderia, 'POST', '/producciones', {
+      turno: 'dia', items: [{ productoId: 'prod-panaderia-01', cocinado: 300, guardado: 0 }], materiaPrima: [{ productoId: harina.id, cantidad: 12.5 }],
+    })
+    expect(r.status).toBe(200)
+    expect(r.body.materiaPrima).toEqual([{ productoId: harina.id, productoNombre: 'Harina 000', cantidad: 12.5, unidad: 'kg' }])
+    const stock = (await p.pedir<StockFila[]>(admin, 'GET', '/stock?sector=panaderia')).body.find((f) => f.productoId === harina.id)!
+    expect(stock.porDeposito.materia_prima).toBe(37.5)
+
+    // Solo materia prima de su sector.
+    const otro = await p.pedir(panaderia, 'POST', '/producciones', {
+      turno: 'dia', items: [{ productoId: 'prod-panaderia-01', cocinado: 10, guardado: 0 }], materiaPrima: [{ productoId: 'prod-panaderia-02', cantidad: 1 }],
+    })
+    expect(otro.status).toBe(400)
+    // Sin materia prima, como siempre.
+    const sin = await p.pedir<Produccion>(panaderia, 'POST', '/producciones', { turno: 'dia', items: [{ productoId: 'prod-panaderia-01', cocinado: 10, guardado: 0 }] })
+    expect(sin.body.materiaPrima).toEqual([])
+  })
+})

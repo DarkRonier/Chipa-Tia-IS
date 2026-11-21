@@ -4,9 +4,9 @@ import { Hono } from 'hono'
 import { DEPOSITO, type Produccion, type ProduccionItem, type SectorId, type Turno } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { leerLotesMP, leerProducciones } from '../consultas'
-import { ahora, nuevoId, sentencia, todasPorTrozos } from '../db'
+import { ahora, nuevoId, sentencia, todas, todasPorTrozos } from '../db'
 import type { BaseD1, Entorno, SentenciaD1 } from '../entorno'
-import { conflicto, esSaldoLoteInsuficiente, esStockInsuficiente, invalido, noEncontrado } from '../errores'
+import { conflicto, esSaldoLoteInsuficiente, esStockInsuficiente, invalido, noEncontrado, prohibido } from '../errores'
 import { requiere, sectorPara } from '../sesion'
 import { cuerpo, diaOpcional, entero, numero, opcion, texto } from '../validar'
 import { almacenPorDefecto, leerDeposito } from './stock'
@@ -134,6 +134,35 @@ async function leerUsos(db: BaseD1, v: unknown): Promise<UsoPedido[]> {
   })
 }
 
+/**
+ * Materia prima usada en una producción sin lotes: productos de materia prima del sector, cada uno una vez, con
+ * cantidad > 0 (hasta 3 decimales). No se controla el stock: lo usado ya se usó (ver la migración 0016).
+ */
+async function leerMateriaPrima(db: BaseD1, v: unknown, sector: SectorId): Promise<{ productoId: string; cantidad: number }[]> {
+  if (v === undefined || v === null) return []
+  if (!Array.isArray(v)) throw invalido('La materia prima usada no es válida.')
+  if (v.length > 50) throw invalido('Son demasiadas materias primas.')
+  const lista = v.map((x) => {
+    const it = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
+    const productoId = texto(it.productoId, 'la materia prima', { max: 100 })
+    if (it.cantidad === undefined || it.cantidad === null || it.cantidad === '') throw invalido('Cargá cuánto usaste de cada materia prima.')
+    const cantidad = numero(it.cantidad, 'La cantidad de materia prima usada', { min: 0, max: MAX_CANTIDAD_MP })
+    return { productoId, cantidad: Math.round(cantidad * 1000) / 1000 }
+  }).filter((x) => x.cantidad > 0)
+  if (new Set(lista.map((x) => x.productoId)).size !== lista.length) throw invalido('Cada materia prima va una sola vez.')
+  if (!lista.length) return []
+  const filas = await todas<{ id: string; nombre: string; sector: SectorId; tipo: string }>(db,
+    'SELECT id, nombre, sector, tipo FROM productos WHERE id IN (SELECT value FROM json_each(?))', JSON.stringify(lista.map((x) => x.productoId)))
+  const porId = new Map(filas.map((f) => [f.id, f]))
+  for (const x of lista) {
+    const p = porId.get(x.productoId)
+    if (!p) throw invalido('Esa materia prima no existe. Recargá la página y probá de nuevo.')
+    if (p.tipo !== 'materia_prima') throw invalido(`${p.nombre} no es materia prima.`)
+    if (p.sector !== sector) throw prohibido(`${p.nombre} no es materia prima de este sector.`)
+  }
+  return lista
+}
+
 const sentenciaMovimiento = (db: BaseD1, m: {
   sector: SectorId
   productoId: string
@@ -201,6 +230,9 @@ rutasProduccion.post('/producciones', requiere('produccion.cargar'), async (c) =
     usos = await leerUsos(db, b.lotesMP)
   }
 
+  // Los otros sectores anotan, si quieren, la materia prima de su sector que usaron: sale del depósito Materia prima.
+  const materiaPrima = conLotes ? [] : await leerMateriaPrima(db, b.materiaPrima, sector)
+
   const id = nuevoId()
   const { fecha, dia } = ahora()
   const sentencias: SentenciaD1[] = [
@@ -246,6 +278,13 @@ rutasProduccion.post('/producciones', requiere('produccion.cargar'), async (c) =
     if (productos.get(i.productoId)!.sin_stock) continue
     if (i.cocinado > 0) sentencias.push(entrada(i.productoId, i.cocinado, venta.id))
     if (i.guardado > 0) sentencias.push(entrada(i.productoId, i.guardado, i.depositoId))
+  }
+
+  for (const m of materiaPrima) {
+    sentencias.push(sentencia(db,
+      `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, deposito_id, motivo, produccion_id, usuario_id, fecha, dia)
+       VALUES (?, ?, ?, NULL, 'produccion', ?, '${DEPOSITO.materiaPrima}', 'Usado en la producción', ?, ?, ?, ?)`,
+      nuevoId(), sector, m.productoId, -m.cantidad, id, u.id, fecha, dia))
   }
 
   try {

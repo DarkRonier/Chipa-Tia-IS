@@ -177,6 +177,10 @@ Los `PATCH` sin ningún campo editable dan `400`.
   Si el lote de materia prima entró con una compra (`LoteMP.productoId`), lo usado sale del depósito Materia prima
   (movimiento `produccion` negativo con el número de lote de la compra y motivo "Usado en la amasada CH-…"); ese
   movimiento no se frena aunque el depósito no alcance, porque el saldo del lote ya se controló (migración 0016).
+- **Otros sectores**: `materiaPrima` opcional (hasta 50 `{ productoId, cantidad }`, materia prima del mismo sector,
+  cantidad > 0 con hasta 3 decimales): sale del depósito Materia prima (movimiento `produccion` negativo, motivo
+  "Usado en la producción"), sin frenarse si no alcanza. `Produccion.materiaPrima` lista lo usado (también lo de los
+  lotes de Chipería que entraron con una compra).
 - Corrección (C04): **mezcla**, no reemplaza: los productos que no vienen en `items` quedan como estaban; los
   que vienen toman los valores nuevos (0 y 0 deja el producto en cero) y se pueden agregar productos activos
   del sector. Sin cambios, `400`; el registro tiene que quedar con al menos una cantidad. Por cada producto, la
