@@ -661,8 +661,9 @@ export const MEDIO_CON_BANCO: Record<MedioPago, boolean> = { efectivo: false, tr
 
 /** Bancos de Paraguay que se sugieren al cargar un cheque o una transferencia (se puede escribir otro). */
 export const BANCOS_SUGERIDOS = [
-  'Banco Regional', 'Banco Continental', 'Itaú', 'Banco Nacional de Fomento', 'Banco Basa', 'Banco Familiar', 'Banco GNB',
-  'Sudameris', 'Visión Banco', 'ueno bank', 'Banco Atlas', 'Interfisa Banco', 'Banco Río', 'Zeta Banco', 'Banco do Brasil', 'Citibank',
+  // Sin Regional (se fusionó con Sudameris en 2023), Río (con Continental en 2025) ni Visión (hoy ueno).
+  'Banco Continental', 'Itaú', 'Sudameris', 'Banco Nacional de Fomento', 'ueno bank', 'Banco Basa', 'Banco Familiar',
+  'Banco Atlas', 'Interfisa Banco', 'Zeta Banco', 'Banco do Brasil', 'Banco de la Nación Argentina', 'Citibank', 'Bancop',
 ]
 
 /** Texto corto de una parte: «Cheque Banco Regional N° 1234». */

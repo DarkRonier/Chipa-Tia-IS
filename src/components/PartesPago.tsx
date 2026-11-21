@@ -61,10 +61,9 @@ export default function PartesPago({ partes, onChange, objetivo, modo }: {
   const varias = partes.length > 1
   const cambiar = (i: number, cambio: Partial<ParteForm>) => onChange(partes.map((p, j) => (j === i ? { ...p, ...cambio } : p)))
   const agregar = () => {
-    // La nueva parte arranca con lo que falta (en la compra); en la venta, vacía: la primera sigue cobrando el resto.
-    const falta = modo === 'compra' ? Math.max(0, objetivo - suma) : 0
+    // La nueva parte arranca en 0 (Mati, 2026-11-21): el importe de cada cheque se escribe a mano.
     const medio = partes.some((p) => p.medio === 'efectivo') ? 'cheque' : 'efectivo'
-    onChange([...partes, parteNueva(medio, falta)])
+    onChange([...partes, parteNueva(medio)])
   }
 
   return (
@@ -85,7 +84,7 @@ export default function PartesPago({ partes, onChange, objetivo, modo }: {
             {modo === 'compra' && (
               <label className="campo">
                 <span>{varias ? 'Importe (Gs.)' : 'Importe a pagar (Gs.)'}</span>
-                <input inputMode="numeric" value={p.importe ? miles(p.importe) : ''} placeholder="0"
+                <input inputMode="numeric" value={p.importe ? miles(p.importe) : ''} placeholder="0" autoFocus={i > 0}
                   onChange={(e) => cambiar(i, { importe: leerImporte(e.target.value) })} />
               </label>
             )}
@@ -106,7 +105,7 @@ export default function PartesPago({ partes, onChange, objetivo, modo }: {
             {MEDIO_CON_BANCO[p.medio] && (
               <label className="campo">
                 <span>Banco</span>
-                <input value={p.banco} maxLength={60} list={idBancos} placeholder={p.medio === 'cheque' ? 'Ej.: Banco Regional' : 'opcional'}
+                <input value={p.banco} maxLength={60} list={idBancos} placeholder={p.medio === 'cheque' ? '' : 'opcional'}
                   onChange={(e) => cambiar(i, { banco: e.target.value })} />
               </label>
             )}
