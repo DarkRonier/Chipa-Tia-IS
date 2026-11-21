@@ -105,7 +105,7 @@ function Vender() {
   const [descuento, setDescuento] = useState(0)
   const [medio, setMedio] = useState<MedioPago>('efectivo')
   const [recibido, setRecibido] = useState(0)
-  const [cliente, setCliente] = useState({ nombre: '', ruc: '' })
+  const [cliente, setCliente] = useState({ nombre: '', ruc: '', direccion: '' })
   const [conCliente, setConCliente] = useState(false)
   const [hecha, setHecha] = useState<Venta | null>(null)
   const vender = useAccion((p: PedidoVenta) => post<Venta>('/ventas', p))
@@ -133,7 +133,7 @@ function Vender() {
     setCarrito(new Map())
     setDescuento(0)
     setRecibido(0)
-    setCliente({ nombre: '', ruc: '' })
+    setCliente({ nombre: '', ruc: '', direccion: '' })
     setConCliente(false)
     setMedio('efectivo')
   }
@@ -145,6 +145,7 @@ function Vender() {
       recibido: medio === 'efectivo' && recibido ? recibido : null,
       clienteNombre: cliente.nombre,
       clienteRuc: cliente.ruc,
+      clienteDireccion: cliente.direccion,
     })
     if (v) {
       setHecha(v)
@@ -234,6 +235,7 @@ function Vender() {
           <div className="filtros">
             <label className="campo"><span>Nombre o razón social</span><input value={cliente.nombre} maxLength={120} onChange={(e) => setCliente({ ...cliente, nombre: e.target.value })} /></label>
             <label className="campo"><span>RUC o CI</span><input value={cliente.ruc} maxLength={30} onChange={(e) => setCliente({ ...cliente, ruc: e.target.value })} /></label>
+            <label className="campo"><span>Dirección <span className="opcional">(opcional)</span></span><input value={cliente.direccion} maxLength={120} onChange={(e) => setCliente({ ...cliente, direccion: e.target.value })} /></label>
           </div>
         )}
         <div className="total-compra"><span>Total{descuento > 0 && <span className="suave chico"> (sin descuento {gs(subtotal)})</span>}</span><strong>{gs(total)}</strong></div>

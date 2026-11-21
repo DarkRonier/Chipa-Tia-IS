@@ -368,6 +368,7 @@ interface FilaVenta {
   caja_id: string
   cliente_nombre: string
   cliente_ruc: string
+  cliente_direccion: string
   subtotal: number
   descuento: number
   total: number
@@ -380,7 +381,7 @@ interface FilaVenta {
   motivo_anulacion: string | null
 }
 
-const SQL_VENTA = `SELECT v.id, v.numero, v.caja_id, v.cliente_nombre, v.cliente_ruc, v.subtotal, v.descuento, v.total, v.medio, v.recibido,
+const SQL_VENTA = `SELECT v.id, v.numero, v.caja_id, v.cliente_nombre, v.cliente_ruc, v.cliente_direccion, v.subtotal, v.descuento, v.total, v.medio, v.recibido,
     u.nombre AS usuario_nombre, v.fecha, v.dia, v.anulada_en, v.motivo_anulacion
   FROM ventas v JOIN usuarios u ON u.id = v.usuario_id`
 
@@ -390,8 +391,9 @@ export async function leerVentas(db: BaseD1, where = '', ...params: ValorSQL[]):
   const filas = await todas<FilaVenta>(db, `${SQL_VENTA} ${where} ORDER BY v.numero DESC LIMIT 2000`, ...params)
   const ids = filas.map((f) => f.id)
   const [items, facturas] = await Promise.all([
-    todasPorTrozos<{ venta_id: string; producto_id: string; nombre: string; cantidad: number; precio_unitario: number; subtotal: number; iva: Iva }>(
-      db, ids, (m) => `SELECT venta_id, producto_id, nombre, cantidad, precio_unitario, subtotal, iva FROM venta_items WHERE venta_id IN (${m}) ORDER BY orden`,
+    todasPorTrozos<{ venta_id: string; producto_id: string; nombre: string; cantidad: number; precio_unitario: number; subtotal: number; iva: Iva; codigo: string | null }>(
+      db, ids, (m) => `SELECT i.venta_id, i.producto_id, i.nombre, i.cantidad, i.precio_unitario, i.subtotal, i.iva, p.codigo
+        FROM venta_items i LEFT JOIN productos p ON p.id = i.producto_id WHERE i.venta_id IN (${m}) ORDER BY i.orden`,
     ),
     todasPorTrozos<{ id: string; venta_id: string; prefijo: string; numero: number; timbrado: string; fecha: string; impresiones: number; anulada_en: string | null }>(
       db, ids, (m) => `SELECT id, venta_id, prefijo, numero, timbrado, fecha, impresiones, anulada_en FROM facturas WHERE venta_id IN (${m})`,
@@ -405,6 +407,7 @@ export async function leerVentas(db: BaseD1, where = '', ...params: ValorSQL[]):
       cajaId: f.caja_id,
       clienteNombre: f.cliente_nombre,
       clienteRuc: f.cliente_ruc,
+      clienteDireccion: f.cliente_direccion,
       subtotal: f.subtotal,
       descuento: f.descuento,
       total: f.total,
@@ -418,7 +421,7 @@ export async function leerVentas(db: BaseD1, where = '', ...params: ValorSQL[]):
       anuladaEn: f.anulada_en,
       motivoAnulacion: f.motivo_anulacion,
       items: items.filter((i) => i.venta_id === f.id).map((i): VentaItem => ({
-        productoId: i.producto_id, nombre: i.nombre, cantidad: i.cantidad, precioUnitario: i.precio_unitario, subtotal: i.subtotal, iva: i.iva,
+        productoId: i.producto_id, nombre: i.nombre, cantidad: i.cantidad, precioUnitario: i.precio_unitario, subtotal: i.subtotal, iva: i.iva, codigo: i.codigo ?? '',
       })),
       factura: fac
         ? {
@@ -497,6 +500,7 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
   }
   const clienteNombre = textoOpcional(b.clienteNombre, 'El nombre del cliente', 120) ?? ''
   const clienteRuc = textoOpcional(b.clienteRuc, 'El RUC o CI del cliente', 30) ?? ''
+  const clienteDireccion = textoOpcional(b.clienteDireccion, 'La dirección del cliente', 120) ?? ''
 
   const id = nuevoId()
   const { fecha, dia } = ahora()
@@ -508,9 +512,9 @@ rutasCaja.post('/ventas', requiere('ventas.registrar'), async (c) => {
   const sentencias: SentenciaD1[] = [
     sentencia(
       db,
-      `INSERT INTO ventas (id, numero, caja_id, cliente_nombre, cliente_ruc, subtotal, descuento, total, medio, recibido, usuario_id, fecha, dia)
-       VALUES (?, (SELECT COALESCE(MAX(numero), 0) + 1 FROM ventas), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id, caja.id, clienteNombre, clienteRuc, subtotal, descuento, total, medio, recibido, u.id, fecha, dia,
+      `INSERT INTO ventas (id, numero, caja_id, cliente_nombre, cliente_ruc, cliente_direccion, subtotal, descuento, total, medio, recibido, usuario_id, fecha, dia)
+       VALUES (?, (SELECT COALESCE(MAX(numero), 0) + 1 FROM ventas), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, caja.id, clienteNombre, clienteRuc, clienteDireccion, subtotal, descuento, total, medio, recibido, u.id, fecha, dia,
     ),
     ...lineas.map((l, i) => sentencia(
       db,
@@ -559,32 +563,44 @@ rutasCaja.post('/ventas/:id/anular', requiere('ventas.anular'), async (c) => {
 
 // ---------- Factura preimpresa (M12) ----------
 
-/** Formato inicial pensado para una hoja A5 apaisada típica; se calibra en Caja → Factura. */
+/**
+ * Hoja de Chipa Tía E.A.S. (imprenta Kike): oficio (216 × 330 mm) con original arriba y duplicado abajo. Las medidas
+ * salen de una foto de la hoja vacía; se afinan en Caja → Factura con una impresión de prueba.
+ */
 export const FACTURA_POR_DEFECTO: ConfigFactura = {
-  timbrado: '',
-  prefijo: '001-001',
-  numeroInicial: 1,
-  anchoHoja: 210,
-  altoHoja: 148,
+  version: 2,
+  timbrado: '18980642',
+  prefijo: '001-002',
+  numeroInicial: 1775,
+  numeroFinal: 2000,
+  venceTimbrado: '2027-07-31',
+  anchoHoja: 216,
+  altoHoja: 330,
   margenIzquierdo: 0,
   margenSuperior: 0,
-  tamanoLetra: 10,
-  fecha: { x: 30, y: 32 },
-  cliente: { x: 40, y: 38 },
-  ruc: { x: 150, y: 38 },
-  detalle: { x: 0, y: 55 },
-  altoRenglon: 5,
-  maxRenglones: 12,
-  columnaCantidad: 12,
-  columnaDescripcion: 28,
-  columnaPrecio: 110,
-  columnaExentas: 135,
-  columna5: 160,
-  columna10: 185,
-  subtotales: { x: 0, y: 118 },
-  total: { x: 185, y: 124 },
-  totalLetras: { x: 40, y: 124 },
-  liquidacionIva: { x: 40, y: 130 },
+  tamanoLetra: 9,
+  duplicado: { x: 0.5, y: 154 },
+  contado: { x: 166, y: 44.7 },
+  fecha: { x: 45, y: 47.3 },
+  ruc: { x: 172, y: 53.3 },
+  cliente: { x: 33, y: 55.6 },
+  direccion: { x: 34, y: 62.6 },
+  detalle: { x: 0, y: 79.6 },
+  altoRenglon: 4.2,
+  maxRenglones: 10,
+  columnaCodigo: 13.5,
+  columnaCantidad: 37,
+  columnaDescripcion: 40.7,
+  columnaPrecio: 149.6,
+  columnaExentas: 169.7,
+  columna5: 190,
+  columna10: 209.5,
+  subtotales: { x: 0, y: 123.4 },
+  total: { x: 209.5, y: 130.9 },
+  totalLetras: { x: 66, y: 130.9 },
+  iva5: { x: 77, y: 138.3 },
+  iva10: { x: 121.6, y: 138.3 },
+  totalIva: { x: 180, y: 138.3 },
 }
 
 const CLAVE_FACTURA = 'factura'
@@ -593,10 +609,21 @@ export async function leerConfigFactura(db: BaseD1): Promise<ConfigFactura> {
   const f = await una<{ valor: string }>(db, 'SELECT valor FROM configuracion WHERE clave = ?', CLAVE_FACTURA)
   if (!f) return { ...FACTURA_POR_DEFECTO }
   try {
-    return { ...FACTURA_POR_DEFECTO, ...(JSON.parse(f.valor) as Partial<ConfigFactura>) }
+    const guardada = JSON.parse(f.valor) as Partial<ConfigFactura>
+    if ((guardada.version ?? 1) >= FACTURA_POR_DEFECTO.version) return { ...FACTURA_POR_DEFECTO, ...guardada }
+    // Formato viejo (genérico A5): las posiciones no sirven para la hoja nueva; solo se respeta la numeración si se cargó.
+    return guardada.timbrado
+      ? { ...FACTURA_POR_DEFECTO, timbrado: guardada.timbrado, prefijo: guardada.prefijo ?? FACTURA_POR_DEFECTO.prefijo, numeroInicial: guardada.numeroInicial ?? FACTURA_POR_DEFECTO.numeroInicial }
+      : { ...FACTURA_POR_DEFECTO }
   } catch {
     return { ...FACTURA_POR_DEFECTO }
   }
+}
+
+/** El número que le tocaría a la próxima factura (sin reservarlo). */
+async function proximoNumero(db: BaseD1, config: ConfigFactura): Promise<number> {
+  const f = await una<{ n: number | null }>(db, 'SELECT MAX(numero) AS n FROM facturas WHERE prefijo = ?', config.prefijo)
+  return Math.max(f?.n ?? 0, config.numeroInicial - 1) + 1
 }
 
 function mm(v: unknown, campo: string, max = 400): number {
@@ -618,7 +645,18 @@ function leerConfig(b: Record<string, unknown>, actual: ConfigFactura): ConfigFa
     }
     r.numeroInicial = b.numeroInicial
   }
-  for (const k of ['anchoHoja', 'altoHoja', 'margenIzquierdo', 'margenSuperior', 'altoRenglon', 'columnaCantidad', 'columnaDescripcion',
+  if (b.numeroFinal !== undefined) {
+    if (typeof b.numeroFinal !== 'number' || !Number.isInteger(b.numeroFinal) || b.numeroFinal < 0 || b.numeroFinal > 9_999_999) {
+      throw invalido('El último número del talonario tiene que estar entre 0 (sin límite) y 9.999.999.')
+    }
+    r.numeroFinal = b.numeroFinal
+  }
+  if (b.venceTimbrado !== undefined) {
+    const v = textoOpcional(b.venceTimbrado, 'El vencimiento del timbrado', 10) ?? ''
+    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw invalido('El vencimiento del timbrado va como fecha (AAAA-MM-DD).')
+    r.venceTimbrado = v
+  }
+  for (const k of ['anchoHoja', 'altoHoja', 'margenIzquierdo', 'margenSuperior', 'altoRenglon', 'columnaCodigo', 'columnaCantidad', 'columnaDescripcion',
     'columnaPrecio', 'columnaExentas', 'columna5', 'columna10'] as const) {
     if (b[k] !== undefined) r[k] = mm(b[k], k)
   }
@@ -627,15 +665,23 @@ function leerConfig(b: Record<string, unknown>, actual: ConfigFactura): ConfigFa
     if (typeof b.maxRenglones !== 'number' || !Number.isInteger(b.maxRenglones) || b.maxRenglones < 1 || b.maxRenglones > 60) throw invalido('Los renglones tienen que estar entre 1 y 60.')
     r.maxRenglones = b.maxRenglones
   }
-  for (const k of ['fecha', 'cliente', 'ruc', 'detalle', 'subtotales', 'total', 'totalLetras', 'liquidacionIva'] as const) {
+  for (const k of ['duplicado', 'fecha', 'contado', 'cliente', 'ruc', 'direccion', 'detalle', 'subtotales', 'total', 'totalLetras', 'iva5', 'iva10', 'totalIva'] as const) {
     if (b[k] === undefined) continue
     const p = (b[k] && typeof b[k] === 'object' ? b[k] : {}) as Record<string, unknown>
     r[k] = { x: mm(p.x, `${k} x`), y: mm(p.y, `${k} y`) }
   }
+  r.version = FACTURA_POR_DEFECTO.version
   return r
 }
 
 rutasCaja.get('/factura/config', requiere('facturas.generar'), async (c) => c.json<ConfigFactura>(await leerConfigFactura(c.env.DB)))
+
+/** La próxima factura que va a salir, para que el administrador la compare con la hoja que sigue en el talonario. */
+rutasCaja.get('/factura/proxima', requiere('facturas.configurar'), async (c) => {
+  const config = await leerConfigFactura(c.env.DB)
+  const numero = await proximoNumero(c.env.DB, config)
+  return c.json({ numero, numeroCompleto: numeroFactura(config.prefijo, numero) })
+})
 
 rutasCaja.put('/factura/config', requiere('facturas.configurar', 'El formato de la factura lo configura el administrador.'), async (c) => {
   const db = c.env.DB
@@ -661,7 +707,13 @@ rutasCaja.post('/ventas/:id/factura', requiere('facturas.generar'), async (c) =>
   if (venta.factura) {
     await db.batch([sentencia(db, 'UPDATE facturas SET impresiones = impresiones + 1 WHERE id = ?', venta.factura.id)])
   } else {
-    const { fecha } = ahora()
+    const { fecha, dia } = ahora()
+    if (config.venceTimbrado && dia > config.venceTimbrado) {
+      throw conflicto('timbrado_vencido', `El timbrado ${config.timbrado} venció el ${diaLegible(config.venceTimbrado)}. Cargá el timbrado nuevo en Caja → Factura.`)
+    }
+    if (config.numeroFinal && (await proximoNumero(db, config)) > config.numeroFinal) {
+      throw conflicto('talonario_agotado', `Se terminaron las facturas autorizadas (hasta la ${numeroFactura(config.prefijo, config.numeroFinal)}). Cargá el talonario nuevo en Caja → Factura.`)
+    }
     for (let intento = 0; ; intento++) {
       try {
         await db.batch([sentencia(

@@ -87,6 +87,12 @@ export default function Configuracion() {
           <Link className="btn-discreto" to="/clave">Cambiar mi contraseña</Link>
         </div>
       )}
+      {usuario.rol === 'admin' && (
+        <div className="tarjeta">
+          <p className="suave chico">Dónde cae cada dato sobre la hoja preimpresa, la numeración y el timbrado.</p>
+          <Link className="btn-discreto" to="/caja?ver=factura">Factura preimpresa: márgenes y numeración</Link>
+        </div>
+      )}
       {usuario.rol === 'admin' && <AjustesAvanzados />}
     </div>
   )
