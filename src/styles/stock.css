@@ -104,17 +104,21 @@
 }
 .stk-alerta-punto { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--error); }
 .stk-explica { margin: 0 0 0.75rem; }
-.stk-lista { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+/* Una tarjeta por fila, a todo el ancho (Mati, 2026-11-21). */
+.stk-lista { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.9rem; grid-template-columns: minmax(0, 1fr); }
 .stk-lista .tarjeta { margin: 0; }
 button.stk-item {
-  width: 100%; height: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; gap: 0.3rem; align-content: start;
+  width: 100%; height: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; gap: 0.45rem; align-content: start;
+  padding: 1.25rem 1.4rem; min-height: 120px;
   transition: border-color 0.15s, transform 0.15s;
 }
 button.stk-item:hover { border-color: var(--acento); }
 button.stk-item:focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; }
-.stk-item-cabeza { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-size: 1.05rem; }
+.stk-item-cabeza { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-size: 1.3rem; }
+button.stk-item .chico { font-size: 0.95rem; }
+button.stk-item .stk-temp-chip { font-size: 0.92rem; padding: 0.25rem 0.7rem; }
 .stk-item-cabeza .flecha { color: var(--suave); flex: none; }
-button.stk-item-nuevo { border-style: dashed; color: var(--marca-texto); font-weight: 600; place-content: center; min-height: 96px; text-align: center; box-shadow: none; }
+button.stk-item-nuevo { border-style: dashed; color: var(--marca-texto); font-weight: 600; place-content: center; min-height: 72px; font-size: 1.05rem; text-align: center; box-shadow: none; }
 .stk-temp-chip {
   justify-self: start; font-size: 0.82rem; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--fondo); border: 1px solid var(--borde);
 }
