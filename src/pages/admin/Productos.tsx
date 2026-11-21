@@ -3,6 +3,7 @@
 // Crear y editar se hace en un modal: en la tabla no se cambia nada directo (ni el tipo ni el precio).
 // Los productos no tienen campos de stock: el stock se lleva por depósito (pantalla Stock).
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { Flecha } from '../../components/Volver'
 import { patch, post } from '../../cliente/api'
 import { useSectores } from '../../cliente/catalogo'
 import { useAccion, useConsulta } from '../../cliente/consultas'
@@ -287,7 +288,7 @@ function Paginacion({ actual, paginas, ir }: { actual: number; paginas: number; 
   if (paginas <= 1) return null
   return (
     <nav className="prod-paginas" aria-label="Páginas de la tabla">
-      <button type="button" className="prod-pag" disabled={actual === 1} onClick={() => ir(actual - 1)} aria-label="Página anterior">‹</button>
+      <button type="button" className="prod-pag" disabled={actual === 1} onClick={() => ir(actual - 1)} aria-label="Página anterior"><Flecha /></button>
       {botonesPagina(actual, paginas).map((n, i) =>
         n === null ? <span key={`s${i}`} className="prod-pag-salto" aria-hidden="true">…</span> : (
           <button
@@ -297,7 +298,7 @@ function Paginacion({ actual, paginas, ir }: { actual: number; paginas: number; 
             {n}
           </button>
         ))}
-      <button type="button" className="prod-pag" disabled={actual === paginas} onClick={() => ir(actual + 1)} aria-label="Página siguiente">›</button>
+      <button type="button" className="prod-pag" disabled={actual === paginas} onClick={() => ir(actual + 1)} aria-label="Página siguiente"><Flecha derecha /></button>
     </nav>
   )
 }
