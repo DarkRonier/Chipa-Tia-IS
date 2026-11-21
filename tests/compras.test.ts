@@ -35,7 +35,8 @@ async function escenario(): Promise<Escenario> {
   const insumos = (await p.pedir<Categoria>(admin, 'POST', '/categorias', { nombre: 'Insumos', sectores: [] })).body
   const gaseosa = (await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'cocina', nombre: 'Gaseosa 500 ml', categoriaId: bebidas.id, tipo: 'reventa' })).body
   await p.pedir(admin, 'PATCH', `/productos/${COCIDO}`, { categoriaId: insumos.id, tipo: 'materia_prima' })
-  await p.pedir(admin, 'PATCH', `/productos/${PAN}`, { tipo: 'materia_prima' })
+  // En Amandau, que ningún sector compra (migración 0021).
+  await p.pedir(admin, 'PATCH', `/productos/${PAN}`, { tipo: 'materia_prima', categoriaId: 'cat-amandau' })
   const sup = await p.entrar('supervisor')
   const proveedor = (await p.pedir<Proveedor>(sup, 'POST', '/proveedores', { nombre: 'Distribuidora Sur', ruc: '80012345-6', telefono: '0981 123456' })).body
   return { p, admin, sup, cocina: await p.entrar('cocina'), panaderia: await p.entrar('panaderia'), bebidas, insumos, gaseosa, proveedor }

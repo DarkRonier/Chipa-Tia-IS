@@ -100,3 +100,20 @@ describe('migraciones compatibles con D1', () => {
     }
   })
 })
+
+describe('qué compra cada sector de entrada (Mati, 2026-11-21)', () => {
+  it('Chipería 1,5,6,8 · Chipitas 2,5,8 · Panadería 4,5,8 · Cocina 3,6,8 · Amandau ninguno', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const cats = (await p.pedir<Categoria[]>(admin, 'GET', '/categorias')).body
+    const de = (nombre: string) => [...(cats.find((c) => c.nombre === nombre)?.sectores ?? [])].sort()
+    expect(de('Chipas y bocaditos')).toEqual(['chiperia'])
+    expect(de('Chipa Sticks')).toEqual(['chipitas'])
+    expect(de('Buffet')).toEqual(['cocina'])
+    expect(de('Panificados')).toEqual(['panaderia'])
+    expect(de('Materia prima')).toEqual(['chiperia', 'chipitas', 'panaderia'])
+    expect(de('Bebidas')).toEqual(['chiperia', 'cocina'])
+    expect(de('Amandau')).toEqual([])
+    expect(de('Otros')).toEqual(['chiperia', 'chipitas', 'cocina', 'panaderia'])
+  })
+})
