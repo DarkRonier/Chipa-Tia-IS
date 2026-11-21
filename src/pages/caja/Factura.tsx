@@ -1,4 +1,4 @@
-// M12: factura preimpresa de Chipa Tía (hoja oficio con original arriba y duplicado abajo). Imprime solo los datos
+// M12: factura preimpresa de Chipa Tía (hoja A4 con original arriba y duplicado abajo). Imprime solo los datos
 // variables (fecha, cliente, detalle e importes) sobre la hoja de la imprenta, en las posiciones del formato (milímetros).
 // El número y el timbrado ya vienen impresos: el sistema lleva la misma numeración y avisa qué hoja poner antes de imprimir.
 // El formato se calibra en Caja → Factura: márgenes que corren todo junto y la posición de cada dato, con una hoja de prueba.
@@ -41,10 +41,10 @@ function Copia({ venta, config, corrida }: { venta: Venta; config: ConfigFactura
       {en(config.contado, 'X', 'left', { fontWeight: 700 })}
       {en(config.cliente, venta.clienteNombre || 'Sin nombre', 'left', recorte(config.ruc.x - 30 - config.cliente.x))}
       {en(config.ruc, venta.clienteRuc || 'X')}
-      {venta.clienteDireccion && en(config.direccion, venta.clienteDireccion, 'left', recorte(100))}
+      {venta.clienteDireccion && en(config.direccion, venta.clienteDireccion, 'left', recorte(84))}
       {renglonesFactura(venta, config.maxRenglones, miles).map((r, n) => (
         <div key={n}>
-          {r.codigo && en({ x: config.columnaCodigo, y: fila(n) }, r.codigo, 'left', recorte(config.columnaCantidad - 10 - config.columnaCodigo))}
+          {r.codigo && en({ x: config.columnaCodigo, y: fila(n) }, r.codigo, 'left', recorte(config.columnaCantidad - 12.5 - config.columnaCodigo))}
           {en({ x: config.columnaCantidad, y: fila(n) }, r.cantidad, 'right')}
           {en({ x: config.columnaDescripcion, y: fila(n) }, r.descripcion, 'left', recorte(config.columnaPrecio - 19 - config.columnaDescripcion))}
           {en({ x: config.columnaPrecio, y: fila(n) }, r.precio, 'right')}
@@ -184,9 +184,9 @@ function FormFactura({ inicial }: { inicial: ConfigFactura }) {
   return (
     <>
       <p className="suave">
-        La factura sale sobre la hoja preimpresa de la imprenta (oficio, original arriba y duplicado abajo): el sistema
+        La factura sale sobre la hoja preimpresa de la imprenta (A4, original arriba y duplicado abajo): el sistema
         imprime solo la fecha, el cliente, el detalle y los importes. Para calibrar, imprimí una hoja de prueba en una hoja
-        común, ponela encima de una factura en blanco y miralas a contraluz. Si todo sale 3 mm más arriba, poné 3 en
+        A4 común (al imprimir: papel A4, márgenes «Ninguno» y escala 100 %), ponela encima de una factura en blanco y miralas a contraluz. Si todo sale 3 mm más arriba, poné 3 en
         «Correr todo hacia abajo»; si sale 2 mm a la derecha, poné -2 en «Correr todo a la derecha». Guardá y probá de nuevo.
       </p>
 
@@ -235,7 +235,7 @@ function FormFactura({ inicial }: { inicial: ConfigFactura }) {
       <h2>Vista previa</h2>
       <label className="check">
         <input type="checkbox" checked={fondo} onChange={(e) => setFondo(e.target.checked)} />
-        <span>Verla sobre la foto de la hoja (es una guía: la foto no tiene las medidas exactas)</span>
+        <span>Verla sobre el dibujo de la hoja (sacado de la foto, enderezado y a tamaño A4)</span>
       </label>
       <div className="vista-factura"><HojaFactura venta={VENTA_PRUEBA} config={d} fondo={fondo} /></div>
       {prueba && <ImprimirFactura venta={VENTA_PRUEBA} config={d} alTerminar={() => setPrueba(false)} />}

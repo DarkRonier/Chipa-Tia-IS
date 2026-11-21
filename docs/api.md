@@ -366,7 +366,7 @@ caja, ve las ventas, las anula (`ventas.anular`) y factura, pero no vende. El su
 | GET | `/ventas/:id` | — | `Venta` |
 | POST | `/ventas` | `PedidoVenta`: `{ items: [{ productoId, cantidad }], descuento?, medio, recibido?, clienteNombre?, clienteRuc? }` | `Venta` · solo cajero |
 | POST | `/ventas/:id/anular` | `{ motivo }` (solo con la caja abierta; devuelve el stock al mismo depósito y lote y anula la factura) · cajero y admin | `Venta` |
-| GET | `/factura/config` | — | `ConfigFactura` (timbrado, vigencia, prefijo, primer y último número del talonario y posiciones en mm de la hoja oficio con original y duplicado) |
+| GET | `/factura/config` | — | `ConfigFactura` (timbrado, vigencia, prefijo, primer y último número del talonario y posiciones en mm de la hoja A4 con original y duplicado) |
 | GET | `/factura/proxima` | — · admin | `{ numero, numeroCompleto }`: la próxima factura que va a salir |
 | PUT | `/factura/config` | `ConfigFactura` · admin | `ConfigFactura` |
 | POST | `/ventas/:id/factura` | — | `{ venta, config }`: la primera vez asigna el número correlativo; después cuenta reimpresiones. 409 `talonario_agotado` (pasó el último número) o `timbrado_vencido` |
