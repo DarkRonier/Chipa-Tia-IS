@@ -9,16 +9,21 @@
 --   8. Otros: lo que no entra en ninguna (ya existía; no se desactiva).
 
 -- 1) Las que faltan (si ya hay una con ese nombre, se usa esa).
-INSERT INTO categorias (id, nombre, activo, orden)
-SELECT x.id, x.nombre, 1, 0 FROM (
-  SELECT 'cat-bocaditos' AS id, 'Chipas y bocaditos' AS nombre UNION ALL
-  SELECT 'cat-sticks', 'Chipa Sticks' UNION ALL
-  SELECT 'cat-buffet', 'Buffet' UNION ALL
-  SELECT 'cat-panificados', 'Panificados' UNION ALL
-  SELECT 'cat-materia-prima', 'Materia prima' UNION ALL
-  SELECT 'cat-bebidas', 'Bebidas' UNION ALL
-  SELECT 'cat-amandau', 'Amandau'
-) x WHERE NOT EXISTS (SELECT 1 FROM categorias c WHERE lower(c.nombre) = lower(x.nombre));
+-- Una sentencia por categoría: D1 no acepta más de 5 SELECT unidos con UNION.
+INSERT INTO categorias (id, nombre, activo, orden) SELECT 'cat-bocaditos', 'Chipas y bocaditos', 1, 0
+ WHERE NOT EXISTS (SELECT 1 FROM categorias WHERE lower(nombre) = lower('Chipas y bocaditos'));
+INSERT INTO categorias (id, nombre, activo, orden) SELECT 'cat-sticks', 'Chipa Sticks', 1, 0
+ WHERE NOT EXISTS (SELECT 1 FROM categorias WHERE lower(nombre) = lower('Chipa Sticks'));
+INSERT INTO categorias (id, nombre, activo, orden) SELECT 'cat-buffet', 'Buffet', 1, 0
+ WHERE NOT EXISTS (SELECT 1 FROM categorias WHERE lower(nombre) = lower('Buffet'));
+INSERT INTO categorias (id, nombre, activo, orden) SELECT 'cat-panificados', 'Panificados', 1, 0
+ WHERE NOT EXISTS (SELECT 1 FROM categorias WHERE lower(nombre) = lower('Panificados'));
+INSERT INTO categorias (id, nombre, activo, orden) SELECT 'cat-materia-prima', 'Materia prima', 1, 0
+ WHERE NOT EXISTS (SELECT 1 FROM categorias WHERE lower(nombre) = lower('Materia prima'));
+INSERT INTO categorias (id, nombre, activo, orden) SELECT 'cat-bebidas', 'Bebidas', 1, 0
+ WHERE NOT EXISTS (SELECT 1 FROM categorias WHERE lower(nombre) = lower('Bebidas'));
+INSERT INTO categorias (id, nombre, activo, orden) SELECT 'cat-amandau', 'Amandau', 1, 0
+ WHERE NOT EXISTS (SELECT 1 FROM categorias WHERE lower(nombre) = lower('Amandau'));
 
 UPDATE categorias SET activo = 1, orden = CASE lower(nombre)
   WHEN 'chipas y bocaditos' THEN 1 WHEN 'chipa sticks' THEN 2 WHEN 'buffet' THEN 3 WHEN 'panificados' THEN 4

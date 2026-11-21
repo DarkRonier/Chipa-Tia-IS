@@ -80,3 +80,16 @@ describe('migración a las categorías nuevas (0017)', () => {
     expect(viejas).toBe(0)
   })
 })
+
+describe('migraciones compatibles con D1', () => {
+  // D1 (Cloudflare) corta con «too many terms in compound SELECT» si una sentencia une más de 5 SELECT; sql.js no.
+  it('ninguna sentencia une más de 5 SELECT con UNION', () => {
+    for (const [nombre, texto] of Object.entries(MIGRACIONES)) {
+      const sinComentarios = texto.replace(/--.*$/gm, '')
+      for (const sentencia of sinComentarios.split(';')) {
+        const unidos = (sentencia.match(/\bUNION\b/gi) ?? []).length + 1
+        expect(unidos, `${nombre}: ${sentencia.trim().slice(0, 80)}`).toBeLessThanOrEqual(5)
+      }
+    }
+  })
+})
