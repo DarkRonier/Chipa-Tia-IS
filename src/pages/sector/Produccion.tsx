@@ -13,7 +13,7 @@ import Numero from '../../components/Numero'
 import { IconoProduccion } from '../../components/Iconos'
 import Volver from '../../components/Volver'
 import { diaPY, fechaHoraPY, turnoActual } from '../../shared/hora'
-import { cantidadConUnidad, DEPOSITO, textoUsoMP, type LoteMP, type PedidoProduccion, type Produccion as Registro, type Producto, type Turno } from '../../shared/tipos'
+import { cantidadConUnidad, DEPOSITO, textoUsoMP, type LoteMP, type PedidoProduccion, type Produccion as Registro, type Producto, type StockFila, type Turno } from '../../shared/tipos'
 import { leerCantidad } from './Lotes'
 import '../../styles/produccion.css'
 import BotonIcono from '../../components/BotonIcono'
@@ -39,6 +39,8 @@ function Formulario() {
   const hoy = diaPY()
   const productos = useConsulta<Producto[]>('/productos', { sector })
   const lotes = useConsulta<LoteMP[]>(conLotes ? '/lotes-mp' : null, { disponibles: true })
+  // Los sectores sin lotes anotan la materia prima que usaron (opcional): sale del depósito Materia prima.
+  const stock = useConsulta<StockFila[]>(conLotes ? null : '/stock', { sector })
   const deHoy = useConsulta<Registro[]>('/producciones', { sector, desde: hoy, hasta: hoy })
   const depositos = useDepositos()
   // Adónde puede ir lo guardado: los almacenes (menos Materia prima). Lo cocinado va a un depósito de venta.
@@ -52,6 +54,8 @@ function Formulario() {
   const [lotesMP, setLotesMP] = useState<string[]>([])
   /** Lo escrito en la cantidad usada de cada lote de materia prima (E03), tal cual lo tipeó el operador. */
   const [usado, setUsado] = useState<Record<string, string>>({})
+  /** Materia prima usada en los sectores sin lotes, tal cual la escribió el operador. */
+  const [usadoMP, setUsadoMP] = useState<Record<string, string>>({})
   const [buscar, setBuscar] = useState('')
   const [listo, setListo] = useState<Registro | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
@@ -59,6 +63,11 @@ function Formulario() {
 
   const et = etiquetas(conLotes)
   const activos = (productos.datos ?? []).filter((p) => p.activo && p.tipo === 'elaborado')
+  const materiasPrimas = conLotes ? [] : (productos.datos ?? []).filter((p) => p.activo && p.tipo === 'materia_prima')
+  const hayMP = (id: string) => stock.datos?.find((f) => f.productoId === id)?.porDeposito[DEPOSITO.materiaPrima] ?? 0
+  const mpUsadas = materiasPrimas
+    .map((p) => ({ p, n: leerCantidad(usadoMP[p.id] ?? '') }))
+    .filter((x): x is { p: Producto; n: number } => x.n !== null)
   const disponibles = (lotes.datos ?? []).filter((l) => l.disponible)
   const elegidos = lotesMP.filter((id) => disponibles.some((l) => l.id === id))
   const lotesElegidos = elegidos.map((id) => disponibles.find((l) => l.id === id)!)
@@ -97,13 +106,20 @@ function Formulario() {
     if (conLotes && !elegidos.length) return setAviso('Elegí los lotes de materia prima usados.')
     const mala = conLotes ? lotesElegidos.find((l) => problemaCantidad(l)) : undefined
     if (mala) return setAviso(problemaCantidad(mala))
+    const malaMP = mpUsadas.find((x) => !Number.isFinite(x.n) || x.n < 0)
+    if (malaMP) return setAviso(`Revisá cuánto usaste de ${malaMP.p.nombre}: tiene que ser un número, por ejemplo 5 o 12,5.`)
     const lotesUsados = lotesElegidos.map((l) => ({ id: l.id, cantidad: cantidadUsada(l)! }))
-    const r = await guardarProduccion.ejecutar({ sector, turno, items, depositoVentaId: ventaId, ...(conLotes ? { lotesMP: lotesUsados } : {}) })
+    const materiaPrima = mpUsadas.filter((x) => x.n > 0).map((x) => ({ productoId: x.p.id, cantidad: x.n }))
+    const r = await guardarProduccion.ejecutar({
+      sector, turno, items, depositoVentaId: ventaId, ...(conLotes ? { lotesMP: lotesUsados } : materiaPrima.length ? { materiaPrima } : {}),
+    })
     if (r) {
       setListo(r)
       setCant({})
       setLotesMP([])
       setUsado({})
+      setUsadoMP({})
+      stock.recargar()
       setBuscar('')
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else if (conLotes) {
@@ -139,6 +155,11 @@ function Formulario() {
           </ul>
           {!!listo.lote?.lotesMP.length && (
             <span className="chico">Materia prima: {listo.lote.lotesMP.map(textoUsoMP).join(' · ')}</span>
+          )}
+          {!listo.lote && listo.materiaPrima.length > 0 && (
+            <span className="chico">
+              Materia prima usada: {listo.materiaPrima.map((m) => `${m.productoNombre} (${cantidadConUnidad(m.cantidad, m.unidad)})`).join(' · ')}
+            </span>
           )}
         </div>
       )}
@@ -223,6 +244,30 @@ function Formulario() {
               }
             </ConDatos>
           </div>
+        )}
+        {materiasPrimas.length > 0 && (
+          <details className="campo prod-lotes-mp" open={mpUsadas.length > 0 || undefined}>
+            <summary>Materia prima usada <span className="opcional">opcional</span></summary>
+            <p className="suave chico">Lo que anotes sale del depósito «{depositos.nombre(DEPOSITO.materiaPrima)}».</p>
+            <div className="prod-consumos">
+              {materiasPrimas.map((p) => (
+                <div className="prod-consumo" key={p.id}>
+                  <label htmlFor={`mp-${p.id}`}>{p.nombre}</label>
+                  <div className="prod-consumo-campo">
+                    <input
+                      id={`mp-${p.id}`} type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={usadoMP[p.id] ?? ''}
+                      onChange={(e) => {
+                        setAviso(null)
+                        setUsadoMP((u) => ({ ...u, [p.id]: e.target.value }))
+                      }}
+                    />
+                    <span>{p.unidad}</span>
+                  </div>
+                  <span className="suave chico">{stock.datos ? `hay ${cantidadConUnidad(hayMP(p.id), p.unidad)}` : ''}</span>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
       </div>
 

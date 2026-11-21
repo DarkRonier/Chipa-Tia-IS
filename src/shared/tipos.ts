@@ -282,6 +282,8 @@ export interface Produccion {
   depositoVentaId: string
   items: ProduccionItem[]
   lote: LoteChipa | null
+  /** Materia prima que salió del depósito Materia prima con esta producción. */
+  materiaPrima: { productoId: string; productoNombre: string; cantidad: number; unidad: string }[]
   corregidoPor: string | null
   corregidoPorNombre: string | null
   corregidoEn: string | null
@@ -517,6 +519,8 @@ export interface PedidoProduccion {
   items: { productoId: string; cocinado: number; guardado: number; depositoId?: string }[]
   /** Chipería: lotes de materia prima usados y cuánto de cada uno, en la unidad del lote (E02, E03). */
   lotesMP?: { id: string; cantidad: number }[]
+  /** Los otros sectores: materia prima usada (de su sector), que sale del depósito Materia prima. Opcional. */
+  materiaPrima?: { productoId: string; cantidad: number }[]
 }
 
 /** «Sacar para la venta»: pasa `cantidad` de `desde` (por defecto, Frío) a `hacia` (por defecto, Venta frente). */

@@ -7,7 +7,7 @@ import { usePuede } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { SelectorSector, useSectorActivo } from '../../components/Layout'
 import { diaPY, fechaHoraPY, inicioDeMes, sumarDias } from '../../shared/hora'
-import { textoUsoMP, type Produccion, type Producto, type Turno } from '../../shared/tipos'
+import { cantidadConUnidad, textoUsoMP, type Produccion, type Producto, type Turno } from '../../shared/tipos'
 import '../../styles/produccion.css'
 import BotonIcono from '../../components/BotonIcono'
 
@@ -166,6 +166,9 @@ function Tarjeta({ p, productos, conLotes }: { p: Produccion; productos: Product
       </div>
       {p.lote && p.lote.lotesMP.length > 0 && (
         <span className="suave chico">Materia prima: {p.lote.lotesMP.map(textoUsoMP).join(' · ')}</span>
+      )}
+      {!p.lote && p.materiaPrima.length > 0 && (
+        <span className="suave chico">Materia prima: {p.materiaPrima.map((m) => `${m.productoNombre} (${cantidadConUnidad(m.cantidad, m.unidad)})`).join(' · ')}</span>
       )}
       {p.corregidoEn && (
         <span className="prod-corregido">Corregido por {p.corregidoPorNombre} el {fechaHoraPY(p.corregidoEn)}</span>

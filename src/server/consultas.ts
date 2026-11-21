@@ -215,6 +215,13 @@ export async function leerProducciones(db: BaseD1, filtro: {
               FROM produccion_items i JOIN productos pr ON pr.id = i.producto_id
              WHERE i.produccion_id IN (${m}) ORDER BY pr.orden, pr.nombre`,
   )
+  const usos = await todasPorTrozos<{ produccion_id: string; producto_id: string; nombre: string; unidad: string; cantidad: number }>(
+    db, ids,
+    (m) => `SELECT m.produccion_id, m.producto_id, pr.nombre, pr.unidad, -SUM(m.cantidad) AS cantidad
+              FROM movimientos m JOIN productos pr ON pr.id = m.producto_id
+             WHERE m.produccion_id IN (${m}) AND m.tipo = 'produccion' AND m.deposito_id = 'materia_prima'
+             GROUP BY m.produccion_id, m.producto_id ORDER BY pr.nombre`,
+  )
   const lotes = filas.some((f) => f.sector === 'chiperia')
     ? await leerLotesChipa(db, { produccionIds: filas.filter((f) => f.sector === 'chiperia').map((f) => f.id) })
     : []
@@ -230,6 +237,9 @@ export async function leerProducciones(db: BaseD1, filtro: {
       productoId: i.producto_id, productoNombre: i.nombre, cocinado: i.cocinado, guardado: i.guardado, depositoId: i.deposito_id,
     })),
     lote: lotes.find((l) => l.produccionId === f.id) ?? null,
+    materiaPrima: usos.filter((x) => x.produccion_id === f.id && x.cantidad > 0).map((x) => ({
+      productoId: x.producto_id, productoNombre: x.nombre, cantidad: Math.round(x.cantidad * 1000) / 1000, unidad: x.unidad,
+    })),
     corregidoPor: f.corregido_por,
     corregidoPorNombre: f.corregido_por_nombre,
     corregidoEn: f.corregido_en,
