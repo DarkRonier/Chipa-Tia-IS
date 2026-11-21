@@ -22,6 +22,15 @@ describe('historial de la demo', () => {
     const negativos = await p.sql('SELECT sector, producto_id, lote, SUM(cantidad) AS s FROM movimientos GROUP BY 1, 2, 3 HAVING s < 0')
     expect(negativos).toEqual([])
     expect((await p.sql('SELECT COUNT(*) AS n FROM lecturas WHERE fuera_de_rango = 1'))[0].n).toBeGreaterThan(0)
+    // Compras con proveedores: el queso de Chipería entró con su lote de materia prima, las amasadas lo usaron y lo
+    // usado salió del depósito Materia prima; hay compras pagadas, con pago parcial y pendientes.
+    expect(await cuenta('proveedores')).toBeGreaterThanOrEqual(4)
+    const [queso] = await p.sql(`SELECT mp.cantidad, (SELECT SUM(cantidad) FROM lote_chipa_mp WHERE lote_mp_id = mp.id) AS usado,
+        (SELECT SUM(m.cantidad) FROM movimientos m WHERE m.producto_id = mp.producto_id AND m.deposito_id = 'materia_prima') AS stock
+      FROM lotes_mp mp WHERE mp.compra_id IS NOT NULL`)
+    expect(queso.usado).toBeGreaterThan(0)
+    expect(queso.stock).toBe(queso.cantidad - queso.usado)
+    expect(await cuenta('pagos_proveedor')).toBe(2)
     // Se puede seguir usando: el admin entra y ve el reporte de la semana.
     const t = await p.entrar('admin')
     expect((await p.pedir(t, 'GET', '/stock?sector=cocina')).status).toBe(200)

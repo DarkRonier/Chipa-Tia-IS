@@ -100,7 +100,8 @@ div.compra-cabeza { cursor: default; }
 .renglon-precio { grid-area: precio; }
 .renglon-subtotal { grid-area: sub; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 .renglon-acciones { grid-area: acc; width: 40px; display: flex; justify-content: center; }
-.renglon-lote { grid-area: lote; }
+.renglon-lote { grid-area: lote; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; font-size: 0.85rem; color: var(--suave); }
+.renglon-lote .campo { margin: 0; }
 .renglon.vacio .renglon-cantidad, .renglon.vacio .renglon-precio { opacity: 0.45; }
 .renglon input { min-height: 44px; }
 .renglon-cantidad input, .renglon-precio input { text-align: right; font-variant-numeric: tabular-nums; }
@@ -131,8 +132,8 @@ div.compra-cabeza { cursor: default; }
     padding: 0.5rem 0.25rem 0.4rem; border-bottom: 1px solid var(--borde);
   }
   .renglon-cabeza > span:nth-child(2), .renglon-cabeza > span:nth-child(3) { text-align: right; padding-right: 0.7rem; }
-  .renglon .renglon-lote { display: flex; align-items: center; gap: 0.5rem; max-width: 340px; font-size: 0.85rem; color: var(--suave); }
-  .renglon .renglon-lote > span { white-space: nowrap; }
+  .renglon .renglon-lote .campo { display: flex; align-items: center; gap: 0.5rem; max-width: 340px; }
+  .renglon .renglon-lote .campo > span { white-space: nowrap; }
   .renglon .renglon-lote input { min-height: 36px; padding: 0.35rem 0.6rem; }
   .renglones-pie { grid-template-columns: 1fr auto; align-items: center; }
 }

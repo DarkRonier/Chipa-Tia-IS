@@ -43,6 +43,7 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
 | 409 | `usuario_repetido` | Ya existe ese nombre de usuario |
 | 409 | `nombre_repetido` | Producto (en su sector), área, tarea (en su área), sucursal o sector con el mismo nombre, sin distinguir mayúsculas ni tildes; si el otro está desactivado, el mensaje propone activarlo |
 | 409 | `numero_repetido` | Otra máquina activa del sector tiene ese N° |
+| 409 | `lote_mp_usado` | Anular una compra cuyo lote de materia prima ya usó una amasada |
 | 409 | `lote_mp_no_disponible` | Producción de Chipería con un lote de materia prima bloqueado, vencido o que ya no existe |
 | 409 | `ya_controlada` | La limpieza ya tiene «Controlado por» |
 | 413 | `demasiado_grande` | Cuerpo de más de 3 MB |
@@ -173,6 +174,9 @@ Los `PATCH` sin ningún campo editable dan `400`.
   rechaza (`409 lote_mp_sin_saldo`) dos cargas simultáneas que pasarían del saldo. Crea el lote de chipa `CH-AAMMDD-N` (N = número de amasada del
   día, desde 1), con `amasada = N`; los movimientos de stock llevan ese código en `lote`. En los otros sectores
   `lotesMP` se ignora.
+  Si el lote de materia prima entró con una compra (`LoteMP.productoId`), lo usado sale del depósito Materia prima
+  (movimiento `produccion` negativo con el número de lote de la compra y motivo "Usado en la amasada CH-…"); ese
+  movimiento no se frena aunque el depósito no alcance, porque el saldo del lote ya se controló (migración 0016).
 - Corrección (C04): **mezcla**, no reemplaza: los productos que no vienen en `items` quedan como estaban; los
   que vienen toman los valores nuevos (0 y 0 deja el producto en cero) y se pueden agregar productos activos
   del sector. Sin cambios, `400`; el registro tiene que quedar con al menos una cantidad. Por cada producto, la
@@ -322,9 +326,9 @@ Lo pagado nunca supera el total (trigger `pagos_proveedor_sin_exceso`). Importes
 | GET | `/compras/productos` | — | `ProductoCompra[]` (lo que ese usuario puede comprar) |
 | GET | `/compras` | `?desde&hasta&proveedor&estado=pendiente,parcial,pagada,anulada&sector` | `Compra[]` |
 | GET | `/compras/:id` | — | `Compra` con `pagos` (si puede verlos) |
-| POST | `/compras` | `PedidoCompra`: `{ proveedorId?, comprobante?, diaCompra?, vencimiento?, nota?, items: [{ productoId? \| detalle?, cantidad, precioUnitario, lote? }] }`. Sin `proveedorId` queda el proveedor fijo «Sin nombre» (`prov-sin-nombre`, no se lista ni se edita). Se guarda siempre pendiente: con `pago` da 400 | `Compra` |
+| POST | `/compras` | `PedidoCompra`: `{ proveedorId?, comprobante?, diaCompra?, vencimiento?, nota?, items: [{ productoId? \| detalle?, cantidad, precioUnitario, lote?, vencimiento? }] }`. La materia prima de Chipería (`ProductoCompra.loteMP`) exige `vencimiento` (no anterior a la compra ni a hoy) y crea su lote de materia prima (`LoteMP.compraId`) con el lote, la cantidad y el proveedor del renglón. Sin `proveedorId` queda el proveedor fijo «Sin nombre» (`prov-sin-nombre`, no se lista ni se edita). Se guarda siempre pendiente: con `pago` da 400 | `Compra` |
 | POST | `/compras/:id/pagos` | `{ importe \| total: true, medio, diaPago?, nota?, desdeCaja? }` (`desdeCaja`: el pago sale de la caja abierta) · supervisor y admin | `Compra` |
-| POST | `/compras/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` (`409 compra_con_pagos`) |
+| POST | `/compras/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` (`409 compra_con_pagos`; `409 lote_mp_usado` si una amasada ya usó su lote de materia prima; si no, ese lote se borra con la compra) |
 | POST | `/pagos-proveedor/:id/anular` | `{ motivo }` · supervisor y admin | `Compra` |
 | GET | `/reportes/compras` | `?desde&hasta` (por defecto, el mes actual) · supervisor y admin | `ReporteCompras` |
 

@@ -197,7 +197,7 @@ function CadenaMP({ t }: { t: TrazabilidadMP }) {
         <div className="lot-cabeza"><h3>{l.descripcion}</h3><EstadoLoteMP lote={l} /></div>
         <div className="lot-cifras">
           <span><strong>{cantidadMP(l)}</strong></span>
-          <span>ingresó {diaLegible(l.fechaIngreso)}</span>
+          <span>ingresó {diaLegible(l.fechaIngreso)}{l.compraId ? ' con una compra' : ''}</span>
           <span>vence {diaLegible(l.vencimiento)}</span>
         </div>
         <p className="suave chico">{usoLoteMP(l)}</p>

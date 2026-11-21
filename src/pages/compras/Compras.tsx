@@ -115,10 +115,12 @@ interface RenglonForm {
   cantidad: string
   precio: number
   lote: string
+  /** Vencimiento del lote (materia prima de Chipería). */
+  vence: string
 }
 
 let siguienteClave = 1
-const renglonVacio = (): RenglonForm => ({ clave: siguienteClave++, productoId: '', libre: false, detalle: '', cantidad: '', precio: 0, lote: '' })
+const renglonVacio = (): RenglonForm => ({ clave: siguienteClave++, productoId: '', libre: false, detalle: '', cantidad: '', precio: 0, lote: '', vence: '' })
 
 const aCantidad = (s: string) => Number(s.replace(',', '.')) || 0
 
@@ -202,6 +204,10 @@ export function NuevaCompra() {
       const nombre = r.productoId ? porId.get(r.productoId)?.nombre ?? 'el producto' : r.detalle
       if (r.productoId && aCantidad(r.cantidad) <= 0) { enfocar(`cant-${r.clave}`); return setAviso(`Cargá la cantidad de ${nombre}.`) }
       if (r.precio <= 0) { enfocar(`precio-${r.clave}`); return setAviso(`Cargá el precio de ${nombre}.`) }
+      if (r.productoId && porId.get(r.productoId)?.loteMP && !r.vence) {
+        enfocar(`vence-${r.clave}`)
+        return setAviso(`Cargá cuándo vence ${nombre}: con eso queda su lote en «Materia prima y lotes».`)
+      }
     }
     const r = await guardar.ejecutar({
       proveedorId: proveedor?.id ?? null,
@@ -215,6 +221,7 @@ export function NuevaCompra() {
         cantidad: cantidadDe(x),
         precioUnitario: x.precio,
         lote: x.lote || null,
+        vencimiento: porId.get(x.productoId)?.loteMP ? x.vence || null : null,
       })),
     })
     if (r) navegar(`/compras?ver=pendientes&nueva=${r.id}`)
@@ -321,10 +328,19 @@ export function NuevaCompra() {
                 )}
               </div>
               {p?.conLotes && (
-                <label className="campo renglon-lote">
-                  <span>Lote <span className="opcional">opcional</span></span>
-                  <input value={r.lote} maxLength={40} onChange={(e) => cambiar(r.clave, { lote: e.target.value })} />
-                </label>
+                <div className="renglon-lote">
+                  <label className="campo">
+                    <span>{p.loteMP ? 'N° de lote' : 'Lote'} <span className="opcional">{p.loteMP ? 'si el envase lo trae' : 'opcional'}</span></span>
+                    <input value={r.lote} maxLength={40} onChange={(e) => cambiar(r.clave, { lote: e.target.value })} />
+                  </label>
+                  {p.loteMP && (
+                    <label className="campo">
+                      <span>Vence</span>
+                      <input id={`vence-${r.clave}`} type="date" value={r.vence} min={hoy} required onChange={(e) => cambiar(r.clave, { vence: e.target.value })} />
+                    </label>
+                  )}
+                  {p.loteMP && <span className="suave chico">Queda como lote de materia prima, para elegirlo en la amasada.</span>}
+                </div>
               )}
             </div>
           )
@@ -466,7 +482,7 @@ function DetalleCompra({ id }: { id: string }) {
             <tbody>
               {compra.items.map((i) => (
                 <tr key={i.id}>
-                  <td>{i.productoNombre ?? i.detalle}{i.lote && <span className="suave"> · lote {i.lote}</span>}{!i.productoId && <span className="suave chico"> (sin stock)</span>}</td>
+                  <td>{i.productoNombre ?? i.detalle}{i.lote && <span className="suave"> · lote {i.lote}</span>}{i.vencimiento && <span className="suave"> · vence {diaLegible(i.vencimiento)}</span>}{!i.productoId && <span className="suave chico"> (sin stock)</span>}</td>
                   <td>{String(i.cantidad).replace('.', ',')}</td>
                   <td>{miles(i.precioUnitario)}</td>
                   <td>{miles(i.subtotal)}</td>

@@ -1,13 +1,14 @@
 // M10: proveedores, compras y pagos a proveedores.
 // - Proveedores: los cargan y editan el administrador y el supervisor. Los sectores solo los eligen al cargar una compra.
 // - Compras: con fecha, comprobante, detalle, importe y vencimiento. Cada renglón con producto suma a su stock (tipo
-//   'compra' en el libro de movimientos, en el sector del producto: la venta directa entra en el depósito Directo a
-//   Venta y la materia prima en el depósito Materia prima). El administrador y el supervisor compran
+//   'compra' en el libro de movimientos, en el sector del producto: la venta directa entra en el depósito Venta frente
+//   y la materia prima en el depósito Materia prima). La materia prima de Chipería además crea su lote de materia prima
+//   (E01) con el número de lote y el vencimiento del renglón, listo para elegir en la amasada. El administrador y el supervisor compran
 //   cualquier producto y pueden agregar renglones de texto libre (flete, servicio…), que no tocan el stock. Un sector
 //   compra solo productos de su sector cuya categoría el administrador habilitó para ese sector.
 // - Pagos: parciales o totales. Solo el administrador y el supervisor los marcan; nunca superan el saldo (trigger
 //   `pagos_proveedor_sin_exceso`). La compra queda pendiente, con pago parcial o pagada según lo pagado.
-// - Anular: una compra sin pagos se anula y su stock se descuenta; un pago se anula y vuelve a quedar como saldo.
+// - Anular: una compra sin pagos (y con sus lotes de materia prima sin usar) se anula y su stock se descuenta; un pago se anula y vuelve a quedar como saldo.
 import { Hono } from 'hono'
 import type { Alerta } from '../../shared/alertas'
 import { diaLegible, sumarDias } from '../../shared/hora'
@@ -205,6 +206,9 @@ rutasCompras.get('/proveedores/:id/cuenta', requiere('compras.pagar', SOLO_PAGOS
 
 // ---------- Productos que se pueden comprar ----------
 
+/** Materia prima de un sector con lotes (Chipería): al comprarla se crea su lote de materia prima (E01). */
+const esLoteMP = (p: { con_lotes: number; tipo: TipoProducto }) => !!p.con_lotes && p.tipo === 'materia_prima'
+
 interface FilaProductoCompra {
   id: string
   nombre: string
@@ -248,6 +252,7 @@ rutasCompras.get('/compras/productos', requiere('compras.registrar'), async (c) 
   const filas = await productosComprables(db(c), c.get('usuario'))
   return c.json<ProductoCompra[]>(filas.map((f) => ({
     id: f.id, nombre: f.nombre, unidad: f.unidad, codigo: f.codigo, sector: f.sector, sectorNombre: f.sector_nombre, conLotes: !!f.con_lotes,
+    loteMP: esLoteMP(f), tipo: f.tipo,
     categoriaId: f.categoria_id, categoriaNombre: f.categoria_nombre,
   })))
 })
@@ -284,6 +289,7 @@ interface FilaItem {
   precio_unitario: number
   subtotal: number
   lote: string | null
+  vencimiento: string | null
 }
 
 interface FilaPago {
@@ -355,7 +361,7 @@ function aCompra(f: FilaCompra, items: FilaItem[], hoy: string): Compra {
     motivoAnulacion: f.motivo_anulacion,
     items: items.filter((i) => i.compra_id === f.id).map((i): CompraItem => ({
       id: i.id, productoId: i.producto_id, productoNombre: i.producto_nombre, sector: i.sector, detalle: i.detalle,
-      cantidad: i.cantidad, precioUnitario: i.precio_unitario, subtotal: i.subtotal, lote: i.lote,
+      cantidad: i.cantidad, precioUnitario: i.precio_unitario, subtotal: i.subtotal, lote: i.lote, vencimiento: i.vencimiento,
     })),
   }
 }
@@ -393,7 +399,7 @@ export async function leerCompras(base: BaseD1, filtro: FiltroCompras = {}): Pro
   const items = await todasPorTrozos<FilaItem>(
     base, filas.map((f) => f.id),
     (m) => `SELECT i.id, i.compra_id, i.producto_id, p.nombre AS producto_nombre, p.sector, i.detalle, i.cantidad, i.precio_unitario,
-                   i.subtotal, i.lote
+                   i.subtotal, i.lote, i.vencimiento
               FROM compra_items i LEFT JOIN productos p ON p.id = i.producto_id
              WHERE i.compra_id IN (${m}) ORDER BY i.orden`,
   )
@@ -469,10 +475,12 @@ interface Renglon {
   precio: number
   subtotal: number
   lote: string | null
+  /** Materia prima de Chipería: vencimiento del lote y unidad, para crear su lote de materia prima. */
+  loteMP: { vencimiento: string; unidad: string } | null
 }
 
 /** Valida los renglones según quién compra (ver el comentario de arriba del archivo). */
-async function leerRenglones(base: BaseD1, u: UsuarioSesion, v: unknown): Promise<Renglon[]> {
+async function leerRenglones(base: BaseD1, u: UsuarioSesion, v: unknown, diaCompra: string, hoy: string): Promise<Renglon[]> {
   if (!Array.isArray(v) || v.length === 0) throw invalido('Cargá al menos un renglón en la compra.')
   if (v.length > MAX_RENGLONES) throw invalido('Son demasiados renglones en una sola compra.')
   const crudos = v.map((x) => (x && typeof x === 'object' ? x : {}) as Record<string, unknown>)
@@ -486,7 +494,7 @@ async function leerRenglones(base: BaseD1, u: UsuarioSesion, v: unknown): Promis
       const detalle = texto(x.detalle, `el detalle del renglón ${i + 1}`, { max: 200 })
       const cantidad = cantidadRenglon(x.cantidad ?? 1, false, detalle)
       const precio = precioRenglon(x.precioUnitario, detalle)
-      return { id: nuevoId(), productoId: null, sector: null, nombre: detalle, detalle, cantidad, precio, subtotal: Math.round(cantidad * precio), lote: null }
+      return { id: nuevoId(), productoId: null, sector: null, nombre: detalle, detalle, cantidad, precio, subtotal: Math.round(cantidad * precio), lote: null, loteMP: null }
     }
     const p = productos.get(x.productoId as string)
     if (!p) throw invalido('Ese producto no existe. Recargá la página y probá de nuevo.')
@@ -507,7 +515,16 @@ async function leerRenglones(base: BaseD1, u: UsuarioSesion, v: unknown): Promis
     const cantidad = cantidadRenglon(x.cantidad, true, p.nombre)
     const precio = precioRenglon(x.precioUnitario, p.nombre)
     const detalle = textoOpcional(x.detalle, 'El detalle', 200) ?? ''
-    return { id: nuevoId(), productoId: p.id, sector: p.sector, nombre: p.nombre, detalle, cantidad, precio, subtotal: cantidad * precio, lote }
+    let loteMP: Renglon['loteMP'] = null
+    if (esLoteMP(p)) {
+      // Como en «Materia prima y lotes»: el vencimiento es obligatorio y el lote no puede entrar vencido.
+      if (vacio(x.vencimiento)) throw invalido(`Cargá cuándo vence ${p.nombre} (para su lote de materia prima).`)
+      const vencimiento = dia(x.vencimiento, `El vencimiento de ${p.nombre}`)
+      if (vencimiento < diaCompra) throw invalido(`El vencimiento de ${p.nombre} no puede ser anterior a la fecha de la compra.`)
+      if (vencimiento < hoy) throw invalido(`${p.nombre} ya está vencido: revisá la fecha de vencimiento.`)
+      loteMP = { vencimiento, unidad: p.unidad }
+    }
+    return { id: nuevoId(), productoId: p.id, sector: p.sector, nombre: p.nombre, detalle, cantidad, precio, subtotal: cantidad * precio, lote, loteMP }
   })
 }
 
@@ -578,7 +595,7 @@ rutasCompras.post('/compras', requiere('compras.registrar'), async (c) => {
   const vencimiento = diaOpcional(b.vencimiento, 'El vencimiento')
   if (vencimiento && vencimiento < diaCompra) throw invalido('El vencimiento no puede ser anterior a la fecha de la compra.')
   const nota = textoOpcional(b.nota, 'La nota', 300) ?? ''
-  const renglones = await leerRenglones(base, u, b.items)
+  const renglones = await leerRenglones(base, u, b.items, diaCompra, hoy)
   const total = renglones.reduce((s, r) => s + r.subtotal, 0)
   if (total <= 0) throw invalido('El total de la compra tiene que ser mayor que cero.')
 
@@ -596,9 +613,18 @@ rutasCompras.post('/compras', requiere('compras.registrar'), async (c) => {
     ),
     ...renglones.map((r, i) => sentencia(
       base,
-      `INSERT INTO compra_items (id, compra_id, orden, producto_id, detalle, cantidad, precio_unitario, subtotal, lote)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      r.id, id, i, r.productoId, r.detalle, r.cantidad, r.precio, r.subtotal, r.lote,
+      `INSERT INTO compra_items (id, compra_id, orden, producto_id, detalle, cantidad, precio_unitario, subtotal, lote, vencimiento)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      r.id, id, i, r.productoId, r.detalle, r.cantidad, r.precio, r.subtotal, r.lote, r.loteMP?.vencimiento ?? null,
+    )),
+    // E01: la materia prima de Chipería entra también como lote de materia prima, listo para elegir en la amasada.
+    ...renglones.filter((r) => r.loteMP).map((r) => sentencia(
+      base,
+      `INSERT INTO lotes_mp (id, insumo, proveedor, numero_lote, fecha_ingreso, cantidad, unidad, vencimiento, bloqueado, usuario_id, creado_en,
+                             producto_id, compra_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+      nuevoId(), r.nombre, proveedor.nombre, r.lote ?? '', diaCompra, r.cantidad, r.loteMP!.unidad, r.loteMP!.vencimiento, u.id, fecha,
+      r.productoId, id,
     )),
     ...renglones.filter((r) => r.productoId).map((r) => sentenciaMovimientoCompra(base, r, id, r.cantidad, motivo, u.id, fecha, hoy)),
   ]
@@ -675,16 +701,25 @@ rutasCompras.post('/compras/:id/anular', requiere('compras.pagar', 'Las compras 
   const compra = await compraParaPagar(base, c.req.param('id'))
   if (compra.estado === 'anulada') throw conflicto('compra_anulada', 'Esa compra ya está anulada.')
   if (compra.pagado > 0) throw conflicto('compra_con_pagos', 'Esa compra tiene pagos: anulá primero los pagos y después la compra.')
+  const usado = await una<{ descripcion: string }>(base,
+    `SELECT mp.insumo AS descripcion FROM lotes_mp mp WHERE mp.compra_id = ?
+        AND EXISTS (SELECT 1 FROM lote_chipa_mp r WHERE r.lote_mp_id = mp.id) LIMIT 1`, compra.id)
+  if (usado) {
+    throw conflicto('lote_mp_usado',
+      `No se puede anular: el lote de ${usado.descripcion} de esta compra ya se usó en una amasada. Si hay que sacarlo, que el administrador lo bloquee en «Materia prima y lotes».`)
+  }
   const { fecha, dia: hoy } = ahora()
   const texto_ = `Anulación de la compra a ${compra.proveedorNombre}${compra.comprobante ? ` (${compra.comprobante})` : ''}`
   const renglones: Renglon[] = compra.items.filter((i) => i.productoId).map((i) => ({
     id: i.id, productoId: i.productoId, sector: i.sector, nombre: i.productoNombre ?? '', detalle: i.detalle, cantidad: i.cantidad,
-    precio: i.precioUnitario, subtotal: i.subtotal, lote: i.lote,
+    precio: i.precioUnitario, subtotal: i.subtotal, lote: i.lote, loteMP: null,
   }))
   try {
     await base.batch([
       ...renglones.map((r) => sentenciaMovimientoCompra(base, r, compra.id, -r.cantidad, texto_, u.id, fecha, hoy)),
       sentencia(base, 'UPDATE compras SET anulada_por = ?, anulada_en = ?, motivo_anulacion = ? WHERE id = ? AND anulada_en IS NULL', u.id, fecha, motivo, compra.id),
+      // Los lotes de materia prima que creó la compra (sin usar, controlado arriba) se van con ella.
+      sentencia(base, 'DELETE FROM lotes_mp WHERE compra_id = ? AND NOT EXISTS (SELECT 1 FROM lote_chipa_mp r WHERE r.lote_mp_id = lotes_mp.id)', compra.id),
       sentenciaAuditoria(base, { tabla: 'compras', registroId: compra.id, accion: 'anular', usuarioId: u.id, antes: compra, despues: { estado: 'anulada', motivo } }),
     ])
   } catch (e) {

@@ -90,6 +90,7 @@ function PantallaLotes({ cargar, bloquear }: { cargar: boolean; bloquear: boolea
       {cargar && (
         <>
           <h2>Ingresar materia prima</h2>
+          <p className="suave chico">Lo que se carga en Compras ya entra acá solo. Este formulario es para lo que llegó sin compra.</p>
           <FormLoteMP existentes={lotesMP.datos ?? []} />
         </>
       )}
@@ -277,7 +278,7 @@ function ListaLotesMP({ lotes, esAdmin }: { lotes: LoteMP[]; esAdmin: boolean })
                   <td className={l.disponible ? '' : 'apagado'}>
                     <strong>{l.insumo}</strong> · {l.proveedor}
                     <div className="lot-sub">
-                      {l.numeroLote ? `lote ${l.numeroLote} · ` : ''}{cantidadMP(l)} · ingresó {diaLegible(l.fechaIngreso)}
+                      {l.numeroLote ? `lote ${l.numeroLote} · ` : ''}{cantidadMP(l)} · ingresó {diaLegible(l.fechaIngreso)}{l.compraId ? ' con una compra' : ''}
                     </div>
                     <div className="lot-sub lot-uso">{usoLoteMP(l)}</div>
                     <Link className="btn-discreto chico" to={enlaceTrazaMP(l.id)}>Ver trazabilidad</Link>

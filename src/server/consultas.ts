@@ -36,6 +36,8 @@ interface FilaLoteMP {
   vencimiento: string
   bloqueado: number
   creado_en: string
+  producto_id: string | null
+  compra_id: string | null
   /** Suma de lote_chipa_mp.cantidad (E03); solo viene en las lecturas de leerLotesMP. */
   consumido?: number
 }
@@ -69,6 +71,8 @@ function aLoteMP(f: FilaLoteMP, hoy: string): LoteMP {
     disponible: !bloqueado && f.vencimiento >= hoy && saldo > 0,
     descripcion: descripcionLoteMP(f),
     creadoEn: f.creado_en,
+    productoId: f.producto_id ?? null,
+    compraId: f.compra_id ?? null,
   }
 }
 
