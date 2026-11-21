@@ -11,7 +11,7 @@ import { Aviso, ConDatos } from '../../components/Estado'
 import { CampoFoto, FotoBajoDemanda } from '../../components/Foto'
 import { SelectorSector, useElegirSector, useSector } from '../../components/Layout'
 import { IconoMaquinas } from '../../components/Iconos'
-import Volver from '../../components/Volver'
+import Volver, { Flecha } from '../../components/Volver'
 import { diaPY, fechaHoraPY, horaPY, sumarDias } from '../../shared/hora'
 import {
   NOMBRE_ESTADO, NOMBRE_MOMENTO, NOMBRE_TIPO_INCIDENCIA, SECTOR_IDS,
@@ -85,7 +85,7 @@ function Pantalla({ sector }: { sector: SectorId }) {
     return (
       <>
         <div className="titulo">
-          <button className="volver" onClick={() => setParams({})} aria-label="Volver">‹</button>
+          <button className="volver" onClick={() => setParams({})} aria-label="Volver"><Flecha /></button>
           <h1>N° {maquina.numero} · {maquina.nombre}</h1>
         </div>
         {puede('maquinas.lectura') && <Formulario key={maquina.id} maquina={maquina} deHoy={recientes.datos ? deHoy : null} />}
