@@ -2,10 +2,15 @@
 // Todo lo que viaja por /api tiene la forma que se declara acá.
 
 export type SectorId = 'chiperia' | 'chipitas' | 'panaderia' | 'cocina'
-export type Rol = SectorId | 'supervisor' | 'cajero' | 'admin'
+export type Rol = SectorId | 'supervisor' | 'cajero' | 'caja_comedor' | 'admin'
 export const SECTOR_IDS: SectorId[] = ['chiperia', 'chipitas', 'panaderia', 'cocina']
-/** En este orden se listan en Usuarios: los sectores, supervisor, cajero y al final el administrador. */
-export const ROLES: Rol[] = [...SECTOR_IDS, 'supervisor', 'cajero', 'admin']
+/** En este orden se listan en Usuarios: los sectores, supervisor, cajero, caja comedor y al final el administrador. */
+export const ROLES: Rol[] = [...SECTOR_IDS, 'supervisor', 'cajero', 'caja_comedor', 'admin']
+
+/** Cada caja del local: la del frente (cajero) y la del comedor (Caja Comedor). Como mucho una abierta de cada una. */
+export type PuntoCaja = 'frente' | 'comedor'
+export const PUNTOS_CAJA: PuntoCaja[] = ['frente', 'comedor']
+export const NOMBRE_PUNTO_CAJA: Record<PuntoCaja, string> = { frente: 'Caja del frente', comedor: 'Caja del comedor' }
 
 export type Turno = 'dia' | 'noche'
 export type TipoMovimiento =
@@ -885,6 +890,8 @@ export interface Arqueo {
 
 export interface Caja {
   id: string
+  /** Frente o comedor. */
+  punto: PuntoCaja
   abierta: boolean
   abiertaPorNombre: string
   abiertaEn: string

@@ -6,13 +6,13 @@ import { nuevaPrueba } from './ayuda'
 const nuevo = { nombre: 'Rosa Benítez', usuario: 'Rosa.B', rol: 'cocina', clave: 'empanada1' }
 
 describe('usuarios', () => {
-  it('lista los usuarios con los 7 roles: 4 sectores, supervisor, cajero y el administrador (A02)', async () => {
+  it('lista los usuarios con los 8 roles: 4 sectores, supervisor, cajero, caja comedor y el administrador (A02)', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
     const r = await p.pedir(admin, 'GET', '/usuarios')
     expect(r.status).toBe(200)
-    expect(r.body).toHaveLength(7)
-    expect(new Set(r.body.map((u: any) => u.rol))).toEqual(new Set(['chiperia', 'chipitas', 'panaderia', 'cocina', 'supervisor', 'cajero', 'admin']))
+    expect(r.body).toHaveLength(8)
+    expect(new Set(r.body.map((u: any) => u.rol))).toEqual(new Set(['chiperia', 'chipitas', 'panaderia', 'cocina', 'supervisor', 'cajero', 'caja_comedor', 'admin']))
     expect(r.body[0]).toEqual({
       id: expect.any(String), nombre: expect.any(String), usuario: expect.any(String), rol: expect.any(String),
       activo: true, debeCambiarClave: false, creadoEn: expect.any(String),
@@ -88,7 +88,7 @@ describe('usuarios', () => {
       expect(r.body.error.codigo).toBe('datos_invalidos')
       expect(r.body.error.mensaje).toMatch(mensaje)
     }
-    expect(await p.sql('SELECT id FROM usuarios')).toHaveLength(7)
+    expect(await p.sql('SELECT id FROM usuarios')).toHaveLength(8)
   })
 
   it('un usuario desactivado no puede entrar y pierde su sesión; reactivado vuelve a entrar (A04)', async () => {
@@ -257,7 +257,7 @@ describe('usuarios', () => {
     expect((await p.pedir(null, 'POST', '/auth/login', { usuario: 'cocina', clave: '1234' })).status).toBe(401)
     const lista = await p.pedir(admin, 'GET', '/usuarios')
     expect(lista.body.map((u: any) => u.id)).not.toContain('usr-cocina')
-    expect(lista.body).toHaveLength(5)
+    expect(lista.body).toHaveLength(6)
     // La fila sigue (el historial la necesita) y se registra en la auditoría.
     const [fila] = await p.sql('SELECT nombre, usuario, activo, borrado_en FROM usuarios WHERE id = ?', 'usr-cocina')
     expect(fila).toMatchObject({ usuario: 'cocina~usr-cocina', activo: 0, borrado_en: expect.any(String) })
@@ -281,7 +281,7 @@ describe('usuarios', () => {
     expect((await p.pedir(admin, 'POST', '/usuarios/borrar', { ids: ['usr-cocina', yo.id], clave: '1234' })).status).toBe(403)
     expect((await p.pedir(admin, 'POST', '/usuarios/borrar', { ids: ['no-existe'], clave: '1234' })).status).toBe(404)
     // Nada se borró a medias.
-    expect((await p.pedir(admin, 'GET', '/usuarios')).body).toHaveLength(7)
+    expect((await p.pedir(admin, 'GET', '/usuarios')).body).toHaveLength(8)
     const op = await p.entrar('chiperia')
     expect((await p.pedir(op, 'POST', '/usuarios/borrar', { ids: ['usr-cocina'], clave: '1234' })).status).toBe(403)
   })

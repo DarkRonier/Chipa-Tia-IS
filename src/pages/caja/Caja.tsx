@@ -1,18 +1,20 @@
 // M11–M13: la caja del local. El cajero abre la caja con el fondo inicial, vende, imprime la factura preimpresa, carga
 // ingresos y retiros, arquea y cierra. Solo el cajero vende (Mati, 2026-11-21): el administrador ve las ventas, las
 // anula, opera la caja, configura la factura y ve el historial de cajas, pero no tiene la pestaña Vender.
+// Hay dos cajas: la del frente (cajero) y la del comedor (Caja Comedor, que vende de Venta comedor). El administrador
+// elige cuál mira arriba.
 import { Fragment, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
-import { usePuede } from '../../cliente/sesion'
+import { usePuede, useUsuario } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { Icono } from '../../components/Iconos'
 import Avisos from '../../components/Avisos'
 import { gs, leerImporte, miles } from '../../shared/dinero'
 import { diaLegible, fechaHoraPY } from '../../shared/hora'
 import {
-  MEDIOS_PAGO, NOMBRE_MEDIO_PAGO, describirParte,
+  MEDIOS_PAGO, NOMBRE_MEDIO_PAGO, NOMBRE_PUNTO_CAJA, PUNTOS_CAJA, describirParte, type PuntoCaja,
   type Caja as TipoCaja, type ConfigFactura, type MedioPago, type PedidoVenta, type ProductoVenta, type Venta,
 } from '../../shared/tipos'
 import { ConfigurarFactura, ImprimirFactura } from './Factura'
@@ -24,8 +26,12 @@ type Pestana = 'vender' | 'ventas' | 'caja' | 'factura' | 'historial'
 
 export default function Caja() {
   const puede = usePuede()
+  const { rol } = useUsuario()
   const [params, setParams] = useSearchParams()
-  const caja = useConsulta<TipoCaja | null>('/caja')
+  // El cajero maneja la caja del frente y Caja Comedor la del comedor; el administrador elige.
+  const eligePunto = rol !== 'cajero' && rol !== 'caja_comedor'
+  const punto: PuntoCaja = rol === 'caja_comedor' || (eligePunto && params.get('punto') === 'comedor') ? 'comedor' : 'frente'
+  const caja = useConsulta<TipoCaja | null>('/caja', { punto })
   const pestanas: [Pestana, string][] = [
     ...(puede('ventas.registrar') ? [['vender', 'Vender'] as [Pestana, string]] : []),
     ['ventas', 'Ventas'],
@@ -35,12 +41,21 @@ export default function Caja() {
   ]
   const pedida = params.get('ver')
   const pestana: Pestana = pestanas.some(([p]) => p === pedida) ? (pedida as Pestana) : pestanas[0][0]
-  const ir = (p: Pestana) => setParams({ ver: p }, { replace: true })
+  const ir = (p: Pestana, pu: PuntoCaja = punto) => setParams(pu === 'comedor' ? { ver: p, punto: pu } : { ver: p }, { replace: true })
   const necesitaCaja = pestana === 'vender' || pestana === 'ventas' || pestana === 'caja'
   return (
     <>
-      <div className="titulo"><span className="icono-titulo"><Icono nombre="caja" /></span><h1>Caja</h1></div>
+      <div className="titulo"><span className="icono-titulo"><Icono nombre="caja" /></span><h1>{eligePunto || punto === 'frente' ? 'Caja' : NOMBRE_PUNTO_CAJA[punto]}</h1></div>
       <Avisos tipos={['caja_sin_cerrar']} />
+      {eligePunto && pestana !== 'factura' && pestana !== 'historial' && (
+        <div className="segmentado" role="tablist" aria-label="Qué caja">
+          {PUNTOS_CAJA.map((pu) => (
+            <button key={pu} type="button" role="tab" aria-selected={punto === pu} className={punto === pu ? 'activo' : ''} onClick={() => ir(pestana, pu)}>
+              {NOMBRE_PUNTO_CAJA[pu]}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="segmentado" role="tablist">
         {pestanas.map(([p, t]) => (
           <button key={p} type="button" role="tab" aria-selected={pestana === p} className={pestana === p ? 'activo' : ''} onClick={() => ir(p)}>{t}</button>
@@ -48,7 +63,7 @@ export default function Caja() {
       </div>
       {necesitaCaja && (
         <ConDatos consulta={caja}>
-          {(c) => !c ? <AbrirCaja /> : (
+          {(c) => !c ? <AbrirCaja punto={punto} /> : (
             <>
               {pestana === 'vender' && <Vender />}
               {pestana === 'ventas' && <VentasDeLaCaja cajaId={c.id} />}
@@ -78,12 +93,18 @@ function CampoImporte({ etiqueta, valor, onChange, autoFocus }: { etiqueta: stri
   )
 }
 
-function AbrirCaja() {
+/** Las rutas de la caja llevan cuál es (la API la ignora para el cajero y Caja Comedor, que tienen la suya). */
+const deCaja = (ruta: string, punto: PuntoCaja) => `${ruta}?punto=${punto}`
+
+function AbrirCaja({ punto }: { punto: PuntoCaja }) {
   const [fondo, setFondo] = useState(0)
-  const abrir = useAccion(() => post<TipoCaja>('/caja/abrir', { fondoInicial: fondo }))
+  const abrir = useAccion(() => post<TipoCaja>(deCaja('/caja/abrir', punto), { fondoInicial: fondo }))
   return (
     <div className="tarjeta abrir-caja">
-      <p>La caja está cerrada. Para empezar a vender, abrila con el efectivo que hay para dar cambio.</p>
+      <p>
+        {punto === 'comedor' ? 'La caja del comedor' : 'La caja'} está cerrada. Para empezar a vender, abrila con el efectivo que hay para dar cambio.
+        {punto === 'comedor' && ' Lo que se vende acá sale del depósito Venta comedor.'}
+      </p>
       <CampoImporte etiqueta="Fondo inicial en efectivo (Gs.)" valor={fondo} onChange={setFondo} autoFocus />
       <Aviso>{abrir.error}</Aviso>
       <button type="button" className="btn-primario" disabled={abrir.enviando} onClick={() => void abrir.ejecutar()}>Abrir caja</button>
@@ -193,7 +214,7 @@ function Vender() {
         {() => (
           <div className="grilla-venta">
             {filtrados.map((p) => {
-              // Lo que queda en Venta frente con lo que ya está en el carrito. Sin stock igual se vende (el cliente ya lo
+              // Lo que queda en el depósito de esta caja (Venta frente o Venta comedor) con lo que ya está en el carrito. Sin stock igual se vende (el cliente ya lo
               // tiene en la mano): solo se avisa, para que alguien lo cargue.
               const quedan = p.stock - (carrito.get(p.id) ?? 0)
               return (
@@ -363,9 +384,9 @@ function EstadoCaja({ caja }: { caja: TipoCaja }) {
   const [contado, setContado] = useState(0)
   const [nota, setNota] = useState('')
   const [cerrando, setCerrando] = useState(false)
-  const movimiento = useAccion(() => post<TipoCaja>('/caja/movimientos', mov))
+  const movimiento = useAccion(() => post<TipoCaja>(deCaja('/caja/movimientos', caja.punto), mov))
   const anularMov = useAccion((id: string) => post<TipoCaja>(`/caja/movimientos/${id}/anular`))
-  const arqueo = useAccion((cierre: boolean) => post<TipoCaja>(cierre ? '/caja/cerrar' : '/caja/arqueos', { contado, nota }))
+  const arqueo = useAccion((cierre: boolean) => post<TipoCaja>(deCaja(cierre ? '/caja/cerrar' : '/caja/arqueos', caja.punto), { contado, nota }))
   const diferencia = contado - caja.esperadoEfectivo
   return (
     <>
@@ -477,7 +498,7 @@ function Historial() {
           {lista.map((c) => (
             <div key={c.id} className="item">
               <button type="button" className="compra-cabeza" onClick={() => setAbierta(abierta === c.id ? null : c.id)}>
-                <span><strong>{diaLegible(c.dia)}</strong> · {c.abiertaPorNombre}{c.cerradaPorNombre && ` / cerró ${c.cerradaPorNombre}`}</span>
+                <span><strong>{diaLegible(c.dia)}</strong> · {c.punto === 'comedor' ? 'Comedor' : 'Frente'} · {c.abiertaPorNombre}{c.cerradaPorNombre && ` / cerró ${c.cerradaPorNombre}`}</span>
                 <span className="compra-cifras">
                   <strong>{gs(c.totalVentas)}</strong>
                   <span className={`etq-compra ${c.abierta ? 'abierta' : 'cerrada'}`}>{c.abierta ? 'Abierta' : 'Cerrada'}</span>

@@ -477,7 +477,7 @@ function ModalProducto({ modo, categorias, sectores, productos, alCerrar, alGuar
                 ? 'No se lleva cuánto hay: en Depósitos aparece solo lo vendido.'
                 : d.tipo === 'materia_prima'
                   ? 'Materia prima con precio (por ejemplo, la leche): se vende en caja y se descuenta del depósito «Materia prima». Sin precio no se vende.'
-                  : 'Lo que se vende en la caja del frente se descuenta del depósito «Venta frente».'}
+                  : 'Lo que se vende en la caja del frente se descuenta de «Venta frente», y en la del comedor, de «Venta comedor».'}
             </p>
           </div>
         </fieldset>

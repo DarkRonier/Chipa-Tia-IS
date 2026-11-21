@@ -15,17 +15,18 @@ La planilla de comprobación del anexo está escrita como prueba en [`tests/anex
   contraseña inicial o una restablecida (`debeCambiarClave: true`) solo tiene las rutas de `/auth`; el resto da
   `403 debe_cambiar_clave` hasta que la cambie con `POST /auth/clave` (`conClavePropia` en `src/server/sesion.ts`).
   A los operadores nunca se les pide.
-- **Roles y permisos.** Hay 7 roles: los 4 sectores (`chiperia`, `chipitas`, `panaderia`, `cocina`), `supervisor`,
-  `cajero` y `admin`. Qué puede hacer cada uno está en una sola tabla, `src/shared/permisos.ts`, que usan la API
+- **Roles y permisos.** Hay 8 roles: los 4 sectores (`chiperia`, `chipitas`, `panaderia`, `cocina`), `supervisor`,
+  `cajero`, `caja_comedor` y `admin`. Qué puede hacer cada uno está en una sola tabla, `src/shared/permisos.ts`, que usan la API
   (`requiere(permiso)` en `src/server/sesion.ts`) y las pantallas. Sin el permiso: `403 prohibido`.
   - **Administrador**: todo menos registrar ventas: opera la caja, ve y anula ventas y factura, pero las ventas las
-    registra solo el cajero.
+    registran solo el cajero y la caja del comedor.
   - **Supervisor**: ve producción, stock, salidas, máquinas, limpieza, lotes, trazabilidad y reportes de todos los
     sectores (indica `?sector` como el administrador). Reporta fallas o incidencias de máquinas
     (`/incidencias`) y da el visto bueno de la limpieza. No carga producción ni lecturas, no mueve ni ajusta stock,
     no corrige y no entra a catálogos, usuarios, datos ni a la configuración del correo.
-  - **Cajero**: caja, ventas (es el único que las registra) y facturas; `/alertas` le devuelve `[]`. Puede leer los
-    catálogos.
+  - **Cajero**: caja del frente, ventas y facturas; `/alertas` le devuelve `[]`. Puede leer los catálogos.
+  - **Caja Comedor** (`caja_comedor`, migración 0022): lo mismo que el cajero, en la caja del comedor; lo que vende sale
+    de «Venta comedor». Sin mesas ni pesaje por ahora.
   - **Sectores**: lo de su sector; lotes y trazabilidad solo Chipería.
 - **Errores.** `{ "error": { "codigo": "...", "mensaje": "..." } }`. El `mensaje` se muestra tal cual al usuario,
   en castellano rioplatense/paraguayo y sin jerga ("No hay stock suficiente para esa salida.").
@@ -341,14 +342,17 @@ Lo pagado nunca supera el total (trigger `pagos_proveedor_sin_exceso`). Importes
 Medios de pago: `efectivo`, `transferencia`, `tarjeta`, `qr`, `cheque`. Avisos nuevos en `/alertas` (supervisor y
 admin): `compra_por_vencer` (vence en 3 días o menos) y `compra_vencida`.
 
-## Caja, ventas y facturas (M11–M13) · cajero (y admin, que no vende)
+## Caja, ventas y facturas (M11–M13) · cajero, caja comedor (y admin, que no vende)
 
-Hay una sola caja abierta a la vez. Sin caja abierta no se vende. Al cerrar se cuenta el efectivo: esperado = fondo
+Hay dos cajas (`Caja.punto`): `frente` (la del cajero) y `comedor` (la de Caja Comedor), y como mucho una abierta de
+cada una. Cada caja usa la suya; el administrador elige con `?punto=frente|comedor` en las rutas de `/caja` (sin
+decirlo, la del frente). Un cajero no anula ventas ni movimientos de la otra caja (`403`). Los pagos a proveedores e
+I/E «desde la caja» usan la del frente. Sin caja abierta no se vende. Al cerrar se cuenta el efectivo: esperado = fondo
 inicial + ventas en efectivo + ingresos − retiros; la diferencia queda guardada. Una caja cerrada no se toca (trigger
 `CAJA_CERRADA`). Cada producto tiene `precioVenta` (sin precio no se vende; cualquier tipo con precio se vende, también la materia
-prima como la leche) e `iva` (0, 5 o 10). Toda venta descuenta del depósito «Venta frente» (la materia prima, de
+prima como la leche) e `iva` (0, 5 o 10). Toda venta descuenta del depósito «Venta frente», o de «Venta comedor» en la caja del comedor (la materia prima, de
 «Materia prima»; movimiento `venta`), sin frenarse nunca; en Chipería, por lote, el más viejo primero
-(lo que no alcanza sale sin lote). Solo el **cajero** registra ventas (`ventas.registrar`); el administrador opera la
+(lo que no alcanza sale sin lote). Solo el **cajero** y la **caja del comedor** registran ventas (`ventas.registrar`); el administrador opera la
 caja, ve las ventas, las anula (`ventas.anular`) y factura, pero no vende. El supervisor no entra.
 
 | Método | Ruta | Cuerpo / consulta | Respuesta |
@@ -361,8 +365,8 @@ caja, ve las ventas, las anula (`ventas.anular`) y factura, pero no vende. El su
 | POST | `/caja/cerrar` | `{ contado, nota? }` | `Caja` cerrada con `diferencia` |
 | GET | `/cajas` | `?desde&hasta` · admin | `Caja[]` |
 | GET | `/cajas/:id` | — · admin | `Caja` |
-| GET | `/ventas/productos` | — | `ProductoVenta[]` (con precio y `stock` en «Venta frente») |
-| GET | `/ventas` | `?caja&desde&hasta` (el cajero, por defecto la caja abierta) · cajero y admin | `Venta[]` |
+| GET | `/ventas/productos` | — | `ProductoVenta[]` (con precio y `stock` en el depósito de la caja: «Venta frente» o «Venta comedor»; la del comedor lista solo las categorías que recibe Venta comedor) |
+| GET | `/ventas` | `?caja&desde&hasta` (cada caja, por defecto la suya abierta) · cajero y admin | `Venta[]` |
 | GET | `/ventas/:id` | — | `Venta` |
 | POST | `/ventas` | `PedidoVenta`: `{ items: [{ productoId, cantidad }], descuento?, medio \| pagos: [{ medio, importe, banco?, chequeNumero? }], recibido?, clienteNombre?, clienteRuc? }` (`pagos`: cobro híbrido, las partes suman justo el total; `recibido` se compara con la parte en efectivo) | `Venta` · solo cajero |
 | POST | `/ventas/:id/anular` | `{ motivo }` (solo con la caja abierta; devuelve el stock al mismo depósito y lote y anula la factura) · cajero y admin | `Venta` |

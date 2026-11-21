@@ -552,7 +552,7 @@ describe('SQL con parámetros', () => {
     const r = await p.pedir(admin, 'POST', '/productos', { sector: 'cocina', nombre })
     expect(r.status).toBe(200)
     expect((await p.sql('SELECT nombre FROM productos WHERE id = ?', r.body.id))[0].nombre).toBe(nombre)
-    expect((await p.sql('SELECT COUNT(*) AS n FROM usuarios'))[0].n).toBe(7)
+    expect((await p.sql('SELECT COUNT(*) AS n FROM usuarios'))[0].n).toBe(8)
   })
 })
 
@@ -633,7 +633,7 @@ describe('exportación, copias y usuarios sin contraseñas ni sesiones', () => {
     const exportacion = await p.pedir(admin, 'GET', '/exportar')
     expect(exportacion.status).toBe(200)
     expect(Object.keys(exportacion.body.tablas)).not.toContain('sesiones')
-    expect(exportacion.body.tablas.usuarios.length).toBe(8)
+    expect(exportacion.body.tablas.usuarios.length).toBe(9)
     sinSecretos(JSON.stringify(exportacion.body), 'exportar')
 
     const copia = await p.pedir(admin, 'POST', '/copias')

@@ -13,7 +13,7 @@ administrador vea reportes, los exporte a Excel y los reciba por correo. Reempla
 
 | Módulo | Pantallas |
 |---|---|
-| Usuarios y accesos (A) | Entrada con usuario y contraseña; 7 roles (4 sectores, supervisor, cajero y administrador) con sus permisos en `src/shared/permisos.ts`; cada sector ve solo lo suyo |
+| Usuarios y accesos (A) | Entrada con usuario y contraseña; 8 roles (4 sectores, supervisor, cajero, caja comedor y administrador) con sus permisos en `src/shared/permisos.ts`; cada sector ve solo lo suyo |
 | Catálogos (B) | Productos, máquinas con rango de temperatura, áreas y tareas de limpieza, sucursales |
 | Producción (C) | Un registro por carga con cocinado y guardado por producto; correcciones del administrador con quién y cuándo |
 | Stock por depósitos (D) | Depósitos: dos de venta (Venta frente y Venta comedor), almacenes en frío (los crea y borra el super-administrador) y Materia prima; sucursales con solo lo enviado. Productos agrupados por categoría; salidas a venta, transferencias, envíos, mermas, vencimientos, ajustes y stock inicial; las ventas de caja descuentan de Venta frente |
