@@ -186,7 +186,7 @@ export default function Layout() {
                         </Link>
                       ) : (
                         o.ver ? (
-                          // Una pestaña de una pantalla (Productos y Catálogos): se marca según ?ver.
+                          // Una pestaña de una pantalla: se marca según ?ver.
                           <Link
                             to={o.a}
                             title={plegado ? o.texto : undefined}

@@ -153,7 +153,7 @@ function Vender() {
   }
 
   if (productos.datos && !lista.length) {
-    return <Aviso>Todavía no hay productos con precio de venta. El administrador los carga en Catálogos → Productos.</Aviso>
+    return <Aviso>Todavía no hay productos con precio de venta. El administrador los carga en Productos.</Aviso>
   }
 
   return (

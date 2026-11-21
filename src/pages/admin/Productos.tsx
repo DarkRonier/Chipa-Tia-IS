@@ -24,6 +24,16 @@ import {
 import '../../styles/compras.css'
 import '../../styles/productos.css'
 
+/** Pantalla propia de Productos (antes era una pestaña de Catálogos; Mati la independizó el 2026-11-21). */
+export function PaginaProductos() {
+  return (
+    <>
+      <h1 className="no-imprimir">Productos</h1>
+      <Productos />
+    </>
+  )
+}
+
 type Modo = { tipo: 'nuevo' } | { tipo: 'editar'; producto: Producto }
 
 export default function Productos() {
