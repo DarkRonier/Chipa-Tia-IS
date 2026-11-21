@@ -1,0 +1,18 @@
+{
+  "name": "Chipa Tía · Sistema de gestión",
+  "short_name": "Chipa Tía",
+  "description": "Producción, stock, compras, ventas y caja de Chipa Tía.",
+  "lang": "es-PY",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#b8001a",
+  "icons": [
+    { "src": "icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icono-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

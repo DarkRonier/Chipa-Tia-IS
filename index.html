@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#b8001a" />
+    <link rel="icon" type="image/png" href="./logo.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <!-- A05: la app se instala desde el navegador (Android: «Instalar app»; iPhone: Compartir → «Agregar a inicio»). -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Chipa Tía" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <script>
+      // Tema elegido en Configuración (claro si no se eligió nada), aplicado antes del primer render para que no parpadee.
+      document.documentElement.dataset.theme = 'light'
+      try {
+        var t = localStorage.getItem('chipa-tia-tema')
+        if (t === 'oscuro') document.documentElement.dataset.theme = 'dark'
+        else if (t === 'sistema') delete document.documentElement.dataset.theme
+        var oscuro = t === 'oscuro' || (t === 'sistema' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', oscuro ? '#c8102e' : '#b8001a')
+      } catch (e) {}
+    </script>
+    <title>Chipa Tía Producción</title>
+    <script type="module" crossorigin src="./assets/index-CW7bk2Bz.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DGySHSA1.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
