@@ -89,7 +89,6 @@ export default function Depositos() {
   const sucursales = useConsulta<Sucursal[]>('/sucursales')
   const stock = useConsulta<StockFila[]>('/stock', { todos: 1 })
   const esSuper = useEsSuper()
-  const puede = usePuede()
   const [creando, setCreando] = useState(false)
   const tipo = (TIPOS_DEPOSITO as string[]).includes(params.get('tipo') ?? '') ? params.get('tipo') as Tipo : 'venta'
   const ver = params.get('ver')
@@ -139,12 +138,6 @@ export default function Depositos() {
                   depositos={lista.filter((d) => d.tipo === tipo)} stock={stock.datos ?? []}
                   alElegir={(id) => ir(tipo, id)} alCrear={esSuper && tipo === 'almacen' ? () => setCreando(true) : null}
                 />
-              )}
-              {!esSuper && puede('catalogos.editar') && tipo !== 'venta' && (
-                <p className="suave chico stk-explica">
-                  Para crear o borrar {tipo === 'almacen' ? 'depósitos fríos' : 'sucursales'} activá el modo super-administrador en{' '}
-                  <Link className="btn-discreto chico" to="/configuracion">Configuración → Ajustes avanzados</Link>.
-                </p>
               )}
               {creando && tipo === 'almacen' && <NuevoFrio alCerrar={() => setCreando(false)} alCrear={(d) => { setCreando(false); ir('almacen', d.id) }} />}
               {creando && tipo === 'sucursal' && <NuevaSucursal alCerrar={() => setCreando(false)} alCrear={(s) => { setCreando(false); ir('sucursal', s.id) }} />}

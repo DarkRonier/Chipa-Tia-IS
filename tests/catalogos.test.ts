@@ -117,6 +117,7 @@ describe('máquinas (B02)', () => {
   it('carga una heladera de 0 °C a 5 °C y aparece en su sector con ese rango', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     const r = await p.pedir(admin, 'POST', '/maquinas', {
       sector: 'cocina', numero: 8, nombre: 'Heladera de bebidas', tipo: 'heladera', tempMin: 0, tempMax: 5,
     })
@@ -139,6 +140,7 @@ describe('máquinas (B02)', () => {
   it('acepta rangos de un solo lado y "otra" sin rango; numera sola si falta el N°', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     const freezer = await p.pedir(admin, 'POST', '/maquinas', { sector: 'chiperia', nombre: 'Freezer 2', tipo: 'congelador', tempMin: null, tempMax: -18 })
     expect(freezer.body).toMatchObject({ numero: 5, tempMin: null, tempMax: -18 })
     const buffet = await p.pedir(admin, 'POST', '/maquinas', { sector: 'cocina', numero: 9, nombre: 'Bufetera 2', tipo: 'exhibidora_caliente', tempMin: 63, tempMax: '' })
@@ -150,6 +152,7 @@ describe('máquinas (B02)', () => {
   it('valida tipo, rango y número', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     const base = { sector: 'cocina', nombre: 'Heladera nueva', tipo: 'heladera', tempMin: 1, tempMax: 5 }
     const casos: [Record<string, unknown>, number, RegExp][] = [
       [{ ...base, tempMin: 8 }, 400, /mínima no puede ser mayor/],
@@ -176,6 +179,7 @@ describe('máquinas (B02)', () => {
   it('edita: cambia un lado del rango, pasa a "otra", desactiva y libera el número', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     // Solo la mínima: la máxima queda como estaba.
     const a = await p.pedir(admin, 'PATCH', '/maquinas/maq-cocina-1', { tempMin: 0 })
     expect(a.body).toMatchObject({ tempMin: 0, tempMax: 5 })
@@ -204,6 +208,21 @@ describe('máquinas (B02)', () => {
     expect((await p.pedir(admin, 'PATCH', '/maquinas/no-existe', { nombre: 'X' })).status).toBe(404)
     const acciones = (await p.sql("SELECT accion FROM auditoria WHERE registro_id = 'maq-cocina-2'")).map((x) => x.accion)
     expect(acciones).toEqual(['desactivar'])
+  })
+
+  it('agregar, desactivar y reactivar una máquina es solo del super-administrador; editarla, del administrador', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const nueva = { sector: 'cocina', nombre: 'Heladera nueva', tipo: 'heladera', tempMin: 1, tempMax: 5 }
+    expect((await p.pedir(admin, 'POST', '/maquinas', nueva)).status).toBe(403)
+    expect((await p.pedir(admin, 'PATCH', '/maquinas/maq-cocina-2', { activo: false })).status).toBe(403)
+    // Editar nombre o rango sigue siendo del administrador común, y mandar el mismo `activo` no cambia nada.
+    expect((await p.pedir(admin, 'PATCH', '/maquinas/maq-cocina-2', { nombre: 'Heladera chica', activo: true })).status).toBe(200)
+    expect((await p.pedir(await p.entrar('supervisor'), 'POST', '/maquinas', nueva)).status).toBe(403)
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
+    expect((await p.pedir(admin, 'POST', '/maquinas', nueva)).status).toBe(200)
+    expect((await p.pedir(admin, 'PATCH', '/maquinas/maq-cocina-2', { activo: false })).body.activo).toBe(false)
+    expect((await p.pedir(admin, 'PATCH', '/maquinas/maq-cocina-2', { activo: true })).body.activo).toBe(true)
   })
 })
 

@@ -1,11 +1,13 @@
 // Mantenimiento: alta y edición de las máquinas de cada sector (B02) y de las áreas y tareas de limpieza (B03).
 // Antes eran pestañas de Catálogos; Mati las agrupó en su propia pantalla (2026-11-21).
 // Nada se borra: se desactiva y el historial lo sigue mostrando.
+// Agregar, desactivar y reactivar máquinas es del super-administrador (Mati, 2026-11-21): sin ese modo no se ven.
 import { useEffect, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { patch, post } from '../../cliente/api'
 import { textoRango, useSectores } from '../../cliente/catalogo'
 import { useAccion, useConsulta } from '../../cliente/consultas'
+import { useEsSuper } from '../../cliente/sesion'
 import BotonIcono from '../../components/BotonIcono'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { useSector } from '../../components/Layout'
@@ -153,6 +155,7 @@ function CamposMaquina({ d, set, conNumero, siguiente }: {
 
 function Maquinas({ sector, nombreSector }: { sector: SectorId; nombreSector: string }) {
   const c = useConsulta<Maquina[]>('/maquinas', { sector, todos: true })
+  const esSuper = useEsSuper()
   const vacia: DatosMaquina = { numero: '', nombre: '', tipo: 'heladera', min: '1', max: '5' }
   const [d, setD] = useState<DatosMaquina>(vacia)
   const [ok, setOk] = useState<string | null>(null)
@@ -180,15 +183,19 @@ function Maquinas({ sector, nombreSector }: { sector: SectorId; nombreSector: st
           />
         )}
       </ConDatos>
-      <FormAlta titulo={`Nueva máquina en ${nombreSector}`} enviando={crear.enviando} error={crear.error} ok={ok} alEnviar={() => void agregar()}>
-        <CamposMaquina d={d} set={setD} conNumero siguiente={siguiente} />
-      </FormAlta>
+      {esSuper && (
+        <FormAlta titulo={`Nueva máquina en ${nombreSector}`} enviando={crear.enviando} error={crear.error} ok={ok} alEnviar={() => void agregar()}>
+          <CamposMaquina d={d} set={setD} conNumero siguiente={siguiente} />
+        </FormAlta>
+      )}
     </>
   )
 }
 
 function FilaMaquina({ m }: { m: Maquina }) {
   const [editando, setEditando] = useState(false)
+  const [confirmando, setConfirmando] = useState(false)
+  const esSuper = useEsSuper()
   const [d, setD] = useState<DatosMaquina | null>(null)
   const accion = useAccion((cuerpo: object) => patch<Maquina>(`/maquinas/${m.id}`, cuerpo))
 
@@ -214,13 +221,33 @@ function FilaMaquina({ m }: { m: Maquina }) {
         </div>
         <div className="detalle">{NOMBRE_TIPO_MAQUINA[m.tipo]} · <strong>{textoRango(m)}</strong></div>
       </div>
-      {!editando && (
+      {!editando && !confirmando && (
         <div className="acciones-cat con-botones">
           <BotonIcono icono="editar" texto={`Editar ${m.nombre}`} onClick={abrir} />
-          <BotonIcono
-            icono={m.activo ? 'desactivar' : 'activar'} texto={`${m.activo ? 'Desactivar' : 'Activar'} ${m.nombre}`} tono={m.activo ? 'peligro' : 'positivo'}
-            disabled={accion.enviando} onClick={() => void accion.ejecutar({ activo: !m.activo })}
-          />
+          {esSuper && (
+            <BotonIcono
+              icono={m.activo ? 'desactivar' : 'activar'} texto={`${m.activo ? 'Desactivar' : 'Activar'} ${m.nombre}`} tono={m.activo ? 'peligro' : 'positivo'}
+              disabled={accion.enviando}
+              onClick={() => { accion.limpiarError(); if (m.activo) setConfirmando(true); else void accion.ejecutar({ activo: true }) }}
+            />
+          )}
+        </div>
+      )}
+      {confirmando && (
+        <div className="confirmar-cat" role="alertdialog" aria-label={`Desactivar ${m.nombre}`}>
+          <p>
+            <strong>¿Desactivar la máquina N° {m.numero} «{m.nombre}»?</strong> El sector ya no va a poder cargarle temperatura.
+            Su historial se conserva y se puede volver a activar.
+          </p>
+          <div className="botones-cat">
+            <button
+              type="button" className="btn-primario peligro" disabled={accion.enviando}
+              onClick={() => void accion.ejecutar({ activo: false }).then((r) => { if (r) setConfirmando(false) })}
+            >
+              {accion.enviando ? 'Desactivando…' : 'Sí, desactivar'}
+            </button>
+            <button type="button" className="btn-discreto" disabled={accion.enviando} onClick={() => setConfirmando(false)}>Cancelar</button>
+          </div>
         </div>
       )}
       {editando && d && (

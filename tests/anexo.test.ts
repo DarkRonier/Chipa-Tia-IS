@@ -223,6 +223,8 @@ describe('Anexo: planilla de comprobación de la entrega', () => {
   })
 
   it('B02 · una heladera de 0 °C a 5 °C aparece en su sector con ese rango', async () => {
+    // Agregar máquinas es del super-administrador (Configuración → Ajustes avanzados).
+    expect((await pedir(tk.admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
     const r = await pedir<Maquina>(tk.admin, 'POST', '/maquinas', {
       sector: 'cocina', nombre: 'Heladera de prueba', tipo: 'heladera', tempMin: 0, tempMax: 5,
     })

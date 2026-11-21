@@ -6,6 +6,7 @@ export type TipoAlerta =
   | 'lote_por_vencer' // E10: lote de materia prima que vence dentro de los próximos días
   | 'lote_vencido' // E10: lote de materia prima vencido y todavía con saldo
   | 'limpieza_atrasada' // G08: un área no se limpió con la frecuencia mínima exigida
+  | 'temperatura_fuera_de_rango' // la última lectura de una máquina quedó fuera de rango y todavía nadie cargó otra
   | 'incidencia_maquina' // falla o incidencia de una máquina reportada y todavía sin resolver
   | 'compra_por_vencer' // M10: compra con saldo que vence en los próximos días
   | 'compra_vencida' // M10: compra con saldo y el vencimiento ya pasado
