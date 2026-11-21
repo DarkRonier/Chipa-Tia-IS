@@ -13,7 +13,7 @@
 import { Hono } from 'hono'
 import {
   DEPOSITO,
-  type EnvioResumen, type Movimiento, type VendidoFila, type RespuestaEnvio, type SectorId, type StockFila, type TipoAjuste, type TipoDeposito, type TipoMovimiento,
+  type EnvioResumen, type Movimiento, type VendidoFila, type RespuestaEnvio, type SectorId, type StockFila, type TipoAjuste, type TipoProducto, type TipoDeposito, type TipoMovimiento,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { leerMovimientos } from '../consultas'
@@ -89,11 +89,12 @@ interface FilaProducto {
   nombre: string
   activo: number
   sin_stock: number
+  tipo: TipoProducto
 }
 
 async function leerProductos(db: BaseD1, ids: string[]): Promise<Map<string, FilaProducto>> {
   const unicos = [...new Set(ids)]
-  const filas = await todasPorTrozos<FilaProducto>(db, unicos, (m) => `SELECT id, sector, nombre, activo, sin_stock FROM productos WHERE id IN (${m})`)
+  const filas = await todasPorTrozos<FilaProducto>(db, unicos, (m) => `SELECT id, sector, nombre, activo, sin_stock, tipo FROM productos WHERE id IN (${m})`)
   return new Map(filas.map((f) => [f.id, f]))
 }
 
@@ -119,12 +120,16 @@ function leerProductoId(v: unknown): string {
 }
 
 /**
- * Lote opcional: en sectores sin lotes se ignora; en Chipería es obligatorio (`siFalta` = mensaje).
+ * Lote: en sectores sin lotes se ignora; en Chipería es obligatorio (`siFalta` = mensaje) para lo que se elabora. La
+ * materia prima y la venta directa de Chipería pueden no tener lote (se compraron sin número).
  * Se guarda sin espacios y en mayúsculas, así un lote escrito "ch-261009-1 " encuentra su stock.
  */
-function leerLote(v: unknown, conLotes: boolean, siFalta: string): string | null {
+function leerLote(v: unknown, conLotes: boolean, siFalta: string, producto?: { tipo: TipoProducto }): string | null {
   if (!conLotes) return null
-  if (vacio(v)) throw invalido(siFalta)
+  if (vacio(v)) {
+    if (producto && producto.tipo !== 'elaborado') return null
+    throw invalido(siFalta)
+  }
   if (typeof v !== 'string' || !v.trim()) throw invalido(siFalta)
   return texto(v, 'El lote', { max: MAX_LOTE }).toUpperCase()
 }
@@ -401,7 +406,7 @@ rutasStock.post('/salidas', requiere('stock.mover'), async (c) => {
   const producto = productoParaMover(await leerProductos(db, [productoId]), productoId, u, sectorPedidoDe(u, b.sector))
   const sector = producto.sector
   const conLotes = await sectorConLotes(db, sector)
-  const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote sale.')
+  const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote sale.', producto)
   const cantidad = cantidadPositiva(b.cantidad)
   const desde = await leerDeposito(db, b.desde, await almacenPorDefecto(db), 'de qué depósito sale', 'almacen')
   const venta = await leerDeposito(db, b.hacia, DEPOSITO.venta, 'a qué venta va', 'venta')
@@ -448,7 +453,7 @@ rutasStock.post('/envios', requiere('stock.mover'), async (c) => {
     const productoId = leerProductoId(it.productoId)
     const producto = productoParaMover(productos, productoId, u, sectorPedido)
     const sector = producto.sector
-    const lote = leerLote(it.lote, sectoresConLotes.has(sector), `Elegí el lote de ${producto.nombre}.`)
+    const lote = leerLote(it.lote, sectoresConLotes.has(sector), `Elegí el lote de ${producto.nombre}.`, producto)
     const cantidad = cantidadPositiva(it.cantidad, `La cantidad de ${producto.nombre}`)
     const clave = `${productoId}|${lote ?? ''}`
     if (vistos.has(clave)) {
@@ -485,7 +490,7 @@ rutasStock.post('/ajustes', requiere('stock.ajustar', 'Solo el administrador pue
   const producto = productoParaMover(await leerProductos(db, [productoId]), productoId, u, sectorPedidoDe(u, b.sector))
   const sector = producto.sector
   const conLotes = await sectorConLotes(db, sector)
-  const lote = leerLote(b.lote, conLotes, 'Indicá el lote.')
+  const lote = leerLote(b.lote, conLotes, 'Indicá el lote.', producto)
   const cantidad = cantidadPositiva(b.cantidad)
   const deposito = await leerDeposito(db, b.depositoId, await almacenPorDefecto(db))
   let signo: 1 | -1
@@ -533,7 +538,7 @@ rutasStock.post('/transferencias', requiere('stock.mover'), async (c) => {
   const producto = productoParaMover(await leerProductos(db, [productoId]), productoId, u, sectorPedidoDe(u, b.sector))
   const sector = producto.sector
   const conLotes = await sectorConLotes(db, sector)
-  const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote.')
+  const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote.', producto)
   const cantidad = cantidadPositiva(b.cantidad)
   const desde = await leerDeposito(db, b.desde, null, 'de qué depósito sale')
   const hacia = await leerDeposito(db, b.hacia, null, 'a qué depósito va')

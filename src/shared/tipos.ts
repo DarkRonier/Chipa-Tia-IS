@@ -223,6 +223,10 @@ export interface LoteMP {
   disponible: boolean
   descripcion: string
   creadoEn: string
+  /** Producto de materia prima (si entró con una compra): lo que usan las amasadas sale del depósito Materia prima. */
+  productoId: string | null
+  /** Compra con la que entró; null si se cargó a mano en «Materia prima y lotes». */
+  compraId: string | null
 }
 
 /** Un lote de materia prima usado por un lote de chipa; `cantidad` es null en los registros anteriores a E03 ("sin dato"). */
@@ -654,6 +658,8 @@ export interface CompraItem {
   precioUnitario: number
   subtotal: number
   lote: string | null
+  /** Materia prima de Chipería: vencimiento del lote de materia prima que creó este renglón. */
+  vencimiento: string | null
 }
 
 export interface PagoProveedor {
@@ -708,6 +714,8 @@ export interface PedidoCompraItem {
   cantidad: number
   precioUnitario: number
   lote?: string | null
+  /** Obligatorio en la materia prima de Chipería (`ProductoCompra.loteMP`): crea su lote de materia prima. */
+  vencimiento?: string | null
 }
 
 export interface PedidoCompra {
@@ -729,6 +737,9 @@ export interface ProductoCompra {
   sector: SectorId
   sectorNombre: string
   conLotes: boolean
+  /** Materia prima de un sector con lotes: al comprarla se crea su lote de materia prima, con vencimiento obligatorio. */
+  loteMP: boolean
+  tipo: TipoProducto
   categoriaId: string | null
   categoriaNombre: string | null
 }

@@ -89,6 +89,10 @@ function controlarProductos(items: ItemPedido[], productos: Map<string, FilaProd
 interface UsoPedido {
   id: string
   cantidad: number
+  /** Si el lote entró con una compra: su producto, para descontarlo del depósito Materia prima. */
+  productoId: string | null
+  numeroLote: string
+  unidad: string
 }
 
 const formatoCantidad = new Intl.NumberFormat('es-PY', { maximumFractionDigits: 3 })
@@ -126,7 +130,7 @@ async function leerUsos(db: BaseD1, v: unknown): Promise<UsoPedido[]> {
     if (u.cantidad > lote.saldo + 0.0005) {
       throw invalido(`Del lote ${lote.descripcion} solo quedan ${conUnidad(lote.saldo, lote.unidad)} y cargaste ${conUnidad(u.cantidad, lote.unidad)}.`)
     }
-    return { id: lote.id, cantidad: u.cantidad }
+    return { id: lote.id, cantidad: u.cantidad, productoId: lote.productoId, numeroLote: lote.numeroLote, unidad: lote.unidad }
   })
 }
 
@@ -218,6 +222,14 @@ rutasProduccion.post('/producciones', requiere('produccion.cargar'), async (c) =
          SELECT ?, ? || n, ?, n, ? FROM (SELECT COALESCE(MAX(amasada), 0) + 1 AS n FROM lotes_chipa WHERE dia = ?)`,
         loteId, prefijo, id, dia, dia),
       ...usos.map((u) => sentencia(db, 'INSERT INTO lote_chipa_mp (lote_chipa_id, lote_mp_id, cantidad) VALUES (?, ?, ?)', loteId, u.id, u.cantidad)),
+      // La materia prima que entró con una compra sale del depósito Materia prima (con su número de lote, como entró).
+      // No se frena si el depósito no alcanza (ver la migración 0016): el saldo del lote ya se controló.
+      ...usos.filter((x) => x.productoId).map((x) => sentencia(db,
+        `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, deposito_id, motivo, produccion_id, usuario_id, fecha, dia)
+         SELECT ?, p.sector, p.id, ?, 'produccion', ?, '${DEPOSITO.materiaPrima}',
+                'Usado en la amasada ' || (SELECT codigo FROM lotes_chipa WHERE id = ?), ?, ?, ?, ?
+           FROM productos p WHERE p.id = ?`,
+        nuevoId(), x.numeroLote || null, -x.cantidad, loteId, id, u.id, fecha, dia, x.productoId)),
     )
   }
 

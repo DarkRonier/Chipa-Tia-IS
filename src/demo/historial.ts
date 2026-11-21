@@ -69,7 +69,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     if (fecha > new Date(Date.now() - 60_000).toISOString()) return null
     const marca = new Date(Date.now() - 1).toISOString()
     const res = await accion()
-    for (const tabla of ['producciones', 'movimientos', 'lecturas', 'limpiezas']) {
+    for (const tabla of ['producciones', 'movimientos', 'lecturas', 'limpiezas', 'compras', 'pagos_proveedor']) {
       sql(`UPDATE ${tabla} SET fecha = ?, dia = ? WHERE fecha >= ?`, fecha, dia, marca)
     }
     sql('UPDATE limpiezas SET controlado_en = ? WHERE controlado_en >= ?', fecha, marca)
@@ -98,6 +98,7 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
 
   const t = {
     admin: await entrar('admin'),
+    supervisor: await entrar('supervisor'),
     chiperia: await entrar('chiperia'),
     chipitas: await entrar('chipitas'),
     panaderia: await entrar('panaderia'),
@@ -122,16 +123,28 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
     await pedir(t.admin, 'PATCH', `/productos/${productoId}`, { precioVenta })
   }
   // Productos de compra: materias primas y venta directa (lo elaborado no se compra).
+  const deCompra = new Map<string, string>()
   for (const [sector, nombre, unidad, tipo, precioVenta] of [
     ['chiperia', 'Queso Paraguay', 'kg', 'materia_prima', null], ['chiperia', 'Almidón de mandioca', 'kg', 'materia_prima', null],
     ['panaderia', 'Harina 000', 'kg', 'materia_prima', null], ['cocina', 'Carne fileteada', 'kg', 'materia_prima', null],
     ['cocina', 'Gaseosa 500 ml', 'unidades', 'reventa', 8000], ['cocina', 'Cerveza 1 L', 'unidades', 'reventa', 15000],
     ['cocina', 'Agua 500 ml', 'unidades', 'reventa', 5000],
   ] as const) {
-    await pedir(t.admin, 'POST', '/productos', {
+    const p = await pedir<{ id: string }>(t.admin, 'POST', '/productos', {
       sector, nombre, unidad, tipo, precioVenta,
     })
+    deCompra.set(nombre, p.id)
   }
+  // M10: proveedores; cada sector compra lo de «Otros» (sus materias primas) y la cocina, además, las bebidas.
+  await pedir(t.admin, 'PATCH', '/categorias/cat-otros', { sectores: ['chiperia', 'chipitas', 'panaderia', 'cocina'] })
+  await pedir(t.admin, 'PATCH', '/categorias/cat-bebidas', { sectores: ['cocina'] })
+  const proveedor = async (nombre: string, ruc: string, telefono: string) =>
+    (await pedir<{ id: string }>(t.admin, 'POST', '/proveedores', { nombre, ruc, telefono })).id
+  const tatiana = await proveedor('Lácteos Tatiana', '80023456-1', '0981 222 333')
+  const molinos = await proveedor('Molinos del Sur', '80034567-2', '0971 444 555')
+  const bebidas = await proveedor('Distribuidora Central', '80045678-3', '021 600 700')
+  const compra = (token: string, dia: string, horas: number, cuerpo: Record<string, unknown>) =>
+    el(dia, horas, () => pedir<{ id: string; total: number }>(token, 'POST', '/compras', { diaCompra: dia, ...cuerpo }))
   // M14: un gasto fijo y un sueldo, para que la pantalla de Finanzas tenga algo.
   await pedir(t.admin, 'POST', '/gastos-fijos', { nombre: 'Alquiler del local', categoria: 'Alquiler', importe: 4_500_000, diaDelMes: 5 })
   await pedir(t.admin, 'POST', '/gastos-fijos', { nombre: 'Sueldo de cajera', importe: 2_800_000, diaDelMes: 30, esSueldo: true })
@@ -142,7 +155,28 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
   const queso1 = await nuevoLoteMP('Queso Paraguay', 'Lácteos Tatiana', '', inicio, 120, 20)
   const almidon = await nuevoLoteMP('Almidón de mandioca', 'Codipsa', 'A-1206', inicio, 500, 120)
   const harina = await nuevoLoteMP('Harina de trigo', 'Molinos del Sur', 'H-0921', inicio, 200, 90)
-  const queso2 = await nuevoLoteMP('Queso Paraguay', 'Lácteos Tatiana', '', sumarDias(inicio, 7), 120, 27)
+  // El segundo queso entra con una compra de Chipería: su lote de materia prima se crea solo (E01) y lo que usan las
+  // amasadas sale del depósito Materia prima.
+  const compraQueso = await compra(t.chiperia, sumarDias(inicio, 7), 6.5, {
+    proveedorId: tatiana, comprobante: '001-002-0004512', vencimiento: sumarDias(inicio, 22),
+    items: [{ productoId: deCompra.get('Queso Paraguay'), cantidad: 120, precioUnitario: 32_000, lote: 'LT-1107', vencimiento: sumarDias(hoy, 27) }],
+  })
+  const queso2 = { id: (d1.db.exec('SELECT id FROM lotes_mp WHERE compra_id = ?', [compraQueso!.id])[0].values[0][0]) as string }
+  sql('UPDATE lotes_mp SET fecha_ingreso = ? WHERE id = ?', sumarDias(inicio, 7), queso2.id)
+  const compraHarina = await compra(t.panaderia, sumarDias(inicio, 3), 8, {
+    proveedorId: molinos, comprobante: '001-001-0019876',
+    items: [{ productoId: deCompra.get('Harina 000'), cantidad: 200, precioUnitario: 4_500 }],
+  })
+  await compra(t.supervisor, sumarDias(hoy, -2), 10, {
+    proveedorId: bebidas, comprobante: '001-003-0000731', vencimiento: sumarDias(hoy, 12),
+    items: [
+      { productoId: deCompra.get('Gaseosa 500 ml'), cantidad: 48, precioUnitario: 5_200 },
+      { productoId: deCompra.get('Agua 500 ml'), cantidad: 24, precioUnitario: 2_800 },
+    ],
+  })
+  // La harina ya se pagó; el queso, la mitad; las bebidas siguen pendientes.
+  if (compraHarina) await el(sumarDias(inicio, 5), 11, () => pedir(t.supervisor, 'POST', `/compras/${compraHarina.id}/pagos`, { total: true, medio: 'transferencia', diaPago: sumarDias(inicio, 5) }))
+  if (compraQueso) await el(sumarDias(inicio, 10), 11, () => pedir(t.supervisor, 'POST', `/compras/${compraQueso.id}/pagos`, { importe: 1_920_000, medio: 'efectivo', diaPago: sumarDias(inicio, 10) }))
   // Vence en pocos días y no se usa: sale en las alertas de vencimiento (E10).
   await nuevoLoteMP('Leche en polvo', 'Lácteos Tatiana', 'LP-310', sumarDias(hoy, -2), 25, 3)
   const quesoMalo = await nuevoLoteMP('Queso Paraguay', 'Lácteos San Juan', 'SJ-88', sumarDias(inicio, 9), 40, 15)
