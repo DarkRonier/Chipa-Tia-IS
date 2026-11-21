@@ -5,7 +5,7 @@ import { Hono, type Context } from 'hono'
 import type {
   AreaLimpieza, Categoria, Deposito, Maquina, Producto, Sector, SectorId, Sucursal, TareaLimpieza, TipoDeposito, TipoMaquina,
 } from '../../shared/tipos'
-import { IVAS, NOMBRE_TIPO_MAQUINA, SECTOR_IDS, TIPOS_PRODUCTO, type Iva, type TipoProducto } from '../../shared/tipos'
+import { CATEGORIA_MATERIA_PRIMA, IVAS, NOMBRE_TIPO_MAQUINA, SECTOR_IDS, TIPOS_PRODUCTO, type Iva, type TipoProducto } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { leerDepositos } from '../consultas'
 import { nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
@@ -123,10 +123,16 @@ function ivaDe(v: unknown): Iva {
   return n as Iva
 }
 
-/** Categoría del producto: id de una existente; vacío o null = «Otros» (la de los que no entran en ninguna). */
-async function categoriaOpcional(db: BaseD1, v: unknown): Promise<string | null> {
+/**
+ * Categoría del producto: id de una existente. Vacío o null = «Otros» (la de los que no entran en ninguna), salvo que
+ * sea materia prima: entonces «Materia prima», si sigue activa.
+ */
+async function categoriaOpcional(db: BaseD1, v: unknown, tipo?: TipoProducto): Promise<string | null> {
   if (v === null || v === undefined || v === '') {
-    return (await una<{ id: string }>(db, 'SELECT id FROM categorias WHERE sistema = 1 ORDER BY orden LIMIT 1'))?.id ?? null
+    const mp = tipo === 'materia_prima'
+      ? await una<{ id: string }>(db, 'SELECT id FROM categorias WHERE id = ? AND activo = 1', CATEGORIA_MATERIA_PRIMA)
+      : null
+    return mp?.id ?? (await una<{ id: string }>(db, 'SELECT id FROM categorias WHERE sistema = 1 ORDER BY orden LIMIT 1'))?.id ?? null
   }
   const id = texto(v, 'la categoría', { max: 100 })
   const f = await una<{ id: string; nombre: string; activo: number }>(db, 'SELECT id, nombre, activo FROM categorias WHERE id = ?', id)
@@ -169,11 +175,11 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
   const nombre = texto(b.nombre, 'el nombre del producto', { max: 100 })
   const unidad = textoOpcional(b.unidad, 'La unidad', 30) ?? 'unidades'
   await productoSinRepetir(db, sector, nombre, null)
-  const categoriaId = await categoriaOpcional(db, b.categoriaId)
+  const tipo = b.tipo === undefined ? 'elaborado' : tipoProducto(b.tipo)
+  const categoriaId = await categoriaOpcional(db, b.categoriaId, tipo)
   const precioVenta = precioOpcional(b.precioVenta)
   const iva = b.iva === undefined ? 10 : ivaDe(b.iva)
   const codigo = textoOpcional(b.codigo, 'El código', 30) ?? ''
-  const tipo = b.tipo === undefined ? 'elaborado' : tipoProducto(b.tipo)
   const subcategoria = textoOpcional(b.subcategoria, 'La subcategoría', 60) ?? ''
   const sinStock = b.sinStock === undefined ? false : booleano(b.sinStock, 'sin stock')
   const nuevo: Producto = {

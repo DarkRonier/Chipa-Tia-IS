@@ -124,19 +124,22 @@ export async function cargarHistorialDemo(d1: D1SqlJs): Promise<void> {
   }
   // Productos de compra: materias primas y venta directa (lo elaborado no se compra).
   const deCompra = new Map<string, string>()
-  for (const [sector, nombre, unidad, tipo, precioVenta] of [
-    ['chiperia', 'Queso Paraguay', 'kg', 'materia_prima', null], ['chiperia', 'Almidón de mandioca', 'kg', 'materia_prima', null],
-    ['panaderia', 'Harina 000', 'kg', 'materia_prima', null], ['cocina', 'Carne fileteada', 'kg', 'materia_prima', null],
-    ['cocina', 'Gaseosa 500 ml', 'unidades', 'reventa', 8000], ['cocina', 'Cerveza 1 L', 'unidades', 'reventa', 15000],
-    ['cocina', 'Agua 500 ml', 'unidades', 'reventa', 5000],
+  // Sin categoría, la materia prima va sola a «Materia prima».
+  for (const [sector, nombre, unidad, tipo, precioVenta, categoriaId] of [
+    ['chiperia', 'Queso Paraguay', 'kg', 'materia_prima', null, null], ['chiperia', 'Almidón de mandioca', 'kg', 'materia_prima', null, null],
+    ['panaderia', 'Harina 000', 'kg', 'materia_prima', null, null], ['cocina', 'Carne fileteada', 'kg', 'materia_prima', null, null],
+    ['cocina', 'Gaseosa 500 ml', 'unidades', 'reventa', 8000, 'cat-bebidas'], ['cocina', 'Cerveza 1 L', 'unidades', 'reventa', 15000, 'cat-bebidas'],
+    ['cocina', 'Agua 500 ml', 'unidades', 'reventa', 5000, 'cat-bebidas'],
+    ['cocina', 'Helado Amandau 1 L', 'unidades', 'reventa', 35000, 'cat-amandau'], ['cocina', 'Cucurucho Amandau', 'unidades', 'reventa', 8000, 'cat-amandau'],
+    ['cocina', 'Flan casero', 'unidades', 'elaborado', 7000, 'cat-buffet'],
   ] as const) {
     const p = await pedir<{ id: string }>(t.admin, 'POST', '/productos', {
-      sector, nombre, unidad, tipo, precioVenta,
+      sector, nombre, unidad, tipo, precioVenta, categoriaId,
     })
     deCompra.set(nombre, p.id)
   }
-  // M10: proveedores; cada sector compra lo de «Otros» (sus materias primas) y la cocina, además, las bebidas.
-  await pedir(t.admin, 'PATCH', '/categorias/cat-otros', { sectores: ['chiperia', 'chipitas', 'panaderia', 'cocina'] })
+  // M10: proveedores; cada sector compra su materia prima y la cocina, además, las bebidas.
+  await pedir(t.admin, 'PATCH', '/categorias/cat-materia-prima', { sectores: ['chiperia', 'chipitas', 'panaderia', 'cocina'] })
   await pedir(t.admin, 'PATCH', '/categorias/cat-bebidas', { sectores: ['cocina'] })
   const proveedor = async (nombre: string, ruc: string, telefono: string) =>
     (await pedir<{ id: string }>(t.admin, 'POST', '/proveedores', { nombre, ruc, telefono })).id

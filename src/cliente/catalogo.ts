@@ -25,7 +25,7 @@ export function useDepositos() {
   }
 }
 
-/** Categorías de productos (Chipería, Chipitas, Bebidas, Heladería, Otros…). `nombre(id)` para mostrarlas. */
+/** Categorías de productos (Chipas y bocaditos, Chipa Sticks, Buffet, Panificados, Materia prima, Bebidas, Amandau, Otros). `nombre(id)` para mostrarlas. */
 export function useCategorias() {
   const c = useConsulta<Categoria[]>('/categorias')
   const lista = c.datos ?? []

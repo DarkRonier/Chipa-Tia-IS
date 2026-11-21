@@ -132,7 +132,7 @@ export interface Producto {
   nombre: string
   unidad: string
   activo: boolean
-  /** Categoría (Chipería, Chipitas, Bebidas, Heladería, Otros…). También decide qué sectores la compran (M10). */
+  /** Categoría (Chipas y bocaditos, Chipa Sticks, Buffet, Panificados, Materia prima, Bebidas, Amandau, Otros). También decide qué sectores la compran (M10). */
   categoriaId: string | null
   /** Subcategoría, texto libre (ej.: Gaseosas). */
   subcategoria: string
@@ -151,6 +151,8 @@ export interface Producto {
 /** Elaborado: se produce (chipa, sopa). Materia prima: se compra para producir (queso, harina). Reventa: se compra y se vende así (gaseosa). */
 export type TipoProducto = 'elaborado' | 'materia_prima' | 'reventa'
 export const TIPOS_PRODUCTO: TipoProducto[] = ['elaborado', 'materia_prima', 'reventa']
+/** Categoría «Materia prima»: la que se propone a un producto nuevo de tipo materia prima. */
+export const CATEGORIA_MATERIA_PRIMA = 'cat-materia-prima'
 export const NOMBRE_TIPO_PRODUCTO: Record<TipoProducto, string> = {
   elaborado: 'Elaborado (se produce)',
   materia_prima: 'Materia prima (se compra)',
