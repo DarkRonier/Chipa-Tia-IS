@@ -7,10 +7,10 @@
 -- Conserva: usuarios y sesiones, sectores, categorías y sus habilitaciones, proveedores, gastos fijos, configuración
 -- (factura, correo) y las categorías de cada depósito de venta.
 -- Deja exactamente:
---   - Depósitos: Venta al frente, Venta comedor, Depósito frío 1 (máquina Heladera), Depósito frío 2 (máquina Freezer)
---     y Depósito frío 3 (sin máquina). El stock de materia prima (id interno, no es un depósito) queda vacío.
+--   - Depósitos: Venta al frente, Venta comedor, Depósito frío 1, 2 y 3, sin máquina vinculada
+--     (Mati, 2026-11-23: la máquina tiene que ser una de los sectores; queda para después). El stock de materia prima (id interno, no es un depósito) queda vacío.
 --   - Sucursales: Sucursal Ruta y Sucursal Encarnación.
---   - Máquinas: las de las planillas (migrations/0002_catalogo.sql) más Heladera y Freezer.
+--   - Máquinas: las de las planillas (migrations/0002_catalogo.sql).
 --   - Áreas y tareas de limpieza: exactamente las de las planillas (RE-09.01 a RE-09.10, migrations/0002 y 0024).
 --   - 50 productos, al menos 2 por categoría.
 -- Las facturas vuelven a empezar en el número inicial del talonario cargado en Caja → Factura.
@@ -59,7 +59,7 @@ DELETE FROM sucursales;
 INSERT INTO sucursales (id, nombre, activo) VALUES ('suc-ruta', 'Sucursal Ruta', 1);
 INSERT INTO sucursales (id, nombre, activo) VALUES ('suc-encarnacion', 'Sucursal Encarnación', 1);
 
--- 6. Máquinas: las de las planillas, más la Heladera y el Freezer de los depósitos fríos.
+-- 6. Máquinas: las de las planillas. Los depósitos fríos quedan sin máquina.
 DELETE FROM maquinas;
 INSERT INTO maquinas (id, sector, numero, nombre, tipo, temp_min, temp_max, activo) VALUES ('maq-cocina-1', 'cocina', 1, 'Heladera inox', 'heladera', 1, 5, 1);
 INSERT INTO maquinas (id, sector, numero, nombre, tipo, temp_min, temp_max, activo) VALUES ('maq-cocina-2', 'cocina', 2, 'Freezer 1', 'congelador', NULL, -18, 1);
@@ -76,11 +76,9 @@ INSERT INTO maquinas (id, sector, numero, nombre, tipo, temp_min, temp_max, acti
 INSERT INTO maquinas (id, sector, numero, nombre, tipo, temp_min, temp_max, activo) VALUES ('maq-chipitas-2', 'chipitas', 2, 'Horno', 'otra', NULL, NULL, 1);
 INSERT INTO maquinas (id, sector, numero, nombre, tipo, temp_min, temp_max, activo) VALUES ('maq-panaderia-1', 'panaderia', 1, 'Horno', 'otra', NULL, NULL, 1);
 INSERT INTO maquinas (id, sector, numero, nombre, tipo, temp_min, temp_max, activo) VALUES ('maq-panaderia-2', 'panaderia', 2, 'Fermentadora', 'otra', NULL, NULL, 1);
-INSERT INTO maquinas (id, sector, numero, nombre, tipo, temp_min, temp_max, activo) VALUES ('maq-heladera', 'chiperia', 5, 'Heladera', 'heladera', 1, 5, 1);
-INSERT INTO maquinas (id, sector, numero, nombre, tipo, temp_min, temp_max, activo) VALUES ('maq-freezer', 'chiperia', 6, 'Freezer', 'congelador', NULL, -18, 1);
 
-INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo, maquina_id) VALUES ('frio', 'Depósito frío 1', '', 0, 1, 10, 'almacen', 'maq-heladera');
-INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo, maquina_id) VALUES ('frio-2', 'Depósito frío 2', '', 0, 1, 11, 'almacen', 'maq-freezer');
+INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo, maquina_id) VALUES ('frio', 'Depósito frío 1', '', 0, 1, 10, 'almacen', NULL);
+INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo, maquina_id) VALUES ('frio-2', 'Depósito frío 2', '', 0, 1, 11, 'almacen', NULL);
 INSERT INTO depositos (id, nombre, descripcion, sistema, activo, orden, tipo, maquina_id) VALUES ('frio-3', 'Depósito frío 3', '', 0, 1, 12, 'almacen', NULL);
 
 -- 7. Áreas y tareas de limpieza: exactamente las de las planillas.

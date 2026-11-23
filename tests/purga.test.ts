@@ -38,8 +38,8 @@ describe('purga para la entrega', () => {
     expect(deps.map((d) => d.nombre).sort()).toEqual(['Depósito frío 1', 'Depósito frío 2', 'Depósito frío 3', 'Venta al frente', 'Venta comedor'])
     const maq = await p.sql('SELECT d.nombre AS deposito, m.nombre AS maquina FROM depositos d LEFT JOIN maquinas m ON m.id = d.maquina_id WHERE d.tipo = ? ORDER BY d.orden', 'almacen')
     expect(maq.filter((d) => d.deposito.startsWith('Depósito frío'))).toEqual([
-      { deposito: 'Depósito frío 1', maquina: 'Heladera' },
-      { deposito: 'Depósito frío 2', maquina: 'Freezer' },
+      { deposito: 'Depósito frío 1', maquina: null },
+      { deposito: 'Depósito frío 2', maquina: null },
       { deposito: 'Depósito frío 3', maquina: null },
     ])
     expect((await p.sql('SELECT nombre FROM sucursales ORDER BY nombre')).map((s) => s.nombre)).toEqual(['Sucursal Encarnación', 'Sucursal Ruta'])
