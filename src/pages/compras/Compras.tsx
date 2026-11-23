@@ -148,8 +148,8 @@ export function NuevaCompra() {
   const porId = useMemo(() => new Map(lista.map((p) => [p.id, p])), [lista])
   const opciones = useMemo(() => lista.map((p) => ({
     ...p,
-    detalle: [libre ? p.sectorNombre : null, p.categoriaNombre, p.unidad !== 'unidades' ? p.unidad : null].filter(Boolean).join(' · '),
-  })), [lista, libre])
+    detalle: [p.categoriaNombre, p.unidad !== 'unidades' ? p.unidad : null].filter(Boolean).join(' · '),
+  })), [lista])
   const opcionesProveedor = useMemo(() => (proveedores.datos ?? []).map((p) => ({ ...p, codigo: p.ruc, detalle: p.telefono })), [proveedores.datos])
 
   const cantidadDe = (r: RenglonForm) => (r.productoId ? aCantidad(r.cantidad) : r.libre ? aCantidad(r.cantidad) || 1 : 0)

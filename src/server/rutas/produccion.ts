@@ -8,6 +8,7 @@ import { ahora, nuevoId, sentencia, todas, todasPorTrozos } from '../db'
 import type { BaseD1, Entorno, SentenciaD1 } from '../entorno'
 import { conflicto, esSaldoLoteInsuficiente, esStockInsuficiente, invalido, noEncontrado, prohibido } from '../errores'
 import { requiere, sectorPara } from '../sesion'
+import { idsDelSector } from '../productosDelSector'
 import { cuerpo, diaOpcional, entero, numero, opcion, texto } from '../validar'
 import { almacenPorDefecto, leerDeposito } from './stock'
 
@@ -135,10 +136,11 @@ async function leerUsos(db: BaseD1, v: unknown): Promise<UsoPedido[]> {
 }
 
 /**
- * Materia prima usada en una producción sin lotes: productos de materia prima del sector, cada uno una vez, con
- * cantidad > 0 (hasta 3 decimales). No se controla el stock: lo usado ya se usó (ver la migración 0016).
+ * Materia prima usada en una producción sin lotes: materia prima que el sector usa (su categoría está habilitada para
+ * el sector), cada una una vez, con cantidad > 0 (hasta 3 decimales). No se controla el stock: lo usado ya se usó (ver
+ * la migración 0016).
  */
-async function leerMateriaPrima(db: BaseD1, v: unknown, sector: SectorId): Promise<{ productoId: string; cantidad: number }[]> {
+async function leerMateriaPrima(db: BaseD1, v: unknown, sector: SectorId): Promise<{ productoId: string; cantidad: number; sector: SectorId }[]> {
   if (v === undefined || v === null) return []
   if (!Array.isArray(v)) throw invalido('La materia prima usada no es válida.')
   if (v.length > 50) throw invalido('Son demasiadas materias primas.')
@@ -154,13 +156,14 @@ async function leerMateriaPrima(db: BaseD1, v: unknown, sector: SectorId): Promi
   const filas = await todas<{ id: string; nombre: string; sector: SectorId; tipo: string }>(db,
     'SELECT id, nombre, sector, tipo FROM productos WHERE id IN (SELECT value FROM json_each(?))', JSON.stringify(lista.map((x) => x.productoId)))
   const porId = new Map(filas.map((f) => [f.id, f]))
-  for (const x of lista) {
+  const delSector = await idsDelSector(db, sector, lista.map((x) => x.productoId))
+  return lista.map((x) => {
     const p = porId.get(x.productoId)
     if (!p) throw invalido('Esa materia prima no existe. Recargá la página y probá de nuevo.')
     if (p.tipo !== 'materia_prima') throw invalido(`${p.nombre} no es materia prima.`)
-    if (p.sector !== sector) throw prohibido(`${p.nombre} no es materia prima de este sector.`)
-  }
-  return lista
+    if (!delSector.has(p.id)) throw prohibido(`Tu sector no tiene habilitada la categoría de ${p.nombre}. Pedíselo al administrador.`)
+    return { ...x, sector: p.sector }
+  })
 }
 
 const sentenciaMovimiento = (db: BaseD1, m: {
@@ -284,7 +287,7 @@ rutasProduccion.post('/producciones', requiere('produccion.cargar'), async (c) =
     sentencias.push(sentencia(db,
       `INSERT INTO movimientos (id, sector, producto_id, lote, tipo, cantidad, deposito_id, motivo, produccion_id, usuario_id, fecha, dia)
        VALUES (?, ?, ?, NULL, 'produccion', ?, '${DEPOSITO.materiaPrima}', 'Usado en la producción', ?, ?, ?, ?)`,
-      nuevoId(), sector, m.productoId, -m.cantidad, id, u.id, fecha, dia))
+      nuevoId(), m.sector, m.productoId, -m.cantidad, id, u.id, fecha, dia))
   }
 
   try {

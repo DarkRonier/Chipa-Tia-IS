@@ -1,4 +1,5 @@
-// B01: productos de todos los sectores en una tabla paginada (10 por página). El sector es una columna más.
+// B01: productos de todos los sectores en una tabla paginada (10 por página). La columna Sector dice quién lo elabora
+// (lo elaborado) o qué sectores lo compran y usan (lo comprado: los que tienen habilitada su categoría).
 // Arriba a la izquierda el filtro, arriba a la derecha «+ Nuevo producto»; la descarga (PDF o CSV) va sobre la tabla.
 // Crear y editar se hace en un modal: en la tabla no se cambia nada directo (ni el tipo ni el precio).
 // Los productos no tienen campos de stock: el stock se lleva por depósito (pantalla Stock).
@@ -10,7 +11,7 @@ import { useAccion, useConsulta } from '../../cliente/consultas'
 import { nombreSeguro, imprimir } from '../../cliente/imprimir'
 import {
   aCSV, botonesPagina, descargarTexto, ENCABEZADOS_EXPORTACION, filasExportacion, filtrarProductos, FILTRO_VACIO, hayFiltro, paginar,
-  TIPO_CORTO, type EstadoFiltro, type FiltroProductos, type Nombres,
+  TIPO_CORTO, textoSectores, type EstadoFiltro, type FiltroProductos, type Nombres,
 } from '../../cliente/productos'
 import BotonIcono, { Acciones } from '../../components/BotonIcono'
 import { Aviso, ConDatos } from '../../components/Estado'
@@ -21,7 +22,7 @@ import { useSector } from '../../components/Layout'
 import { gs, miles } from '../../shared/dinero'
 import { diaPY } from '../../shared/hora'
 import {
-  CATEGORIA_MATERIA_PRIMA, IVAS, NOMBRE_IVA, NOMBRE_TIPO_PRODUCTO, TIPOS_PRODUCTO, type Categoria, type Iva, type Producto, type SectorId, type TipoProducto,
+  CATEGORIA_MATERIA_PRIMA, IVAS, NOMBRE_IVA, NOMBRE_TIPO_PRODUCTO, TIPOS_PRODUCTO, type Categoria, type Iva, type Producto, type Sector, type SectorId, type TipoProducto,
 } from '../../shared/tipos'
 import '../../styles/compras.css'
 import '../../styles/productos.css'
@@ -51,6 +52,7 @@ export default function Productos() {
   const nombres: Nombres = {
     sector: (id) => sectores.nombre(id),
     categoria: (id) => (id === null ? '' : listaCategorias.find((k) => k.id === id)?.nombre ?? ''),
+    sectoresCategoria: (id) => listaCategorias.find((k) => k.id === id && k.activo)?.sectores ?? [],
   }
   const filtrados = useMemo(() => filtrarProductos(c.datos ?? [], filtro, nombres),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -261,7 +263,7 @@ function FilaProducto({ p, nombres, alEditar }: { p: Producto; nombres: Nombres;
             </span>
           )}
         </td>
-        <td data-etiqueta="Sector" className="sin-cortar">{nombres.sector(p.sector)}</td>
+        <td data-etiqueta="Sector" title={p.tipo === 'elaborado' ? 'Lo elabora' : 'Lo compran y usan (según su categoría)'}>{textoSectores(p, nombres)}</td>
         <td data-etiqueta="Tipo" className="sin-cortar"><span className={`prod-tipo tipo-${p.tipo}`}>{TIPO_CORTO[p.tipo]}</span></td>
         <td data-etiqueta="Categoría" className={categoria ? undefined : 'vacia'}>{categoria || nada}</td>
         <td data-etiqueta="Precio de venta" className="num">{p.precioVenta === null ? <span className="suave">No se vende</span> : gs(p.precioVenta)}</td>
@@ -307,7 +309,10 @@ function Paginacion({ actual, paginas, ir }: { actual: number; paginas: number; 
 // ---------- Modal de alta y edición ----------
 
 interface Datos {
+  /** Sector que lo elabora (solo lo elaborado lo elige). */
   sector: SectorId
+  /** Materia prima nueva: si lleva lote de materia prima (se crea al comprarla, para elegirlo en la amasada). */
+  conLote: boolean
   nombre: string
   codigo: string
   tipo: TipoProducto
@@ -324,6 +329,7 @@ const UNIDADES = ['unidades', 'kg', 'g', 'litros', 'ml', 'docenas', 'paquetes', 
 
 const datosDe = (p: Producto): Datos => ({
   sector: p.sector,
+  conLote: false,
   nombre: p.nombre,
   codigo: p.codigo,
   tipo: p.tipo,
@@ -353,7 +359,7 @@ function cuerpo(d: Datos) {
 function ModalProducto({ modo, categorias, sectores, productos, alCerrar, alGuardar }: {
   modo: Modo
   categorias: Categoria[]
-  sectores: { id: SectorId; nombre: string }[]
+  sectores: Sector[]
   /** Para sugerir las subcategorías que ya se usan en la categoría elegida (ej.: «Minutas» en Chipas y bocaditos). */
   productos: Producto[]
   alCerrar: () => void
@@ -362,7 +368,7 @@ function ModalProducto({ modo, categorias, sectores, productos, alCerrar, alGuar
   const sectorArriba = useSector()
   const original = modo.tipo === 'editar' ? modo.producto : null
   const [d, setD] = useState<Datos>(() => original ? datosDe(original) : {
-    sector: sectorArriba, nombre: '', codigo: '', tipo: 'elaborado', categoriaId: categorias.find((k) => k.sistema)?.id ?? '',
+    sector: sectorArriba, conLote: false, nombre: '', codigo: '', tipo: 'elaborado', categoriaId: categorias.find((k) => k.sistema)?.id ?? '',
     subcategoria: '', unidad: 'unidades', sinStock: false, precioVenta: '', iva: 10,
   })
   const set = (c: Partial<Datos>) => setD((x) => ({ ...x, ...c }))
@@ -377,10 +383,21 @@ function ModalProducto({ modo, categorias, sectores, productos, alCerrar, alGuar
     return { ...x, tipo }
   })
   const nombreSector = sectores.find((s) => s.id === d.sector)?.nombre ?? d.sector
+  // Lo comprado no es de un sector: lo usan los que tienen habilitada su categoría. Por dentro el producto guarda un
+  // sector igual (el libro de stock lo pide): para la materia prima, uno con lotes si lleva lote de materia prima
+  // (Chipería) y uno sin lotes si no; para la venta directa, uno sin lotes.
+  const conLotes = sectores.find((s) => s.conLotes)?.id
+  const sinLotes = sectores.find((s) => !s.conLotes)?.id
+  const sectorAlGuardar = (x: Datos): SectorId => {
+    if (x.tipo === 'elaborado') return x.sector
+    if (x.tipo === 'materia_prima' && x.conLote) return conLotes ?? x.sector
+    return sinLotes ?? x.sector
+  }
+  const llevaLote = original ? !!sectores.find((s) => s.id === original.sector)?.conLotes : d.conLote
 
   const guardar = useAccion(async () => {
     const nuevo = cuerpo(d)
-    if (!original) return post<Producto>('/productos', { sector: d.sector, ...nuevo })
+    if (!original) return post<Producto>('/productos', { sector: sectorAlGuardar(d), ...nuevo })
     // Solo lo que cambió.
     const antes = cuerpo(datosDe(original)) as Record<string, unknown>
     const cambios = Object.fromEntries(Object.entries(nuevo).filter(([k, v]) => v !== antes[k]))
@@ -391,7 +408,7 @@ function ModalProducto({ modo, categorias, sectores, productos, alCerrar, alGuar
   const enviar = async (e: FormEvent) => {
     e.preventDefault()
     const p = await guardar.ejecutar()
-    if (p) alGuardar(original ? `Se guardaron los cambios de «${p.nombre}».` : `«${p.nombre}» agregado a ${nombreSector}.`)
+    if (p) alGuardar(original ? `Se guardaron los cambios de «${p.nombre}».` : p.tipo === 'elaborado' ? `«${p.nombre}» agregado a ${nombreSector}.` : `«${p.nombre}» agregado.`)
   }
 
   const unidades = UNIDADES.includes(d.unidad) || !d.unidad ? UNIDADES : [...UNIDADES, d.unidad]
@@ -408,19 +425,33 @@ function ModalProducto({ modo, categorias, sectores, productos, alCerrar, alGuar
             <span>Nombre</span>
             <input value={d.nombre} onChange={(e) => set({ nombre: e.target.value })} maxLength={100} required autoFocus placeholder="Chipa so'o" />
           </label>
-          {original ? (
+          {d.tipo === 'elaborado' && (original ? (
             <div className="campo">
-              <span>Sector</span>
-              <p className="prod-fijo" title="El sector no se cambia: el stock y el historial del producto son de ese sector">{nombreSector}</p>
+              <span>Lo elabora</span>
+              <p className="prod-fijo" title="No se cambia: el stock y el historial del producto son de ese sector">{nombreSector}</p>
             </div>
           ) : (
             <label className="campo">
-              <span>Sector</span>
+              <span>Lo elabora</span>
               <select value={d.sector} onChange={(e) => set({ sector: e.target.value as SectorId })}>
                 {sectores.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
               </select>
             </label>
-          )}
+          ))}
+          {d.tipo === 'materia_prima' && (original ? (
+            <div className="campo">
+              <span>Lote de materia prima</span>
+              <p className="prod-fijo" title="No se cambia después de crearla">{llevaLote ? 'Lleva lote' : 'Sin lote'}</p>
+            </div>
+          ) : (
+            <label className="campo">
+              <span>Lote de materia prima</span>
+              <select value={d.conLote ? 'si' : 'no'} onChange={(e) => set({ conLote: e.target.value === 'si' })}>
+                <option value="si">Lleva lote (para la trazabilidad de Chipería)</option>
+                <option value="no">Sin lote</option>
+              </select>
+            </label>
+          ))}
           <label className="campo">
             <span>Código <span className="opcional">opcional</span></span>
             <input value={d.codigo} onChange={(e) => set({ codigo: e.target.value })} maxLength={30} />
@@ -451,7 +482,7 @@ function ModalProducto({ modo, categorias, sectores, productos, alCerrar, alGuar
             </select>
           </label>
           <p className="pista-campo ancho">
-            La categoría agrupa los productos en Depósitos y dice qué sectores la pueden comprar. «Otros» es para los que no entran en ninguna.
+            La categoría agrupa los productos en Depósitos y dice qué sectores la pueden comprar y usar. «Otros» es para los que no entran en ninguna.
           </p>
         </div>
 

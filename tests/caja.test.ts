@@ -232,12 +232,12 @@ describe('stock de la venta: todo sale de «Directo a Venta»', () => {
     const v = await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: leche.id, cantidad: 3 }], medio: 'efectivo' })
     expect(v.status).toBe(200)
     expect(v.body.total).toBe(27000)
-    expect(await stockDe(p, admin, 'cocina', leche.id, 'materia_prima')).toBe(7)
-    expect(await stockDe(p, admin, 'cocina', leche.id, 'venta')).toBe(0)
+    expect(await stockDe(p, admin, '', leche.id, 'materia_prima')).toBe(7)
+    expect(await stockDe(p, admin, '', leche.id, 'venta')).toBe(0)
     expect((await p.pedir(cajero, 'POST', '/ventas', { items: [{ productoId: harina.id, cantidad: 1 }], medio: 'efectivo' })).status).toBe(400)
     // Al anular, vuelve a Materia prima.
     expect((await p.pedir(admin, 'POST', `/ventas/${v.body.id}/anular`, { motivo: 'Mal cobrada' })).status).toBe(200)
-    expect(await stockDe(p, admin, 'cocina', leche.id, 'materia_prima')).toBe(10)
+    expect(await stockDe(p, admin, '', leche.id, 'materia_prima')).toBe(10)
   })
 
   it('el administrador y el supervisor no venden; el administrador ve las ventas y puede anularlas', async () => {

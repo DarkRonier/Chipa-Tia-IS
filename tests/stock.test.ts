@@ -195,7 +195,7 @@ describe('POST /salidas (D02, D04)', () => {
     // Lo de otro sector no lo mueve.
     const otro = await p.pedir(t, 'POST', '/salidas', { productoId: CHIPA, cantidad: 1 })
     expect(otro.status).toBe(403)
-    expect(otro.body.error.mensaje).toBe('Chipa tradicional es de otro sector: lo mueve ese sector o el administrador.')
+    expect(otro.body.error.mensaje).toBe('Chipa tradicional no es de tu sector: lo mueve el sector que lo usa o el administrador.')
     expect((await p.sql('SELECT COUNT(*) AS n FROM movimientos'))[0].n).toBe(1)
   })
 
@@ -221,8 +221,8 @@ describe('POST /salidas (D02, D04)', () => {
     const admin = await p.entrar('admin')
     const r = await p.pedir(cocina, 'POST', '/salidas', { sector: 'chiperia', productoId: CHIPA, lote: 'CH-261009-1', cantidad: 1 })
     expect(r.status).toBe(403)
-    // El sector sale del producto; si se dice otro, no coincide.
-    expect((await p.pedir(admin, 'POST', '/salidas', { sector: 'chiperia', productoId: EMPANADA, cantidad: 1 })).status).toBe(403)
+    // El sector sale del producto: el administrador mueve cualquiera, aunque diga otro sector (solo se valida que exista).
+    expect((await p.pedir(admin, 'POST', '/salidas', { sector: 'no-existe', productoId: EMPANADA, cantidad: 1 })).status).toBe(400)
     const a = await p.pedir<Movimiento>(admin, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 1 })
     expect(a.status).toBe(200)
     expect(a.body).toMatchObject({ sector: 'cocina', usuarioId: 'usr-admin', cantidad: -1 })
@@ -414,8 +414,8 @@ describe('POST /ajustes (D06, D07) · solo admin', () => {
       expect(r.status, JSON.stringify(cuerpo)).toBe(400)
       expect(r.body.error.mensaje).toBe(mensaje)
     }
-    // Sin sector vale (sale del producto); con otro sector, no coincide.
-    expect((await p.pedir(admin, 'POST', '/ajustes', { ...base, tipo: 'merma', productoId: MBEJU, sector: 'panaderia' })).status).toBe(403)
+    // Sin sector vale (sale del producto); un sector que no existe, no.
+    expect((await p.pedir(admin, 'POST', '/ajustes', { ...base, tipo: 'merma', productoId: MBEJU, sector: 'no-existe' })).status).toBe(400)
     const r = await p.pedir(admin, 'POST', '/ajustes', { ...base, sector: undefined, tipo: 'merma', cantidad: 3 })
     expect(r.status).toBe(409)
     expect(r.body.error.mensaje).toBe('No hay stock suficiente en «Cámara 1»: de Empanada frita (carne) hay 2 y querés sacar 3.')

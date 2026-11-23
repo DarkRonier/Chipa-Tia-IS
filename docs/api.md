@@ -116,8 +116,8 @@ Los `PATCH` sin ningún campo editable dan `400`.
 |---|---|---|---|
 | GET | `/sectores` | | `Sector[]` (los cuatro, en orden) |
 | PATCH | `/sectores/:id` | `{ nombre }` | `Sector` |
-| GET | `/productos` | `?sector&todos` | `Producto[]` |
-| POST | `/productos` | `{ sector, nombre, unidad? }` (más lo de compras y venta: `tipo`, `categoriaId`, `codigo`, `precioVenta`, `iva`) | `Producto` (`unidad` por defecto `unidades`; queda al final de su sector) |
+| GET | `/productos` | `?sector&todos` | `Producto[]` (con `sector`: lo que elabora y lo comprado de sus categorías habilitadas) |
+| POST | `/productos` | `{ sector, nombre, unidad? }` (más lo de compras y venta: `tipo`, `categoriaId`, `codigo`, `precioVenta`, `iva`) | `Producto` (`unidad` por defecto `unidades`; queda al final de su sector). En lo elaborado, `sector` es el que lo elabora; en la materia prima, un sector con lotes (Chipería) si lleva lote de materia prima. El nombre no se repite en lo elaborado del sector ni entre todo lo comprado (`409`) |
 | PATCH | `/productos/:id` | `{ nombre?, unidad?, activo? }` (y los mismos campos opcionales) | `Producto` |
 | GET | `/maquinas` | `?sector&todos` | `Maquina[]` (por sector y N°) |
 | POST | `/maquinas` | `{ sector, numero?, nombre, tipo, tempMin?, tempMax? }` · super-administrador | `Maquina` |
@@ -179,7 +179,7 @@ Los `PATCH` sin ningún campo editable dan `400`.
   Si el lote de materia prima entró con una compra (`LoteMP.productoId`), lo usado sale del depósito Materia prima
   (movimiento `produccion` negativo con el número de lote de la compra y motivo "Usado en la amasada CH-…"); ese
   movimiento no se frena aunque el depósito no alcance, porque el saldo del lote ya se controló (migración 0016).
-- **Otros sectores**: `materiaPrima` opcional (hasta 50 `{ productoId, cantidad }`, materia prima del mismo sector,
+- **Otros sectores**: `materiaPrima` opcional (hasta 50 `{ productoId, cantidad }`, materia prima cuya categoría tiene habilitada el sector (`403` si no),
   cantidad > 0 con hasta 3 decimales): sale del depósito Materia prima (movimiento `produccion` negativo, motivo
   "Usado en la producción"), sin frenarse si no alcanza. `Produccion.materiaPrima` lista lo usado (también lo de los
   lotes de Chipería que entraron con una compra).
@@ -210,8 +210,9 @@ Los `PATCH` sin ningún campo editable dan `400`.
   `cantidad` y `porDeposito`. Las ventas de caja descuentan de «Venta frente» (la materia prima
   con precio, como la leche, de «Materia prima»); las compras de venta directa
   (`tipo: reventa`) entran ahí y las de materia prima en «Materia prima»; lo cocinado entra en el depósito de venta
-  elegido. El sector de cada movimiento sale del producto: un operador solo mueve los de su sector (`403`); el
-  administrador no necesita indicar el sector.
+  elegido. El sector de cada movimiento sale del producto. Un operador solo mueve los productos de su sector (`403`):
+  lo elaborado, si lo elabora su sector; lo comprado (materia prima y venta directa), si su sector tiene habilitada la
+  categoría. El administrador no necesita indicar el sector.
 - `/salidas` («Sacar para la venta») pasa del almacén `desde` al depósito de venta `hacia` con dos movimientos
   `salida_venta` (motivo «De «Frío» a «Venta frente»»). `/transferencias` pasa entre dos depósitos cualesquiera
   (distintos, el destino activo) con dos movimientos `transferencia`, que no cuentan como salida en los reportes.
@@ -219,7 +220,7 @@ Los `PATCH` sin ningún campo editable dan `400`.
 - El trigger de D04 controla por producto, depósito y lote; el `409` dice cuánto hay en los otros depósitos y sugiere
   «Transferir». Las ventas de caja (tipo `venta`) son la excepción: nunca se frenan y «Venta frente» puede quedar en
   negativo (la pantalla de Depósitos lo marca: «faltan N por cargar»).
-- `/stock`: los productos activos (del sector pedido, o todos) aunque estén en 0 y los inactivos con stock ≠ 0. En Chipería,
+- `/stock`: los productos activos (los del sector pedido, con la misma regla que para mover, o todos) aunque estén en 0 y los inactivos con stock ≠ 0. En Chipería,
   `lotes` trae los lotes con cantidad > 0, el más viejo primero; en los demás sectores viene vacío.
 - **Chipería exige `lote`** en salidas, envíos (en cada línea) y ajustes (`400` si falta); en los otros
   sectores se ignora. En los ajustes el lote se guarda en mayúsculas.
@@ -313,8 +314,8 @@ Los `PATCH` sin ningún campo editable dan `400`.
 
 ## Compras, proveedores y pagos (M10)
 
-Roles: los **sectores** cargan compras solo de productos de su sector cuya categoría el administrador habilitó para
-ese sector, y ven solo las compras que cargaron (sin pagos ni saldos). **Supervisor y administrador** compran
+Roles: los **sectores** cargan compras de los productos cuya categoría el administrador habilitó para ese sector (solo
+cuenta la categoría: la harina es una sola y la compra cualquier sector con «Materia prima»), y ven solo las compras que cargaron (sin pagos ni saldos). **Supervisor y administrador** compran
 cualquier producto (y renglones de texto libre, como un flete, que no tocan el stock), gestionan proveedores, marcan
 pagos (parciales o totales), anulan compras y pagos, y ven el reporte. El cajero no entra.
 

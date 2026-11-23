@@ -33,7 +33,20 @@ export const hayFiltro = (f: FiltroProductos) =>
 export interface Nombres {
   sector: (id: SectorId) => string
   categoria: (id: string | null) => string
+  /** Sectores que tienen habilitada la categoría (los que compran y usan lo comprado de esa categoría). */
+  sectoresCategoria: (id: string | null) => SectorId[]
 }
+
+/**
+ * Sectores de un producto: lo elaborado, el sector que lo elabora; lo comprado (materia prima y venta directa), los que
+ * tienen habilitada su categoría. Sin ninguno, lo compran solo el supervisor y el administrador.
+ */
+export const sectoresDelProducto = (p: Producto, n: Nombres): SectorId[] =>
+  p.tipo === 'elaborado' ? [p.sector] : n.sectoresCategoria(p.categoriaId)
+
+/** «Chipería», «Chipitas, Panadería»… o «Supervisor y administrador» si ningún sector lo usa. */
+export const textoSectores = (p: Producto, n: Nombres) =>
+  sectoresDelProducto(p, n).map(n.sector).join(', ') || 'Supervisor y administrador'
 
 /**
  * Los productos que pasan el filtro. Los activos primero y, dentro de cada grupo, el orden que trae la API
@@ -42,13 +55,13 @@ export interface Nombres {
 export function filtrarProductos(lista: Producto[], f: FiltroProductos, n: Nombres): Producto[] {
   const palabras = normalizar(f.texto).split(/\s+/).filter(Boolean)
   const pasan = lista.filter((p) => {
-    if (f.sector && p.sector !== f.sector) return false
+    if (f.sector && !sectoresDelProducto(p, n).includes(f.sector)) return false
     if (f.tipo && p.tipo !== f.tipo) return false
     if (f.categoria === 'ninguna' ? p.categoriaId !== null : f.categoria && p.categoriaId !== f.categoria) return false
     if (f.estado === 'activos' && !p.activo) return false
     if (f.estado === 'desactivados' && p.activo) return false
     if (!palabras.length) return true
-    const todo = normalizar([p.nombre, p.codigo, n.categoria(p.categoriaId), p.subcategoria, n.sector(p.sector)].join(' '))
+    const todo = normalizar([p.nombre, p.codigo, n.categoria(p.categoriaId), p.subcategoria, textoSectores(p, n)].join(' '))
     return palabras.every((x) => todo.includes(x))
   })
   return [...pasan.filter((p) => p.activo), ...pasan.filter((p) => !p.activo)]
@@ -95,7 +108,7 @@ export function filasExportacion(lista: Producto[], n: Nombres): string[][] {
   return lista.map((p) => [
     p.nombre,
     p.codigo,
-    n.sector(p.sector),
+    textoSectores(p, n),
     TIPO_CORTO[p.tipo],
     n.categoria(p.categoriaId),
     p.subcategoria,
