@@ -135,7 +135,7 @@ function Alertas({ r, pendientes, nombre }: {
   if (lista && lista.length > 0) {
     const masVieja = lista.reduce((a, l) => (l.dia < a ? l.dia : a), lista[0].dia)
     items.push(
-      <Link key="pendientes" to="/admin/controles" className="item">
+      <Link key="pendientes" to={`/admin/controles?desde=${masVieja}`} className="item">
         <strong>{lista.length === 1 ? '1 limpieza espera el visto bueno' : `${num(lista.length)} limpiezas esperan el visto bueno`}</strong>
         <span className="chico">{masVieja < diaPY() ? `La más vieja es del ${diaLegible(masVieja)}.` : 'Todas de hoy.'}</span>
       </Link>,
