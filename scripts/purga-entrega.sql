@@ -11,7 +11,7 @@
 --     y Depósito frío 3 (sin máquina). El stock de materia prima (id interno, no es un depósito) queda vacío.
 --   - Sucursales: Sucursal Ruta y Sucursal Encarnación.
 --   - Máquinas: las de las planillas (migrations/0002_catalogo.sql) más Heladera y Freezer.
---   - Áreas y tareas de limpieza: exactamente las de las planillas (RE-09.01 a RE-09.09, migrations/0002_catalogo.sql).
+--   - Áreas y tareas de limpieza: exactamente las de las planillas (RE-09.01 a RE-09.10, migrations/0002 y 0024).
 --   - 50 productos, al menos 2 por categoría.
 -- Las facturas vuelven a empezar en el número inicial del talonario cargado en Caja → Factura.
 
@@ -242,6 +242,15 @@ INSERT INTO tareas_limpieza (id, area_id, nombre, pide_numero, activo, orden) VA
 INSERT INTO tareas_limpieza (id, area_id, nombre, pide_numero, activo, orden) VALUES ('tarea-camaras-20', 'camaras', 'Cámara en proceso: estantes', 0, 1, 19);
 INSERT INTO tareas_limpieza (id, area_id, nombre, pide_numero, activo, orden) VALUES ('tarea-camaras-21', 'camaras', 'Cámara en proceso: pallets', 0, 1, 20);
 INSERT INTO tareas_limpieza (id, area_id, nombre, pide_numero, activo, orden) VALUES ('tarea-camaras-22', 'camaras', 'Cámara en proceso: piso', 0, 1, 21);
+-- RE-09.10 Transporte y mantenimiento (migrations/0024_limpieza_transporte.sql).
+INSERT OR IGNORE INTO areas_limpieza (id, nombre, codigo, activo, orden) VALUES ('transporte', 'Transporte y mantenimiento', 'RE-09.10', 1, 10);
+INSERT OR IGNORE INTO areas_sectores (area_id, sector) VALUES ('transporte', 'chiperia');
+INSERT OR IGNORE INTO areas_sectores (area_id, sector) VALUES ('transporte', 'chipitas');
+INSERT OR IGNORE INTO areas_sectores (area_id, sector) VALUES ('transporte', 'panaderia');
+INSERT OR IGNORE INTO areas_sectores (area_id, sector) VALUES ('transporte', 'cocina');
+INSERT OR IGNORE INTO tareas_limpieza (id, area_id, nombre, pide_numero, activo, orden) VALUES ('tarea-transporte-01', 'transporte', 'Limpieza diaria / superficial', 1, 1, 0);
+INSERT OR IGNORE INTO tareas_limpieza (id, area_id, nombre, pide_numero, activo, orden) VALUES ('tarea-transporte-02', 'transporte', 'Limpieza profunda', 1, 1, 1);
+INSERT OR IGNORE INTO tareas_limpieza (id, area_id, nombre, pide_numero, activo, orden) VALUES ('tarea-transporte-03', 'transporte', 'Mantenimiento', 1, 1, 2);
 
 -- 8. Productos: 50, al menos 2 por categoría. Precios en guaraníes; la materia prima no se vende (sin precio).
 DELETE FROM productos;

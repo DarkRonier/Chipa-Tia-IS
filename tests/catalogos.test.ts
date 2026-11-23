@@ -249,7 +249,7 @@ describe('áreas y tareas de limpieza (B03)', () => {
     const chiperia = await p.entrar('chiperia')
     const suyas = (await p.pedir(chiperia, 'GET', '/areas')).body.map((a: any) => a.id)
     expect(suyas).not.toContain('cocina')
-    expect(suyas).toEqual(['chiperia', 'sanitario', 'deposito-mp'])
+    expect(suyas).toEqual(['chiperia', 'sanitario', 'deposito-mp', 'transporte'])
     expect((await p.pedir(chiperia, 'GET', '/areas?sector=cocina')).status).toBe(403)
     const [aud] = await p.sql('SELECT accion, tabla FROM auditoria WHERE registro_id = ?', r.body.id)
     expect(aud).toEqual({ accion: 'crear', tabla: 'tareas_limpieza' })
@@ -265,7 +265,7 @@ describe('áreas y tareas de limpieza (B03)', () => {
     const admin = await p.entrar('admin')
     const todas = (await p.pedir(admin, 'GET', '/areas')).body
     expect(todas.find((a: any) => a.id === 'sanitario').sectores).toEqual(['chiperia', 'chipitas', 'panaderia', 'cocina'])
-    expect(todas).toHaveLength(10)
+    expect(todas).toHaveLength(11)
   })
 
   it('crea un área con varios sectores, le cambia sectores y nombre, y la desactiva', async () => {
