@@ -41,9 +41,8 @@ function Formulario() {
 
   const filas = stock.datos ?? []
   const fila = filas.find((f) => f.productoId === productoId)
-  // Se saca de un almacén: los que tienen algo (y los almacenes en frío aunque estén vacíos).
-  const origenes = depositos.almacenes.filter((d) =>
-    d.id !== DEPOSITO.materiaPrima || filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0))
+  // Se saca de un depósito frío (la materia prima no es un depósito: no se vende desde acá).
+  const origenes = depositos.almacenes
   const desde = (origenes.find((d) => d.id === elegido) ?? origenes.find((d) => filas.some((f) => (f.porDeposito[d.id] ?? 0) > 0)) ?? origenes[0])?.id ?? ''
   const hay = (f: { porDeposito: Record<string, number> }) => f.porDeposito[desde] ?? 0
   // Cada depósito de venta recibe solo los productos de sus categorías (sin categoría cuenta como «Otros»).

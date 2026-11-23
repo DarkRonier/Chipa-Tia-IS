@@ -64,8 +64,10 @@ describe('materia prima de Chipería comprada', () => {
     const { p, admin, queso, vence } = await escenario()
     const compra = (await comprar(p, admin, [{ productoId: queso.id, cantidad: 10, precioUnitario: 30000, vencimiento: vence }])).body
     const lote = (await p.pedir<LoteMP[]>(admin, 'GET', '/lotes-mp')).body.find((l) => l.compraId === compra.id)!
-    // Alguien pasó el queso a Frío: el depósito Materia prima queda en 0.
-    expect((await p.pedir(admin, 'POST', '/transferencias', { productoId: queso.id, cantidad: 10, desde: 'materia_prima', hacia: 'frio', lote: null })).status).toBe(200)
+    // El queso se echó a perder (merma del admin): el stock de materia prima queda en 0.
+    expect((await p.pedir(admin, 'POST', '/ajustes', {
+      sector: 'chiperia', tipo: 'merma', productoId: queso.id, cantidad: 10, depositoId: 'materia_prima', motivo: 'Se echó a perder',
+    })).status).toBe(200)
     const chiperia = await p.entrar('chiperia')
     const prod = await p.pedir(chiperia, 'POST', '/producciones', {
       turno: 'dia', lotesMP: [{ id: lote.id, cantidad: 4 }], items: [{ productoId: 'prod-chiperia-01', cocinado: 50, guardado: 0 }],

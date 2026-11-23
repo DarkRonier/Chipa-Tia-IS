@@ -1,7 +1,8 @@
 // Ayudas de stock que usan varias pantallas. Lo que hay en cada depósito se ve en la pantalla Depósitos
 // (src/pages/Depositos.tsx).
 import { useConsulta } from '../../cliente/consultas'
-import type { Deposito, SectorId, StockFila } from '../../shared/tipos'
+import { NOMBRE_STOCK_MP } from '../../cliente/catalogo'
+import { DEPOSITO, type Deposito, type SectorId, type StockFila } from '../../shared/tipos'
 
 /** Stock de los productos de un sector, por depósito. */
 export const useStock = (sector: SectorId) => useConsulta<StockFila[]>('/stock', { sector })
@@ -15,6 +16,6 @@ export function repartoStock(porDeposito: Record<string, number>, depositos: Dep
   const ids = [...depositos.map((d) => d.id), ...Object.keys(porDeposito).filter((id) => !depositos.some((d) => d.id === id))]
   return ids
     .filter((id) => (porDeposito[id] ?? 0) !== 0)
-    .map((id) => `${depositos.find((d) => d.id === id)?.nombre ?? id}: ${porDeposito[id]}`)
+    .map((id) => `${depositos.find((d) => d.id === id)?.nombre ?? (id === DEPOSITO.materiaPrima ? NOMBRE_STOCK_MP : id)}: ${porDeposito[id]}`)
     .join(' · ')
 }

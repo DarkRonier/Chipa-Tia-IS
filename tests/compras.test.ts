@@ -302,12 +302,15 @@ describe('anulaciones', () => {
   it('no se anula si lo comprado ya salió de su depósito', async () => {
     const { p, sup, cocina, gaseosa, proveedor } = await escenario()
     const c = (await p.pedir<Compra>(sup, 'POST', '/compras', { proveedorId: proveedor.id, items: [{ productoId: gaseosa.id, cantidad: 6, precioUnitario: 5000 }] })).body
-    // La gaseosa (venta directa) entra en Directo a Venta; 2 se pasan a Frío.
-    expect((await p.pedir(cocina, 'POST', '/transferencias', { productoId: gaseosa.id, cantidad: 2, desde: 'venta', hacia: 'frio' })).status).toBe(200)
+    // La gaseosa (venta directa) entra en Venta frente; 2 se rompen (merma). De la venta no se transfiere.
+    expect((await p.pedir(cocina, 'POST', '/transferencias', { productoId: gaseosa.id, cantidad: 2, desde: 'venta', hacia: 'frio' })).status).toBe(400)
+    expect((await p.pedir(await p.entrar('admin'), 'POST', '/ajustes', {
+      sector: 'cocina', tipo: 'merma', productoId: gaseosa.id, cantidad: 2, depositoId: 'venta', motivo: 'Se rompieron',
+    })).status).toBe(200)
     const r = await p.pedir(sup, 'POST', `/compras/${c.id}/anular`, { motivo: 'x' })
     expect(r.status).toBe(409)
     expect(r.body.error.codigo).toBe('stock_insuficiente')
-    expect((await stockDe(p, sup, 'cocina', gaseosa.id))?.porDeposito).toMatchObject({ venta: 4, frio: 2 })
+    expect((await stockDe(p, sup, 'cocina', gaseosa.id))?.porDeposito).toMatchObject({ venta: 4 })
   })
 })
 

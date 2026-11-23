@@ -1,6 +1,6 @@
 // Consultas de catálogo que usan muchas pantallas.
 import { NOMBRE_ROL_GENERAL, sectorDeRol } from '../shared/permisos'
-import type { Categoria, Deposito, Maquina, Rol, Sector, SectorId } from '../shared/tipos'
+import { DEPOSITO, type Categoria, type Deposito, type Maquina, type Rol, type Sector, type SectorId } from '../shared/tipos'
 import { useConsulta } from './consultas'
 
 export function useSectores() {
@@ -11,13 +11,16 @@ export function useSectores() {
 }
 
 /**
- * Depósitos que existen, en su orden: los de venta (Venta frente, Venta comedor), los almacenes y Materia prima.
+ * Depósitos que existen, en su orden: los de venta (Venta frente, Venta comedor) y los fríos. La materia prima no es un
+ * depósito (no viene en la lista), pero `nombre()` la muestra como «Stock de materia prima» en el historial.
  * `nombre(id)` para mostrarlos; `venta` y `almacenes` para elegir.
  */
+export const NOMBRE_STOCK_MP = 'Stock de materia prima'
+
 export function useDepositos() {
   const c = useConsulta<Deposito[]>('/depositos')
   const lista = c.datos ?? []
-  const nombre = (id: string) => lista.find((d) => d.id === id)?.nombre ?? id
+  const nombre = (id: string) => lista.find((d) => d.id === id)?.nombre ?? (id === DEPOSITO.materiaPrima ? NOMBRE_STOCK_MP : id)
   return {
     ...c, lista, activos: lista, nombre,
     venta: lista.filter((d) => d.tipo === 'venta'),
