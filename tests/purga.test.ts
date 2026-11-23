@@ -44,9 +44,9 @@ describe('purga para la entrega', () => {
     ])
     expect((await p.sql('SELECT nombre FROM sucursales ORDER BY nombre')).map((s) => s.nombre)).toEqual(['Sucursal Encarnación', 'Sucursal Ruta'])
 
-    // Limpieza: las 10 áreas y 132 tareas de las planillas.
-    expect(await cuenta('areas_limpieza')).toBe(10)
-    expect(await cuenta('tareas_limpieza')).toBe(132)
+    // Limpieza: las 11 áreas y 135 tareas de las planillas (RE-09.01 a RE-09.10).
+    expect(await cuenta('areas_limpieza')).toBe(11)
+    expect(await cuenta('tareas_limpieza')).toBe(135)
 
     // 50 productos distintos, al menos 2 por cada categoría activa; lo que se vende tiene precio.
     const prods = await p.sql('SELECT nombre, tipo, precio_venta, categoria_id FROM productos')
