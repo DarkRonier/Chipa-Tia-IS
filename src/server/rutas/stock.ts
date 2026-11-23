@@ -2,11 +2,13 @@
 // por producto, depósito y (en Chipería) lote. Los depósitos no se separan por sector: el sector es de quién produce
 // (y quién puede mover) cada producto. Depósitos (migraciones 0014 y 0015):
 // - Venta frente (`venta`) y Venta comedor (`comedor`): lo listo para vender. Las ventas de caja descuentan de acá.
-// - Almacenes (en frío; el super-administrador crea y borra) y Materia prima: lo guardado o comprado.
+// - Depósitos fríos (el super-administrador crea y borra): lo guardado.
+// - La materia prima comprada no es un depósito (Mati, 2026-11-23): su stock vive en `materia_prima`, que no se lista
+//   ni se elige; solo lo mueven las compras (suman) y la producción (consume).
 // - Las sucursales no son un depósito: un envío sale de un almacén y solo queda registrado lo que se mandó.
 // Los productos «sin stock» (el buffet por kilo) no tienen movimientos: solo se registran sus ventas.
-// «Sacar para la venta» (`POST /salidas`) pasa unidades de un almacén a un depósito de venta, y
-// `POST /transferencias` las pasa entre dos depósitos cualquiera. Los dos son un par de movimientos que no cambia el total.
+// «Sacar para la venta» (`POST /salidas`) pasa unidades de un frío a un depósito de venta, y
+// `POST /transferencias` las pasa de un frío a otro. De la venta solo se vende o se da de baja (ajuste del admin). Los dos son un par de movimientos que no cambia el total.
 // El trigger `movimientos_sin_stock_negativo` (D04) rechaza cualquier salida que deje negativo un producto o un lote en
 // un depósito (menos las ventas de caja), y un envío de varias líneas va en un solo `batch`: si una línea no alcanza,
 // no se registra ninguna.
@@ -45,14 +47,16 @@ export interface DepositoElegido { id: string; nombre: string }
  * `campo`: «el depósito», «de qué depósito sale»…
  */
 export async function leerDeposito(
-  db: BaseD1, v: unknown, porDefecto: string | null, campo = 'el depósito', tipo?: TipoDeposito,
+  db: BaseD1, v: unknown, porDefecto: string | null, campo = 'el depósito', tipo?: TipoDeposito, admiteMP = false,
 ): Promise<DepositoElegido> {
   if (vacio(v) && !porDefecto) throw invalido(`Elegí ${campo}.`)
   const id = vacio(v) ? porDefecto! : texto(v, campo, { max: 100 })
   const f = await una<{ id: string; nombre: string; activo: number; tipo: TipoDeposito }>(
     db, 'SELECT id, nombre, activo, tipo FROM depositos WHERE id = ?', id,
   )
-  if (!f) throw invalido('Ese depósito no existe. Recargá la página y probá de nuevo.')
+  // La materia prima no es un depósito (Mati, 2026-11-23): la mueven las compras, la producción y los ajustes del admin
+  // (`admiteMP`: stock inicial, merma).
+  if (!f || (f.id === DEPOSITO.materiaPrima && !admiteMP)) throw invalido('Ese depósito no existe. Recargá la página y probá de nuevo.')
   if (!f.activo) throw invalido(`El depósito ${f.nombre} ya no existe. Elegí otro.`)
   if (tipo && f.tipo !== tipo) {
     throw invalido(tipo === 'venta' ? `«${f.nombre}» no es un depósito de venta. Elegí Venta frente o Venta comedor.` : `«${f.nombre}» no es un depósito frío. Elegí uno.`)
@@ -533,7 +537,7 @@ rutasStock.post('/ajustes', requiere('stock.ajustar', 'Solo el administrador pue
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Indicá el lote.', producto)
   const cantidad = cantidadPositiva(b.cantidad)
-  const deposito = await leerDeposito(db, b.depositoId, await almacenPorDefecto(db))
+  const deposito = await leerDeposito(db, b.depositoId, await almacenPorDefecto(db), 'el depósito', undefined, true)
   let signo: 1 | -1
   if (tipo === 'ajuste') {
     if (b.sentido !== 1 && b.sentido !== -1) throw invalido('Elegí si el ajuste suma o resta.')
@@ -581,10 +585,19 @@ rutasStock.post('/transferencias', requiere('stock.mover'), async (c) => {
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote.', producto)
   const cantidad = cantidadPositiva(b.cantidad)
+  // Transferir es solo entre depósitos fríos (Mati, 2026-11-23). A la venta se pasa con «Sacar para la venta», a una
+  // sucursal con «Envío a sucursal», y de la venta solo se vende o se da de baja (merma).
   const desde = await leerDeposito(db, b.desde, null, 'de qué depósito sale')
   const hacia = await leerDeposito(db, b.hacia, null, 'a qué depósito va')
+  const tipos = await todas<{ id: string; tipo: TipoDeposito }>(db, 'SELECT id, tipo FROM depositos WHERE id IN (?, ?)', desde.id, hacia.id)
+  const tipoDe = (id: string) => tipos.find((t) => t.id === id)?.tipo
+  if (tipoDe(desde.id) === 'venta') {
+    throw invalido(`Lo que está en «${desde.nombre}» ya está a la venta: solo se vende o, si se perdió, se registra como merma.`)
+  }
+  if (tipoDe(hacia.id) === 'venta') {
+    throw invalido(`Para pasar a «${hacia.nombre}» usá «Sacar para la venta».`)
+  }
   if (desde.id === hacia.id) throw invalido('El depósito de origen y el de destino son el mismo. Elegí otro destino.')
-  await controlarCategoria(db, hacia, producto)
 
   // Primero sale del depósito de origen: si no alcanza, el trigger frena todo el par.
   const motivo = `De «${desde.nombre}» a «${hacia.nombre}»`

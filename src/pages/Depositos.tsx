@@ -277,7 +277,12 @@ function DepositoElegido({ deposito, stock, alBorrar }: {
         {(filas) => (
           <>
             <TablaDeposito deposito={deposito} filas={filas} vendido={vendido.datos ?? []} />
-            {puede('stock.mover') && (
+            {esVenta && (
+              <p className="suave chico stk-ayuda">
+                Lo que está en «{deposito.nombre}» ya está a la venta: de acá solo se vende o, si se perdió o venció, se registra como merma.
+              </p>
+            )}
+            {puede('stock.mover') && !esVenta && (
               <Transferir
                 key={deposito.id}
                 desde={deposito}
@@ -417,7 +422,7 @@ function TablaDeposito({ deposito, filas, vendido }: { deposito: Deposito; filas
                       {!f.activo && <span className="stk-desactivado">desactivado</span>}
                       {f.subcategoria && <div className="suave chico">{f.subcategoria}</div>}
                       {esVenta && n < 0 && <div className="chico stk-negativo">Se vendió más de lo que se cargó: faltan {-n} por cargar.</div>}
-                      {!corresponde(f) && <div className="chico stk-negativo">Su categoría no va en este depósito: pasalo a otro con «Transferir».</div>}
+                      {!corresponde(f) && <div className="chico stk-negativo">Su categoría no va en este depósito.</div>}
                       {lotes.length > 0 && (
                         <details className="stk-ver-lotes">
                           <summary>{lotes.length === 1 ? '1 lote' : `${lotes.length} lotes`}</summary>
@@ -463,14 +468,12 @@ function Transferir({ desde, filas }: { desde: Deposito; filas: StockFila[] }) {
   const [aviso, setAviso] = useState<string | null>(null)
   const [listo, setListo] = useState<string | null>(null)
   const registrar = useAccion((p: PedidoTransferencia) => post<Movimiento[]>('/transferencias', p))
-  const categorias = useCategorias()
-  const otros = categorias.lista.find((c) => c.sistema)?.id
 
   const hay = (f: { porDeposito: Record<string, number> }) => f.porDeposito[desde.id] ?? 0
   const conStock = filas.filter((f) => hay(f) > 0 || f.productoId === productoId)
   const fila = filas.find((f) => f.productoId === productoId)
-  // A un depósito de venta va solo lo de sus categorías.
-  const destinos = depositos.lista.filter((d) => d.id !== desde.id && (!fila || admite(d, fila.categoriaId, otros)))
+  // Transferir es solo de un frío a otro frío (Mati, 2026-11-23). A la venta: «Sacar para la venta»; a una sucursal: «Envío a sucursal».
+  const destinos = depositos.almacenes.filter((d) => d.id !== desde.id)
   const conLotes = !!fila && (sectores.lista.find((s) => s.id === fila.sector)?.conLotes ?? false)
   const lotes = (fila?.lotes ?? []).filter((l) => hay(l) > 0)
   const disponible = !fila ? 0 : conLotes ? hay(lotes.find((l) => l.lote === lote) ?? { porDeposito: {} }) : hay(fila)
@@ -501,15 +504,16 @@ function Transferir({ desde, filas }: { desde: Deposito; filas: StockFila[] }) {
     }
   }
 
-  if (!conStock.length && !listo) return null
+  if ((!conStock.length || !destinos.length) && !listo) return null
   const error = aviso ?? registrar.error
   return (
     <>
       <h2>Transferir desde {desde.nombre}</h2>
       <div className="tarjeta">
         <p className="suave chico stk-ayuda">
-          Pasá productos de «{desde.nombre}» a otro depósito. Por ejemplo, 20 chipas de una cámara a «Venta frente».
-          Para mandar a una sucursal usá <Link className="btn-discreto chico" to="/sector/envio">Envío a sucursal</Link>.
+          Pasá productos de «{desde.nombre}» a otro depósito frío. Por ejemplo, 20 chipas de «Cámara 1» a «Cámara 2».
+          Para ponerlos a la venta usá <Link className="btn-discreto chico" to="/sector/salida">Sacar para la venta</Link>;
+          para mandarlos a una sucursal, <Link className="btn-discreto chico" to="/sector/envio">Envío a sucursal</Link>.
         </p>
         <label className="campo">
           <span>Producto</span>
@@ -522,7 +526,7 @@ function Transferir({ desde, filas }: { desde: Deposito; filas: StockFila[] }) {
           <span>Hacia</span>
           <select value={hacia} onChange={(e) => { limpiar(); setHacia(e.target.value) }}>
             <option value="">Elegí el depósito</option>
-            {destinos.map((d) => <option key={d.id} value={d.id}>{d.nombre} ({NOMBRE_TIPO_DEPOSITO[d.tipo].toLowerCase()})</option>)}
+            {destinos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
           </select>
         </label>
         {conLotes && (

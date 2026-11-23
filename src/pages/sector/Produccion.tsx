@@ -248,7 +248,7 @@ function Formulario() {
         {materiasPrimas.length > 0 && (
           <details className="campo prod-lotes-mp" open={mpUsadas.length > 0 || undefined}>
             <summary>Materia prima usada <span className="opcional">opcional</span></summary>
-            <p className="suave chico">Lo que anotes sale del depósito «{depositos.nombre(DEPOSITO.materiaPrima)}».</p>
+            <p className="suave chico">Lo que anotes se descuenta del stock de materia prima (lo comprado).</p>
             <div className="prod-consumos">
               {materiasPrimas.map((p) => (
                 <div className="prod-consumo" key={p.id}>

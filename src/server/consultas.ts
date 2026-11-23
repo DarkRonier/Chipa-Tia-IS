@@ -352,7 +352,8 @@ export async function leerMovimientos(db: BaseD1, filtro: FiltroMovimientos = {}
  * Depósitos que existen, en su orden: los de venta (frente, comedor) y los fríos (Materia prima, cámaras…). De cada
  * frío con máquina vinculada trae la última medición; de cada uno de venta, las categorías que admite.
  */
-export async function leerDepositos(db: BaseD1): Promise<Deposito[]> {
+/** Depósitos vigentes. La materia prima no es un depósito: solo viene con `conMP` (el reporte, para su columna). */
+export async function leerDepositos(db: BaseD1, conMP = false): Promise<Deposito[]> {
   const [filas, cats] = await Promise.all([
     todas<{
       id: string; nombre: string; descripcion: string; sistema: number; activo: number; tipo: TipoDeposito
@@ -366,8 +367,9 @@ export async function leerDepositos(db: BaseD1): Promise<Deposito[]> {
          LEFT JOIN maquinas m ON m.id = d.maquina_id
          LEFT JOIN lecturas l ON l.id = (SELECT x.id FROM lecturas x WHERE x.maquina_id = d.maquina_id ORDER BY x.fecha DESC, x.id LIMIT 1)
          LEFT JOIN usuarios u ON u.id = l.usuario_id
-        WHERE d.borrado_en IS NULL
+        WHERE d.borrado_en IS NULL AND (? OR d.id <> 'materia_prima')
         ORDER BY d.orden, d.nombre`,
+      conMP ? 1 : 0,
     ),
     todas<{ deposito_id: string; categoria_id: string }>(
       db,

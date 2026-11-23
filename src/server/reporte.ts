@@ -115,7 +115,7 @@ export async function armarReporte(db: BaseD1, p: PedidoReporte): Promise<Report
       sector: f.sector, productoId: f.producto_id, productoNombre: f.nombre, cocinado: f.cocinado, guardado: f.guardado,
     })),
     stock: juntarStock(stock),
-    depositos: await leerDepositos(db),
+    depositos: await leerDepositos(db, true),
     envios: envios.map((f) => ({
       sucursalId: f.sucursal_id, sucursalNombre: f.sucursal_nombre, productoNombre: f.producto_nombre, sector: f.sector, cantidad: f.cantidad,
     })),

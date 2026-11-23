@@ -29,7 +29,7 @@ async function superAdmin(p: Prueba, admin: string) {
 }
 
 describe('catálogo de depósitos', () => {
-  it('dos de venta (frente y comedor), Frío y Materia prima; todos los ven, solo el administrador los renombra', async () => {
+  it('dos de venta (frente y comedor) y Cámara 1; la materia prima no es un depósito; todos los ven, solo el administrador los renombra', async () => {
     const p = await nuevaPrueba()
     const cocina = await p.entrar('cocina')
     const r = await p.pedir<Deposito[]>(cocina, 'GET', '/depositos')
@@ -38,13 +38,11 @@ describe('catálogo de depósitos', () => {
       ['venta', 'Venta frente', 'venta', true],
       ['comedor', 'Venta comedor', 'venta', true],
       ['frio', 'Cámara 1', 'almacen', false],
-      ['materia_prima', 'Materia prima', 'almacen', true],
     ])
     // Cada depósito de venta admite sus categorías; los fríos, cualquiera.
     expect(r.body.map((d) => d.categorias)).toEqual([
       ['cat-bocaditos', 'cat-sticks', 'cat-panificados', 'cat-bebidas', 'cat-amandau', 'cat-otros'],
       ['cat-buffet', 'cat-bebidas'],
-      [],
       [],
     ])
     expect(r.body.every((d) => d.maquina === null)).toBe(true)
@@ -54,6 +52,7 @@ describe('catálogo de depósitos', () => {
     expect((await p.pedir(cocina, 'PATCH', '/depositos/frio', { nombre: 'Heladera' })).status).toBe(403)
     const admin = await p.entrar('admin')
     expect((await p.pedir<Deposito>(admin, 'PATCH', '/depositos/venta', { nombre: 'Mostrador' })).body.nombre).toBe('Mostrador')
+    expect((await p.pedir(admin, 'PATCH', '/depositos/materia_prima', { nombre: 'Materia prima' })).status).toBe(404)
   })
 
   it('solo el super-administrador crea y borra almacenes; vacíos y quedando al menos otro', async () => {
@@ -75,11 +74,12 @@ describe('catálogo de depósitos', () => {
     expect(nuevo.body).toMatchObject({ nombre: 'Cámara 2', descripcion: 'La del fondo', sistema: false, activo: true, tipo: 'almacen' })
     expect((await p.pedir(admin, 'POST', '/depositos', { nombre: 'cámara 2' })).status).toBe(409)
     expect((await p.pedir(admin, 'POST', '/depositos', { nombre: '' })).status).toBe(400)
-    // Va después de los otros almacenes y antes de Materia prima.
-    expect((await p.pedir<Deposito[]>(admin, 'GET', '/depositos')).body.map((d) => d.id)).toEqual(['venta', 'comedor', 'frio', nuevo.body.id, 'materia_prima'])
+    // Va después de los otros depósitos fríos.
+    expect((await p.pedir<Deposito[]>(admin, 'GET', '/depositos')).body.map((d) => d.id)).toEqual(['venta', 'comedor', 'frio', nuevo.body.id])
 
-    // Los de venta y Materia prima no se borran.
-    for (const id of ['venta', 'comedor', 'materia_prima']) {
+    // Los de venta no se borran; la materia prima no es un depósito.
+    expect((await p.pedir(admin, 'DELETE', '/depositos/materia_prima')).status).toBe(404)
+    for (const id of ['venta', 'comedor']) {
       const r = await p.pedir(admin, 'DELETE', `/depositos/${id}`)
       expect(r.status).toBe(409)
       expect(r.body.error.codigo).toBe('deposito_del_sistema')
@@ -115,19 +115,21 @@ describe('catálogo de depósitos', () => {
 })
 
 describe('transferencias', () => {
-  it('pasan unidades entre depósitos sin cambiar el total, y el historial muestra solo la salida con «De … a …»', async () => {
+  it('pasan unidades de un frío a otro sin cambiar el total, y el historial muestra solo la salida con «De … a …»', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
     const cocina = await p.entrar('cocina')
+    await superAdmin(p, admin)
+    const camara2 = (await p.pedir<Deposito>(admin, 'POST', '/depositos', { nombre: 'Cámara 2' })).body
     await cargar(p, admin, EMPANADA, 10, 'frio')
-    const r = await p.pedir<Movimiento[]>(cocina, 'POST', '/transferencias', { productoId: EMPANADA, cantidad: 4, desde: 'frio', hacia: 'venta' })
+    const r = await p.pedir<Movimiento[]>(cocina, 'POST', '/transferencias', { productoId: EMPANADA, cantidad: 4, desde: 'frio', hacia: camara2.id })
     expect(r.status).toBe(200)
-    expect(r.body.map((m) => [m.tipo, m.depositoId, m.cantidad])).toEqual([['transferencia', 'frio', -4], ['transferencia', 'venta', 4]])
-    expect(await fila(p, cocina, 'cocina', EMPANADA)).toMatchObject({ total: 10, porDeposito: { frio: 6, venta: 4 } })
+    expect(r.body.map((m) => [m.tipo, m.depositoId, m.cantidad])).toEqual([['transferencia', 'frio', -4], ['transferencia', camara2.id, 4]])
+    expect(await fila(p, cocina, 'cocina', EMPANADA)).toMatchObject({ total: 10, porDeposito: { frio: 6, [camara2.id]: 4 } })
     const historial = (await p.pedir<Movimiento[]>(cocina, 'GET', `/movimientos?producto=${EMPANADA}&tipo=transferencia`)).body
-    expect(historial.map((m) => [m.depositoId, m.cantidad, m.motivo])).toEqual([['frio', -4, 'De «Cámara 1» a «Venta frente»']])
+    expect(historial.map((m) => [m.depositoId, m.cantidad, m.motivo])).toEqual([['frio', -4, 'De «Cámara 1» a «Cámara 2»']])
     // Filtrar por depósito.
-    expect((await p.pedir<Movimiento[]>(cocina, 'GET', `/movimientos?producto=${EMPANADA}&deposito=venta`)).body).toEqual([])
+    expect((await p.pedir<Movimiento[]>(cocina, 'GET', `/movimientos?producto=${EMPANADA}&deposito=${camara2.id}`)).body).toEqual([])
     expect((await p.pedir<Movimiento[]>(cocina, 'GET', `/movimientos?producto=${EMPANADA}&deposito=frio`)).body.map((m) => m.tipo))
       .toEqual(['transferencia', 'stock_inicial'])
   })
@@ -136,32 +138,46 @@ describe('transferencias', () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
     const cocina = await p.entrar('cocina')
+    await superAdmin(p, admin)
+    const c2 = (await p.pedir<Deposito>(admin, 'POST', '/depositos', { nombre: 'Cámara 2' })).body.id
     await cargar(p, admin, EMPANADA, 3, 'frio')
     const pedir = (b: object, token = cocina) => p.pedir(token, 'POST', '/transferencias', { productoId: EMPANADA, cantidad: 1, ...b })
     expect((await pedir({ desde: 'frio', hacia: 'frio' })).body.error.mensaje).toBe('El depósito de origen y el de destino son el mismo. Elegí otro destino.')
     expect((await pedir({ desde: 'frio' })).status).toBe(400)
     expect((await pedir({ hacia: 'frio', desde: 'nada' })).status).toBe(400)
-    const poco = await pedir({ desde: 'frio', hacia: 'venta', cantidad: 5 })
+    // A la venta se pasa con «Sacar para la venta»; de la venta solo se vende o se da de baja.
+    const aVenta = await pedir({ desde: 'frio', hacia: 'venta' })
+    expect(aVenta.status).toBe(400)
+    expect(aVenta.body.error.mensaje).toBe('Para pasar a «Venta frente» usá «Sacar para la venta».')
+    const deVenta = await pedir({ desde: 'venta', hacia: 'frio' })
+    expect(deVenta.status).toBe(400)
+    expect(deVenta.body.error.mensaje).toContain('ya está a la venta')
+    // La materia prima no es un depósito: no se elige.
+    expect((await pedir({ desde: 'frio', hacia: 'materia_prima' })).body.error.mensaje).toBe('Ese depósito no existe. Recargá la página y probá de nuevo.')
+    expect((await pedir({ desde: 'materia_prima', hacia: 'frio' })).status).toBe(400)
+    const poco = await pedir({ desde: 'frio', hacia: c2, cantidad: 5 })
     expect(poco.status).toBe(409)
     expect(poco.body.error.mensaje).toBe('No hay stock suficiente en «Cámara 1»: de Empanada frita (carne) hay 3 y querés sacar 5.')
-    const otro = await pedir({ desde: 'materia_prima', hacia: 'venta' })
-    expect(otro.body.error.mensaje).toBe('No hay stock de Empanada frita (carne) en «Materia prima». En «Cámara 1» hay 3: pasalo con «Transferir» en Depósitos si querés usarlo.')
+    const otro = await pedir({ desde: c2, hacia: 'frio' })
+    expect(otro.body.error.mensaje).toBe('No hay stock de Empanada frita (carne) en «Cámara 2». En «Cámara 1» hay 3: pasalo con «Transferir» en Depósitos si querés usarlo.')
     // Un sector no mueve lo de otro, ni diciendo otro sector.
-    expect((await pedir({ sector: 'chiperia', desde: 'frio', hacia: 'venta' })).status).toBe(403)
-    expect((await pedir({ desde: 'frio', hacia: 'venta' }, await p.entrar('panaderia'))).status).toBe(403)
+    expect((await pedir({ sector: 'chiperia', desde: 'frio', hacia: c2 })).status).toBe(403)
+    expect((await pedir({ desde: 'frio', hacia: c2 }, await p.entrar('panaderia'))).status).toBe(403)
     // El administrador no necesita decir el sector: sale del producto.
-    expect((await pedir({ desde: 'frio', hacia: 'venta' }, admin)).status).toBe(200)
+    expect((await pedir({ desde: 'frio', hacia: c2 }, admin)).status).toBe(200)
   })
 
   it('en Chipería se transfiere por lote', async () => {
     const p = await nuevaPrueba()
     const admin = await p.entrar('admin')
     const chiperia = await p.entrar('chiperia')
+    await superAdmin(p, admin)
+    const c2 = (await p.pedir<Deposito>(admin, 'POST', '/depositos', { nombre: 'Cámara 2' })).body.id
     await cargar(p, admin, CHIPA, 50, 'frio', 'chiperia', 'CH-261101-1')
-    expect((await p.pedir(chiperia, 'POST', '/transferencias', { productoId: CHIPA, cantidad: 10, desde: 'frio', hacia: 'venta' })).status).toBe(400)
-    const r = await p.pedir(chiperia, 'POST', '/transferencias', { productoId: CHIPA, lote: 'CH-261101-1', cantidad: 10, desde: 'frio', hacia: 'venta' })
+    expect((await p.pedir(chiperia, 'POST', '/transferencias', { productoId: CHIPA, cantidad: 10, desde: 'frio', hacia: c2 })).status).toBe(400)
+    const r = await p.pedir(chiperia, 'POST', '/transferencias', { productoId: CHIPA, lote: 'CH-261101-1', cantidad: 10, desde: 'frio', hacia: c2 })
     expect(r.status).toBe(200)
-    expect((await fila(p, chiperia, 'chiperia', CHIPA))!.lotes).toEqual([{ lote: 'CH-261101-1', cantidad: 50, porDeposito: { frio: 40, venta: 10 } }])
+    expect((await fila(p, chiperia, 'chiperia', CHIPA))!.lotes).toEqual([{ lote: 'CH-261101-1', cantidad: 50, porDeposito: { frio: 40, [c2]: 10 } }])
   })
 })
 
@@ -211,13 +227,14 @@ describe('sacar para la venta y envíos', () => {
     expect(sumada.body.categorias).toEqual(['cat-bocaditos', 'cat-buffet', 'cat-bebidas'])
     const comedor = await p.pedir<Movimiento>(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 2, hacia: 'comedor' })
     expect(comedor.body.motivo).toBe('De «Cámara 1» a «Venta comedor»')
-    expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 2, desde: 'materia_prima' })).status).toBe(200)
+    // La materia prima no es un depósito: no se vende desde ahí.
+    expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 2, desde: 'materia_prima' })).status).toBe(400)
     // Desde un depósito de venta, o hacia un almacén, no.
     expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 1, desde: 'venta' })).status).toBe(400)
     const aFrio = await p.pedir(cocina, 'POST', '/salidas', { productoId: EMPANADA, cantidad: 1, hacia: 'frio' })
     expect(aFrio.status).toBe(400)
     expect(aFrio.body.error.mensaje).toBe('«Cámara 1» no es un depósito de venta. Elegí Venta frente o Venta comedor.')
-    expect(await fila(p, cocina, 'cocina', EMPANADA)).toMatchObject({ total: 15, porDeposito: { frio: 5, materia_prima: 3, venta: 5, comedor: 2 } })
+    expect(await fila(p, cocina, 'cocina', EMPANADA)).toMatchObject({ total: 15, porDeposito: { frio: 5, materia_prima: 5, venta: 3, comedor: 2 } })
   })
 
   it('los envíos salen de un almacén (Frío si no se elige) y en Sucursales queda solo lo enviado', async () => {
@@ -426,5 +443,33 @@ describe('tipos de depósito (0019)', () => {
       ['venta', 'Venta frente', 'venta', 1], ['comedor', 'Venta comedor', 'venta', 1], ['frio', 'Cámara 1', 'almacen', 0],
       ['materia_prima', 'Materia prima', 'almacen', 1],
     ])
+  })
+})
+
+describe('la materia prima no es un depósito (0023)', () => {
+  it('lo que no es materia prima vuelve a Cámara 1 con una transferencia; la materia prima queda y no se pierde nada', async () => {
+    const SQL = await initSqlJs()
+    const db = new SQL.Database()
+    const nombres = Object.keys(MIGRACIONES).sort()
+    const i = nombres.findIndex((n) => n.includes('0023_'))
+    for (const n of nombres.slice(0, i)) db.exec(MIGRACIONES[n])
+    db.exec(`
+      INSERT INTO usuarios (id, nombre, usuario, clave_hash, rol, activo, debe_cambiar_clave, creado_en) VALUES ('u', 'U', 'u', 'x', 'admin', 1, 0, '2026-11-01');
+      UPDATE productos SET tipo = 'materia_prima' WHERE id = '${COCIDO}';
+      INSERT INTO movimientos (id, sector, producto_id, deposito_id, lote, tipo, cantidad, usuario_id, fecha, dia) VALUES
+        ('m1', 'chiperia', '${CHIPA}', 'materia_prima', 'CH-261101-1', 'stock_inicial', 30, 'u', '2026-11-01', '2026-11-01'),
+        ('m2', 'cocina', '${COCIDO}', 'materia_prima', NULL, 'stock_inicial', 3, 'u', '2026-11-01', '2026-11-01'),
+        ('m3', 'cocina', '${EMPANADA}', 'materia_prima', NULL, 'stock_inicial', 4, 'u', '2026-11-01', '2026-11-01'),
+        ('m4', 'cocina', '${EMPANADA}', 'materia_prima', NULL, 'merma', -4, 'u', '2026-11-01', '2026-11-01');
+    `)
+    db.exec(MIGRACIONES[nombres[i]])
+    expect(db.exec(`SELECT producto_id, deposito_id, lote, SUM(cantidad) FROM movimientos GROUP BY producto_id, deposito_id, lote
+                     HAVING SUM(cantidad) <> 0 ORDER BY producto_id, deposito_id`)[0].values).toEqual([
+      [CHIPA, 'frio', 'CH-261101-1', 30],
+      [COCIDO, 'materia_prima', null, 3],
+    ])
+    expect(db.exec("SELECT motivo FROM movimientos WHERE id LIKE 'mig23-%' AND cantidad > 0")[0].values)
+      .toEqual([['De «Materia prima» a «Cámara 1» (la materia prima ya no es un depósito)']])
+    expect(db.exec("SELECT nombre FROM depositos WHERE id = 'materia_prima'")[0].values).toEqual([['Stock de materia prima']])
   })
 })

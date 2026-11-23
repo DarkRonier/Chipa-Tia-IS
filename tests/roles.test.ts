@@ -212,7 +212,8 @@ describe('stock sin campos por producto (depósitos)', () => {
     const cocina = await p.entrar('cocina')
     expect((await p.pedir(cocina, 'POST', '/salidas', { productoId: COCIDO, cantidad: 1 })).status).toBe(409)
     expect((await p.pedir(cocina, 'POST', '/envios', { sucursalId: 'suc-centro', items: [{ productoId: COCIDO, cantidad: 1 }] })).status).toBe(409)
-    expect((await p.pedir(cocina, 'POST', '/transferencias', { productoId: COCIDO, cantidad: 1, desde: 'frio', hacia: 'comedor' })).status).toBe(409)
+    // Transferir es de un frío a otro: a la venta se pasa con «Sacar para la venta».
+    expect((await p.pedir(cocina, 'POST', '/transferencias', { productoId: COCIDO, cantidad: 1, desde: 'frio', hacia: 'comedor' })).status).toBe(400)
     expect(await p.sql('SELECT id FROM movimientos')).toEqual([])
   })
 })
