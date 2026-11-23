@@ -3,6 +3,7 @@
 import { diaLegible, diaPY } from '../shared/hora'
 import type { Deposito, EstadoMaquina, LoteChipa, LoteMP, Movimiento, Produccion, SectorId, TipoDeposito, TipoMovimiento, Turno } from '../shared/tipos'
 import { todas, todasPorTrozos } from './db'
+import { sqlDelSector } from './productosDelSector'
 import type { BaseD1, ValorSQL } from './entorno'
 
 /** Arma "WHERE a AND b" con sus parámetros, salteando los filtros vacíos. */
@@ -327,8 +328,10 @@ export async function leerMovimientos(db: BaseD1, filtro: FiltroMovimientos = {}
     return filas.sort((a, b) => b.fecha.localeCompare(a.fecha)).map(aMovimiento)
   }
   const tipos = filtro.tipos ?? []
+  // Con sector: los movimientos de los productos que usa ese sector (la harina comprada por Chipitas, aunque figure en otro).
+  const delSector = filtro.sector ? sqlDelSector('p', filtro.sector) : { sql: '', params: [] }
   const w = new Filtro()
-    .si(lleno(filtro.sector), 'm.sector = ?', filtro.sector ?? null)
+    .si(lleno(filtro.sector), delSector.sql, ...delSector.params)
     .si(lleno(filtro.desde), 'm.dia >= ?', filtro.desde ?? null)
     .si(lleno(filtro.hasta), 'm.dia <= ?', filtro.hasta ?? null)
     .si(lleno(filtro.sucursal), 'm.sucursal_id = ?', filtro.sucursal ?? null)

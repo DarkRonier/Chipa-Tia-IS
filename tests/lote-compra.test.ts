@@ -122,3 +122,43 @@ describe('materia prima usada en los sectores sin lotes', () => {
     expect(sin.body.materiaPrima).toEqual([])
   })
 })
+
+describe('lo comprado es de todos los sectores con su categoría habilitada', () => {
+  it('Chipitas compra, ve y usa harina que figura en Panadería; Cocina (sin «Materia prima») no', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const harina = (await p.pedir<Producto>(admin, 'POST', '/productos', { sector: 'panaderia', nombre: 'Harina 000', unidad: 'kg', tipo: 'materia_prima' })).body
+    expect(harina.categoriaId).toBe('cat-materia-prima')
+    const chipitas = await p.entrar('chipitas')
+    const cocina = await p.entrar('cocina')
+
+    expect((await p.pedir<ProductoCompra[]>(chipitas, 'GET', '/compras/productos')).body.map((x) => x.id)).toContain(harina.id)
+    expect((await p.pedir<ProductoCompra[]>(cocina, 'GET', '/compras/productos')).body.map((x) => x.id)).not.toContain(harina.id)
+    const compra = await comprar(p, chipitas, [{ productoId: harina.id, cantidad: 50, precioUnitario: 4500 }])
+    expect(compra.status).toBe(200)
+    expect(compra.body).toMatchObject({ sector: 'chipitas', estado: 'pendiente' })
+    expect((await comprar(p, cocina, [{ productoId: harina.id, cantidad: 1, precioUnitario: 4500 }])).status).toBe(403)
+
+    // Una sola harina: la ven Chipitas y Panadería con el mismo stock.
+    const stockDe = async (token: string, sector: string) =>
+      (await p.pedir<StockFila[]>(token, 'GET', `/stock?sector=${sector}`)).body.find((f) => f.productoId === harina.id)?.porDeposito.materia_prima
+    expect(await stockDe(chipitas, 'chipitas')).toBe(50)
+    expect(await stockDe(admin, 'panaderia')).toBe(50)
+    expect(await stockDe(cocina, 'cocina')).toBeUndefined()
+    expect((await p.pedir<Producto[]>(chipitas, 'GET', '/productos?sector=chipitas')).body.map((x) => x.id)).toContain(harina.id)
+    const movs = (await p.pedir<{ productoId: string }[]>(chipitas, 'GET', '/movimientos?tipo=compra')).body
+    expect(movs.map((m) => m.productoId)).toEqual([harina.id])
+
+    // La usa en su producción y sale del depósito Materia prima.
+    const r = await p.pedir<Produccion>(chipitas, 'POST', '/producciones', {
+      turno: 'dia', items: [{ productoId: 'prod-chipitas-01', cocinado: 100, guardado: 0 }], materiaPrima: [{ productoId: harina.id, cantidad: 10 }],
+    })
+    expect(r.status).toBe(200)
+    expect(await stockDe(admin, 'panaderia')).toBe(40)
+    // Cocina no la puede anotar.
+    const usoCocina = await p.pedir(cocina, 'POST', '/producciones', {
+      turno: 'dia', items: [{ productoId: 'prod-cocina-10', cocinado: 1, guardado: 0 }], materiaPrima: [{ productoId: harina.id, cantidad: 1 }],
+    })
+    expect(usoCocina.status).toBe(403)
+  })
+})

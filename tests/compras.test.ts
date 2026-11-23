@@ -171,8 +171,9 @@ describe('compras del supervisor, pagos parciales y saldos', () => {
     const compra = r.body
     expect(compra).toMatchObject({ sector: null, total: 100_000, estado: 'pendiente', pagos: [] })
     expect(compra.items.map((i) => i.subtotal)).toEqual([30_000, 60_000, 10_000])
-    // Stock en Cocina: cocido (sin stock obligatorio) y gaseosa. El flete no toca el stock.
-    expect((await stockDe(p, sup, 'cocina', COCIDO))?.total).toBe(10)
+    // Stock: cocido (materia prima de Insumos, que Cocina no usa: no está en su vista) y gaseosa. El flete no toca el stock.
+    expect((await stockDe(p, sup, 'cocina', COCIDO))).toBeUndefined()
+    expect((await stockDe(p, sup, '', COCIDO))?.total).toBe(10)
     expect((await stockDe(p, sup, 'cocina', gaseosa.id))?.total).toBe(12)
 
     const pago1 = await p.pedir<Compra>(sup, 'POST', `/compras/${compra.id}/pagos`, { importe: 40_000, medio: 'efectivo' })

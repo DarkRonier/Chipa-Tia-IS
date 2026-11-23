@@ -1,7 +1,7 @@
 // Pantalla de productos: filtro, páginas de 10 y exportación a CSV.
 import { describe, expect, it } from 'vitest'
 import {
-  aCSV, botonesPagina, ENCABEZADOS_EXPORTACION, filasExportacion, filtrarProductos, FILTRO_VACIO, hayFiltro, paginar, type Nombres,
+  aCSV, botonesPagina, ENCABEZADOS_EXPORTACION, filasExportacion, filtrarProductos, FILTRO_VACIO, hayFiltro, paginar, textoSectores, type Nombres,
 } from '../src/cliente/productos'
 import type { Producto } from '../src/shared/tipos'
 
@@ -14,6 +14,7 @@ const prod = (id: string, cambios: Partial<Producto> = {}): Producto => ({ ...ba
 const nombres: Nombres = {
   sector: (id) => ({ chiperia: 'Chipería', chipitas: 'Chipitas', panaderia: 'Panadería', cocina: 'Cocina y buffet' })[id],
   categoria: (id) => (id === 'lac' ? 'Lácteos' : id === 'beb' ? 'Bebidas' : ''),
+  sectoresCategoria: (id) => (id === 'lac' ? ['chiperia', 'chipitas'] : id === 'beb' ? ['cocina'] : []),
 }
 
 const lista = [
@@ -26,6 +27,14 @@ const lista = [
 const ids = (l: Producto[]) => l.map((p) => p.id)
 
 describe('filtro de productos', () => {
+  it('lo comprado es de los sectores con su categoría habilitada; lo elaborado, del sector que lo elabora', () => {
+    const f = (sector: Producto['sector']) => ids(filtrarProductos(lista, { ...FILTRO_VACIO, sector }, nombres))
+    expect(f('chipitas')).toEqual(['Queso Paraguay'])
+    expect(f('chiperia')).toEqual(["Chipa so'o", 'Queso Paraguay', 'Chipa vieja'])
+    expect(textoSectores(lista[1], nombres)).toBe('Chipería, Chipitas')
+    expect(textoSectores(prod('Sal', { tipo: 'materia_prima' }), nombres)).toBe('Supervisor y administrador')
+  })
+
   it('sin filtro trae todos, los desactivados al final', () => {
     expect(ids(filtrarProductos(lista, FILTRO_VACIO, nombres))).toEqual(["Chipa so'o", 'Queso Paraguay', 'Coca-Cola 500 ml', 'Pan casero', 'Chipa vieja'])
     expect(hayFiltro(FILTRO_VACIO)).toBe(false)

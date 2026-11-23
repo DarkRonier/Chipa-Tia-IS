@@ -12,6 +12,7 @@ import { nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, ValorSQL } from '../entorno'
 import { conflicto, invalido, noEncontrado, prohibido } from '../errores'
 import { esSector, requiere, sectorPara, soloSuper } from '../sesion'
+import { sqlDelSector } from '../productosDelSector'
 
 const soloAdmin = requiere('catalogos.editar', 'Solo el administrador puede hacer esto.')
 import { booleano, cuerpo, entero, texto, textoOpcional } from '../validar'
@@ -151,14 +152,24 @@ async function leerProducto(db: BaseD1, id: string): Promise<FilaProducto> {
   return f
 }
 
-async function productoSinRepetir(db: BaseD1, sector: SectorId, nombre: string, propio: string | null) {
-  const existentes = await todas<FilaProducto>(db, `SELECT ${COLUMNAS_PRODUCTO} FROM productos p WHERE p.sector = ?`, sector)
-  sinRepetir(existentes, nombre, propio, 'un producto', ` en ${await nombreSector(db, sector)}`)
+/**
+ * Lo elaborado no se repite dentro del sector que lo elabora. Lo comprado (materia prima y venta directa) es uno solo
+ * para todos los sectores, así que no se repite entre todo lo comprado.
+ */
+async function productoSinRepetir(db: BaseD1, sector: SectorId, tipo: TipoProducto, nombre: string, propio: string | null) {
+  if (tipo === 'elaborado') {
+    const existentes = await todas<FilaProducto>(db, `SELECT ${COLUMNAS_PRODUCTO} FROM productos p WHERE p.sector = ? AND p.tipo = 'elaborado'`, sector)
+    return sinRepetir(existentes, nombre, propio, 'un producto', ` en ${await nombreSector(db, sector)}`)
+  }
+  const existentes = await todas<FilaProducto>(db, `SELECT ${COLUMNAS_PRODUCTO} FROM productos p WHERE p.tipo <> 'elaborado'`)
+  sinRepetir(existentes, nombre, propio, 'un producto', ' entre lo que se compra')
 }
 
 rutasCatalogos.get('/productos', async (c) => {
   const sector = sectorPara(c.get('usuario'), c.req.query('sector'))
-  const w = donde([[sector !== null, 'p.sector = ?', sector], [!verTodos(c), 'p.activo = 1']])
+  // Con sector: lo que elabora y lo comprado de las categorías que tiene habilitadas (ver productosDelSector.ts).
+  const delSector = sector ? sqlDelSector('p', sector) : { sql: '', params: [] }
+  const w = donde([[sector !== null, delSector.sql, ...delSector.params], [!verTodos(c), 'p.activo = 1']])
   const filas = await todas<FilaProducto>(
     c.env.DB,
     `SELECT ${COLUMNAS_PRODUCTO} FROM productos p JOIN sectores s ON s.id = p.sector ${w.where}
@@ -174,8 +185,8 @@ rutasCatalogos.post('/productos', soloAdmin, async (c) => {
   const sector = sectorPara(c.get('usuario'), b.sector, true)
   const nombre = texto(b.nombre, 'el nombre del producto', { max: 100 })
   const unidad = textoOpcional(b.unidad, 'La unidad', 30) ?? 'unidades'
-  await productoSinRepetir(db, sector, nombre, null)
   const tipo = b.tipo === undefined ? 'elaborado' : tipoProducto(b.tipo)
+  await productoSinRepetir(db, sector, tipo, nombre, null)
   const categoriaId = await categoriaOpcional(db, b.categoriaId, tipo)
   const precioVenta = precioOpcional(b.precioVenta)
   const iva = b.iva === undefined ? 10 : ivaDe(b.iva)
@@ -219,7 +230,7 @@ rutasCatalogos.patch('/productos/:id', soloAdmin, async (c) => {
     )
     if (f?.n) throw conflicto('producto_con_stock', `${antes.nombre} todavía tiene stock en algún depósito. Dejalo en 0 antes de marcarlo «sin stock».`)
   }
-  if (despues.nombre !== antes.nombre) await productoSinRepetir(db, antes.sector, despues.nombre, antes.id)
+  if (despues.nombre !== antes.nombre || despues.tipo !== antes.tipo) await productoSinRepetir(db, antes.sector, despues.tipo, despues.nombre, antes.id)
   await db.batch([
     sentencia(db,
       `UPDATE productos SET nombre = ?, unidad = ?, activo = ?, categoria_id = ?, subcategoria = ?, sin_stock = ?, precio_venta = ?, iva = ?,

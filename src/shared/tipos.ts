@@ -799,8 +799,6 @@ export interface ProductoCompra {
   nombre: string
   unidad: string
   codigo: string
-  sector: SectorId
-  sectorNombre: string
   conLotes: boolean
   /** Materia prima de un sector con lotes: al comprarla se crea su lote de materia prima, con vencimiento obligatorio. */
   loteMP: boolean

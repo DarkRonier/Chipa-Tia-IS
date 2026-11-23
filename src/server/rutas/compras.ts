@@ -5,7 +5,7 @@
 //   y la materia prima en el depósito Materia prima). La materia prima de Chipería además crea su lote de materia prima
 //   (E01) con el número de lote y el vencimiento del renglón, listo para elegir en la amasada. El administrador y el supervisor compran
 //   cualquier producto y pueden agregar renglones de texto libre (flete, servicio…), que no tocan el stock. Un sector
-//   compra solo productos de su sector cuya categoría el administrador habilitó para ese sector.
+//   compra los productos cuya categoría el administrador habilitó para ese sector (solo cuenta la categoría).
 // - Pagos: parciales o totales, con un medio o con varias partes de distintos medios (pago híbrido: cheque de un
 //   banco + cheque de otro + efectivo, cada parte con su banco y número de cheque). Solo el administrador y el supervisor los marcan; nunca superan el saldo (trigger
 //   `pagos_proveedor_sin_exceso`). La compra queda pendiente, con pago parcial o pagada según lo pagado.
@@ -216,7 +216,6 @@ interface FilaProductoCompra {
   unidad: string
   codigo: string
   sector: SectorId
-  sector_nombre: string
   con_lotes: number
   activo: number
   tipo: TipoProducto
@@ -227,20 +226,20 @@ interface FilaProductoCompra {
 }
 
 /**
- * Productos que `u` puede comprar. Un sector: los activos de su sector cuya categoría (activa) habilitó el
- * administrador para ese sector. Administrador y supervisor: todos los productos activos.
+ * Productos que `u` puede comprar. Un sector: los activos cuya categoría (activa) habilitó el administrador para ese
+ * sector, sin importar qué sector figura en el producto. Administrador y supervisor: todos los productos activos.
  */
 async function productosComprables(base: BaseD1, u: UsuarioSesion, ids?: string[]): Promise<FilaProductoCompra[]> {
-  const sql = `SELECT p.id, p.nombre, p.unidad, p.codigo, p.sector, s.nombre AS sector_nombre, s.con_lotes, p.activo, p.tipo, p.categoria_id,
+  const sql = `SELECT p.id, p.nombre, p.unidad, p.codigo, p.sector, s.con_lotes, p.activo, p.tipo, p.categoria_id,
         k.nombre AS categoria_nombre,
         ${u.sector
-          ? `CASE WHEN p.sector = ? AND k.activo = 1 AND EXISTS (
+          ? `CASE WHEN k.activo = 1 AND EXISTS (
                SELECT 1 FROM categorias_sectores x WHERE x.categoria_id = p.categoria_id AND x.sector = ?) THEN 1 ELSE 0 END`
           : '1'} AS habilitado
       FROM productos p
       JOIN sectores s ON s.id = p.sector
       LEFT JOIN categorias k ON k.id = p.categoria_id`
-  const params: ValorSQL[] = u.sector ? [u.sector, u.sector] : []
+  const params: ValorSQL[] = u.sector ? [u.sector] : []
   if (ids) {
     if (!ids.length) return []
     return todas<FilaProductoCompra>(base, `${sql} WHERE p.id IN (SELECT value FROM json_each(?))`, ...params, JSON.stringify([...new Set(ids)]))
@@ -252,7 +251,7 @@ async function productosComprables(base: BaseD1, u: UsuarioSesion, ids?: string[
 rutasCompras.get('/compras/productos', requiere('compras.registrar'), async (c) => {
   const filas = await productosComprables(db(c), c.get('usuario'))
   return c.json<ProductoCompra[]>(filas.map((f) => ({
-    id: f.id, nombre: f.nombre, unidad: f.unidad, codigo: f.codigo, sector: f.sector, sectorNombre: f.sector_nombre, conLotes: !!f.con_lotes,
+    id: f.id, nombre: f.nombre, unidad: f.unidad, codigo: f.codigo, conLotes: !!f.con_lotes,
     loteMP: esLoteMP(f), tipo: f.tipo,
     categoriaId: f.categoria_id, categoriaNombre: f.categoria_nombre,
   })))
@@ -504,7 +503,6 @@ async function leerRenglones(base: BaseD1, u: UsuarioSesion, v: unknown, diaComp
     const p = productos.get(x.productoId as string)
     if (!p) throw invalido('Ese producto no existe. Recargá la página y probá de nuevo.')
     if (!p.activo) throw invalido(`${p.nombre} está desactivado.`)
-    if (u.sector && p.sector !== u.sector) throw prohibido(`${p.nombre} no es un producto de tu sector.`)
     if (p.tipo === 'elaborado') {
       throw invalido(`${p.nombre} se elabora, no se compra. Solo se compran materias primas y productos de venta directa (se marca en Catálogos).`)
     }

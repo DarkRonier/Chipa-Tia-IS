@@ -17,10 +17,11 @@ import {
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { leerMovimientos } from '../consultas'
-import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
+import { ahora, nuevoId, sentencia, todas, una } from '../db'
 import type { BaseD1, Entorno, SentenciaD1, UsuarioSesion } from '../entorno'
 import { conflicto, esStockInsuficiente, invalido, prohibido } from '../errores'
 import { requiere, sectorPara } from '../sesion'
+import { sqlDelSector } from '../productosDelSector'
 import { cuerpo, diaOpcional, texto } from '../validar'
 
 export const rutasStock = new Hono<Entorno>()
@@ -113,29 +114,43 @@ interface FilaProducto {
   activo: number
   sin_stock: number
   tipo: TipoProducto
+  /** 1 si lo usa el sector de quien mueve (ver productosDelSector.ts); sin sector, siempre 1. */
+  del_sector: number
 }
 
-async function leerProductos(db: BaseD1, ids: string[]): Promise<Map<string, FilaProducto>> {
+/** Los productos `ids`; con `sector`, marca cuáles usa ese sector. */
+async function leerProductos(db: BaseD1, ids: string[], sector: SectorId | null): Promise<Map<string, FilaProducto>> {
   const unicos = [...new Set(ids)]
-  const filas = await todasPorTrozos<FilaProducto>(db, unicos, (m) => `SELECT id, sector, nombre, activo, sin_stock, tipo FROM productos WHERE id IN (${m})`)
+  const c = sector ? sqlDelSector('p', sector) : { sql: '1', params: [] }
+  if (!unicos.length) return new Map()
+  const filas = await todas<FilaProducto>(db,
+    `SELECT p.id, p.sector, p.nombre, p.activo, p.sin_stock, p.tipo, CASE WHEN ${c.sql} THEN 1 ELSE 0 END AS del_sector
+       FROM productos p WHERE p.id IN (SELECT value FROM json_each(?))`,
+    ...c.params, JSON.stringify(unicos))
   return new Map(filas.map((f) => [f.id, f]))
 }
 
 /**
- * Producto a mover: tiene que existir, llevar stock y ser del sector del operador (o del `sector` pedido). El movimiento
- * va con el sector del producto. Se aceptan desactivados: puede quedarles stock.
+ * Producto a mover: tiene que existir, llevar stock y ser de los que usa el sector (lo elaborado, el sector que lo
+ * elabora; lo comprado, los sectores con su categoría habilitada). El movimiento va con el sector guardado en el
+ * producto, el del libro de stock. Se aceptan desactivados: puede quedarles stock.
  */
-function productoParaMover(productos: Map<string, FilaProducto>, id: string, u: UsuarioSesion, sectorPedido: SectorId | null): FilaProducto {
+function productoParaMover(productos: Map<string, FilaProducto>, id: string): FilaProducto {
   const p = productos.get(id)
   if (!p) throw invalido('Ese producto no existe. Recargá la página y probá de nuevo.')
-  const sector = u.sector ?? sectorPedido
-  if (sector && p.sector !== sector) throw prohibido(`${p.nombre} es de otro sector: lo mueve ese sector o el administrador.`)
+  if (!p.del_sector) throw prohibido(`${p.nombre} no es de tu sector: lo mueve el sector que lo usa o el administrador.`)
   if (p.sin_stock) throw invalido(`${p.nombre} no lleva stock: solo se registran sus ventas.`)
   return p
 }
 
-/** El `sector` del pedido, si vino (un operador solo puede pedir el suyo). */
-const sectorPedidoDe = (u: UsuarioSesion, v: unknown) => (vacio(v) ? null : sectorPara(u, v))
+/**
+ * Sector de quien mueve: el del operador (que no puede pedir otro: `403`). El administrador y el supervisor mueven
+ * cualquier producto; si mandan `sector`, solo se valida que exista.
+ */
+const sectorQueMueve = (u: UsuarioSesion, v: unknown): SectorId | null => {
+  if (!vacio(v)) sectorPara(u, v)
+  return u.sector
+}
 
 function leerProductoId(v: unknown): string {
   if (vacio(v)) throw invalido('Elegí el producto.')
@@ -324,7 +339,7 @@ export async function repartirPorLotes(db: BaseD1, sector: SectorId, productoId:
 
 /**
  * Stock por producto y depósito. Sin `sector` (o con `todos=1`), el de todos los productos: los depósitos no se separan
- * por sector. Con `sector`, solo los de ese sector (lo que un operador puede mover). Los productos «sin stock» no van.
+ * por sector. Con `sector`, solo los que usa ese sector (lo que un operador puede mover). Los «sin stock» no van.
  */
 rutasStock.get('/stock', requiere('stock.ver'), async (c) => {
   const db = c.env.DB
@@ -332,21 +347,23 @@ rutasStock.get('/stock', requiere('stock.ver'), async (c) => {
   const q = c.req.query()
   // Sin sector, todos los productos: los depósitos no se separan por sector (Mati, 2026-11-21).
   const sector = q.todos === '1' || vacio(q.sector) ? null : sectorPara(u, q.sector)
+  const delSector = sector ? sqlDelSector('p', sector) : null
 
   const [productos, saldos, sectoresConLotes] = await Promise.all([
     todas<{ id: string; nombre: string; activo: number; sector: SectorId; categoria_id: string | null; subcategoria: string; unidad: string }>(
       db,
       `SELECT p.id, p.nombre, p.activo, p.sector, p.categoria_id, p.subcategoria, p.unidad
          FROM productos p JOIN sectores s ON s.id = p.sector
-        WHERE p.sin_stock = 0 ${sector ? 'AND p.sector = ?' : ''}
+        WHERE p.sin_stock = 0 ${delSector ? `AND ${delSector.sql}` : ''}
         ORDER BY s.orden, p.orden, p.nombre`,
-      ...(sector ? [sector] : []),
+      ...(delSector?.params ?? []),
     ),
     todas<{ producto_id: string; deposito_id: string; total: number }>(
       db,
-      `SELECT producto_id, deposito_id, SUM(cantidad) AS total FROM movimientos ${sector ? 'WHERE sector = ?' : ''}
-        GROUP BY producto_id, deposito_id HAVING SUM(cantidad) <> 0`,
-      ...(sector ? [sector] : []),
+      `SELECT m.producto_id, m.deposito_id, SUM(m.cantidad) AS total FROM movimientos m
+        ${delSector ? `JOIN productos p ON p.id = m.producto_id WHERE ${delSector.sql}` : ''}
+        GROUP BY m.producto_id, m.deposito_id HAVING SUM(m.cantidad) <> 0`,
+      ...(delSector?.params ?? []),
     ),
     todas<{ id: SectorId }>(db, `SELECT id FROM sectores WHERE con_lotes = 1 ${sector ? 'AND id = ?' : ''}`, ...(sector ? [sector] : [])),
   ])
@@ -426,7 +443,7 @@ rutasStock.post('/salidas', requiere('stock.mover'), async (c) => {
   const u = c.get('usuario')
   const b = await cuerpo(c)
   const productoId = leerProductoId(b.productoId)
-  const producto = productoParaMover(await leerProductos(db, [productoId]), productoId, u, sectorPedidoDe(u, b.sector))
+  const producto = productoParaMover(await leerProductos(db, [productoId], sectorQueMueve(u, b.sector)), productoId)
   const sector = producto.sector
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote sale.', producto)
@@ -457,7 +474,7 @@ rutasStock.post('/envios', requiere('stock.mover'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const b = await cuerpo(c)
-  const sectorPedido = sectorPedidoDe(u, b.sector)
+  const sector = sectorQueMueve(u, b.sector)
 
   if (vacio(b.sucursalId)) throw invalido('Elegí la sucursal.')
   const sucursalId = texto(b.sucursalId, 'la sucursal', { max: 100 })
@@ -469,13 +486,13 @@ rutasStock.post('/envios', requiere('stock.mover'), async (c) => {
   if (!Array.isArray(b.items) || b.items.length === 0) throw invalido('Cargá al menos un producto para enviar.')
   if (b.items.length > MAX_LINEAS_ENVIO) throw invalido('Son demasiados productos en un solo envío.')
   const crudos = (b.items as unknown[]).map((x) => (x && typeof x === 'object' ? x : {}) as Record<string, unknown>)
-  const productos = await leerProductos(db, crudos.map((it) => leerProductoId(it.productoId)))
+  const productos = await leerProductos(db, crudos.map((it) => leerProductoId(it.productoId)), sector)
   const sectoresConLotes = new Set((await todas<{ id: SectorId }>(db, 'SELECT id FROM sectores WHERE con_lotes = 1')).map((x) => x.id))
 
   const vistos = new Set<string>()
   const lineas = crudos.map((it) => {
     const productoId = leerProductoId(it.productoId)
-    const producto = productoParaMover(productos, productoId, u, sectorPedido)
+    const producto = productoParaMover(productos, productoId)
     const sector = producto.sector
     const lote = leerLote(it.lote, sectoresConLotes.has(sector), `Elegí el lote de ${producto.nombre}.`, producto)
     const cantidad = cantidadPositiva(it.cantidad, `La cantidad de ${producto.nombre}`)
@@ -511,7 +528,7 @@ rutasStock.post('/ajustes', requiere('stock.ajustar', 'Solo el administrador pue
   if (!(TIPOS_AJUSTE as readonly unknown[]).includes(b.tipo)) throw invalido('El tipo de ajuste no es válido.')
   const tipo = b.tipo as TipoAjuste
   const productoId = leerProductoId(b.productoId)
-  const producto = productoParaMover(await leerProductos(db, [productoId]), productoId, u, sectorPedidoDe(u, b.sector))
+  const producto = productoParaMover(await leerProductos(db, [productoId], sectorQueMueve(u, b.sector)), productoId)
   const sector = producto.sector
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Indicá el lote.', producto)
@@ -559,7 +576,7 @@ rutasStock.post('/transferencias', requiere('stock.mover'), async (c) => {
   const u = c.get('usuario')
   const b = await cuerpo(c)
   const productoId = leerProductoId(b.productoId)
-  const producto = productoParaMover(await leerProductos(db, [productoId]), productoId, u, sectorPedidoDe(u, b.sector))
+  const producto = productoParaMover(await leerProductos(db, [productoId], sectorQueMueve(u, b.sector)), productoId)
   const sector = producto.sector
   const conLotes = await sectorConLotes(db, sector)
   const lote = leerLote(b.lote, conLotes, 'Elegí de qué lote.', producto)

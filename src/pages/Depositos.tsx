@@ -244,6 +244,9 @@ function DepositoElegido({ deposito, stock, alBorrar }: {
   const [editando, setEditando] = useState(false)
   const [borrando, setBorrando] = useState(false)
   const miSector = sectorDeRol(u.rol)
+  // Un sector transfiere lo que elabora y lo comprado de sus categorías habilitadas (la API dice cuáles son).
+  const delSector = useConsulta<StockFila[]>(miSector && puede('stock.mover') ? '/stock' : null, { sector: miSector ?? undefined })
+  const idsDelSector = new Set((delSector.datos ?? []).map((f) => f.productoId))
 
   return (
     <>
@@ -278,7 +281,7 @@ function DepositoElegido({ deposito, stock, alBorrar }: {
               <Transferir
                 key={deposito.id}
                 desde={deposito}
-                filas={filas.filter((f) => !miSector || f.sector === miSector)}
+                filas={filas.filter((f) => !miSector || idsDelSector.has(f.productoId))}
               />
             )}
             {puede('stock.ajustar') && <AjusteStock key={`a-${deposito.id}`} deposito={deposito} filas={filas} />}
