@@ -20,6 +20,10 @@ on:
         description: 'Crear encargados de sector, supervisor, cajero y caja comedor con esta contraseña temporal (vacío = no crear)'
         type: string
         default: ''
+      purgar_entrega:
+        description: 'Purgar la base para la entrega (scripts/purga-entrega.sql). Antes guarda una copia completa como artefacto.'
+        type: boolean
+        default: false
 
 concurrency:
   group: cloudflare
@@ -46,6 +50,20 @@ jobs:
         run: node scripts/preparar-cloudflare.ts
       - name: Migraciones de la base
         run: npx wrangler d1 migrations apply chipa-tia --remote
+      - name: Copia completa de la base antes de purgar
+        if: github.event_name == 'workflow_dispatch' && inputs.purgar_entrega
+        run: npx wrangler d1 export chipa-tia --remote --output copia-antes-de-purgar.sql
+      - name: Guardar la copia
+        if: github.event_name == 'workflow_dispatch' && inputs.purgar_entrega
+        uses: actions/upload-artifact@v4
+        with:
+          name: copia-antes-de-purgar
+          path: copia-antes-de-purgar.sql
+          retention-days: 90
+          if-no-files-found: error
+      - name: Purgar la base para la entrega
+        if: github.event_name == 'workflow_dispatch' && inputs.purgar_entrega
+        run: npx wrangler d1 execute chipa-tia --remote --file scripts/purga-entrega.sql --yes
       - name: Publicar el Worker
         env:
           CORREO_REMITENTE: ${{ vars.CORREO_REMITENTE }}
