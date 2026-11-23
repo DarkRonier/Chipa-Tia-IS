@@ -396,6 +396,10 @@ export interface Limpieza {
   controladoEn: string | null
   /** G06: hay foto guardada; los bytes se piden aparte (`GET /limpiezas/:id/foto`). */
   tieneFoto: boolean
+  /** Planilla mal cargada que el supervisor o el administrador anuló: no cuenta para nada, solo queda en el historial. */
+  anuladaEn: string | null
+  anuladaPorNombre: string | null
+  motivoAnulacion: string | null
 }
 
 export interface Auditoria {

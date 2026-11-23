@@ -96,7 +96,7 @@ export async function armarReporte(db: BaseD1, p: PedidoReporte): Promise<Report
          FROM limpiezas l
          JOIN areas_limpieza a ON a.id = l.area_id
          JOIN sectores s ON s.id = l.sector
-        WHERE ${lim.sql}
+        WHERE ${lim.sql} AND l.anulada_en IS NULL
         GROUP BY l.sector, l.area_id
         ORDER BY s.orden, a.orden, a.nombre`,
       ...lim.params,

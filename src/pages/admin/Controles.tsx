@@ -118,7 +118,8 @@ function ControlLimpiezas({ filtro, nombreSector }: { filtro: FiltroControles; n
   return (
     <ConDatos consulta={consulta}>
       {(todas) => {
-        const pendientes = todas.filter((l) => !l.controladoPor)
+        // Las anuladas no esperan visto bueno.
+        const pendientes = todas.filter((l) => !l.controladoPor && !l.anuladaEn)
         const lista = soloPendientes ? pendientes : todas
         return (
           <>
@@ -148,7 +149,7 @@ function ControlLimpiezas({ filtro, nombreSector }: { filtro: FiltroControles; n
                 <p className="suave chico ctl-resumen">
                   {plural(lista.length, 'reporte', 'reportes')}
                   {' · '}
-                  {plural(lista.reduce((s, l) => s + l.marcas.filter((m) => m.marca === '-').length, 0), 'tarea sin hacer', 'tareas sin hacer')}
+                  {plural(lista.filter((l) => !l.anuladaEn).reduce((s, l) => s + l.marcas.filter((m) => m.marca === '-').length, 0), 'tarea sin hacer', 'tareas sin hacer')}
                 </p>
                 {lista.map((l) => (
                   <TarjetaLimpieza

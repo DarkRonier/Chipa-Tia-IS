@@ -126,3 +126,15 @@
 /* G08: áreas que no se limpiaron con la frecuencia mínima exigida */
 .ctl-alertas { display: grid; gap: 0.4rem; margin-bottom: 0.75rem; }
 .ctl-alerta { margin: 0; padding: 0.6rem 0.75rem; border: 1px solid var(--error); background: var(--error-fondo); color: var(--error); border-radius: 8px; font-weight: 600; }
+
+/* Guardar limpieza bloqueado hasta marcar todas las tareas (se ve gris, pero tocarlo muestra cuáles faltan). */
+.btn-primario.ctl-bloqueado { opacity: 0.55; }
+.ctl-faltan-aviso { margin: 0; font-size: 0.9rem; }
+/* Planilla anulada por el supervisor o el administrador: queda en el historial, apagada. */
+.tarjeta.ctl-anulada { opacity: 0.75; border-left: 4px solid var(--suave); }
+.ctl-etiqueta-anulada {
+  margin-left: 0.5rem; padding: 0.1rem 0.45rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700;
+  vertical-align: middle; background: var(--error-fondo); color: var(--error);
+}
+.ctl-anulada-texto { color: var(--suave); font-size: 0.85rem; margin: 0.25rem 0 0; }
+.ctl-anular { margin-top: 0.5rem; }
