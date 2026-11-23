@@ -1,12 +1,14 @@
 // G01–G03: el operador elige un área de su sector y marca cada tarea de la planilla con X (diaria),
 // XX (profunda) o - (no se hizo), como en las planillas RE-09: no se dejan cuadros en blanco.
-// Si queda alguna sin marcar, se confirma en la pantalla antes de guardarla como «-».
+// «Guardar limpieza» queda bloqueado hasta que cada tarea esté marcada (el servidor también lo exige).
+// Una planilla mal cargada la anula el supervisor o el administrador, con un motivo.
 // Fecha, hora, sector y usuario los pone el servidor; el comentario y la foto son opcionales (G06). Arriba
 // avisa las áreas que no se limpiaron con la frecuencia mínima exigida (G08). Debajo, el historial
 // del sector filtrable por área y fechas, con el "Controlado por" del administrador.
 import { useState, type ReactNode } from 'react'
-import { post } from '../../cliente/api'
-import { useAccion, useConsulta } from '../../cliente/consultas'
+import { ErrorDeApi, post } from '../../cliente/api'
+import { invalidar, useAccion, useConsulta } from '../../cliente/consultas'
+import { usePuede } from '../../cliente/sesion'
 import { Aviso, ConDatos } from '../../components/Estado'
 import { CampoFoto, FotoBajoDemanda } from '../../components/Foto'
 import { useSectorActivo } from '../../components/Layout'
@@ -34,10 +36,12 @@ export function TarjetaLimpieza({ l, nombreSector, accion }: { l: Limpieza; nomb
   const cuenta = (m: Marca) => l.marcas.filter((x) => x.marca === m).length
   const noHechas = l.marcas.filter((x) => x.marca === '-')
   const conNumero = l.marcas.filter((x) => x.numero)
+  const puede = usePuede()
+  const clase = l.anuladaEn ? 'tarjeta ctl-limpieza ctl-anulada' : l.controladoPor ? 'tarjeta ctl-limpieza' : 'tarjeta ctl-limpieza ctl-sin-controlar'
   return (
-    <article className={l.controladoPor ? 'tarjeta ctl-limpieza' : 'tarjeta ctl-limpieza ctl-sin-controlar'}>
+    <article className={clase}>
       <div className="cabeza">
-        <h3>{l.areaNombre}</h3>
+        <h3>{l.areaNombre}{l.anuladaEn && <span className="ctl-etiqueta-anulada">Anulada</span>}</h3>
         <span className="suave chico">{fechaHoraPY(l.fecha)}</span>
       </div>
       <p className="suave chico">{nombreSector} · {l.usuarioNombre}</p>
@@ -65,13 +69,70 @@ export function TarjetaLimpieza({ l, nombreSector, accion }: { l: Limpieza; nomb
           ))}
         </ul>
       </details>
-      {l.controladoPor ? (
+      {l.controladoPor && (
         <p className="ctl-controlado">✓ Controlado por {l.controladoPorNombre} el {fechaHoraPY(l.controladoEn ?? l.fecha)}</p>
-      ) : (
-        !accion && <p className="ctl-pendiente">Sin controlar todavía</p>
       )}
-      {accion}
+      {l.anuladaEn ? (
+        <p className="ctl-anulada-texto">
+          Anulada por {l.anuladaPorNombre} el {fechaHoraPY(l.anuladaEn)}{l.motivoAnulacion ? `: «${l.motivoAnulacion}»` : ''}.
+          {' '}No cuenta para el visto bueno ni para los reportes.
+        </p>
+      ) : (
+        <>
+          {!l.controladoPor && !accion && <p className="ctl-pendiente">Sin controlar todavía</p>}
+          {accion}
+          {puede('limpieza.controlar') && <AnularLimpieza l={l} />}
+        </>
+      )}
     </article>
+  )
+}
+
+/** Planilla mal cargada: el supervisor o el administrador la anula con un motivo. Confirmación en la misma tarjeta. */
+function AnularLimpieza({ l }: { l: Limpieza }) {
+  const [abierto, setAbierto] = useState(false)
+  const [motivo, setMotivo] = useState('')
+  const anular = useAccion(async (m: string) => {
+    try {
+      return await post<Limpieza>(`/limpiezas/${l.id}/anular`, { motivo: m })
+    } catch (e) {
+      // Ya la anuló otra persona: se recarga para mostrar quién.
+      if (e instanceof ErrorDeApi && e.codigo === 'ya_anulada') invalidar()
+      throw e
+    }
+  })
+  if (!abierto) {
+    return (
+      <button type="button" className="btn-discreto chico rojo ctl-anular" onClick={() => setAbierto(true)}>
+        Anular planilla mal cargada
+      </button>
+    )
+  }
+  return (
+    <div className="tarjeta ctl-confirmar" role="group" aria-label={`Anular la limpieza de ${l.areaNombre}`}>
+      <p>
+        La planilla queda en el historial como anulada y deja de contar. Después el sector la vuelve a cargar bien.
+      </p>
+      <label className="campo">
+        <span>Motivo</span>
+        <input
+          autoFocus maxLength={300} value={motivo} placeholder="Ej.: se guardó todo como «-» por error"
+          onChange={(e) => { anular.limpiarError(); setMotivo(e.target.value) }}
+        />
+      </label>
+      {anular.error && <p className="error" role="alert">{anular.error}</p>}
+      <div className="fila-acciones">
+        <button
+          type="button" className="btn-primario" disabled={anular.enviando || !motivo.trim()}
+          onClick={() => void anular.ejecutar(motivo.trim())}
+        >
+          {anular.enviando ? 'Anulando…' : 'Anular planilla'}
+        </button>
+        <button type="button" className="btn-secundario" onClick={() => { setAbierto(false); setMotivo(''); anular.limpiarError() }}>
+          Cancelar
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -158,9 +219,8 @@ function Planilla({ area, sector, borrador, cambiar }: {
   cambiar: (f: (b: Borrador) => Borrador) => void
 }) {
   const guardarLimpieza = useAccion((p: PedidoLimpieza) => post<Limpieza>('/limpiezas', p))
+  // Al tocar «Guardar» con tareas sin marcar, se pintan las que faltan.
   const [resaltar, setResaltar] = useState(false)
-  // Aviso en línea: hay tareas sin marcar y el operador decide si se guardan como «-».
-  const [avisoFaltan, setAvisoFaltan] = useState(false)
   const [listo, setListo] = useState<Limpieza | null>(null)
   const [errorFoto, setErrorFoto] = useState<string | null>(null)
   const [preparandoFoto, setPreparandoFoto] = useState(false)
@@ -169,7 +229,6 @@ function Planilla({ area, sector, borrador, cambiar }: {
   const marcadas = tareas.length - faltan.length
 
   const tocar = () => {
-    setAvisoFaltan(false)
     setListo(null)
     setErrorFoto(null)
     guardarLimpieza.limpiarError()
@@ -188,8 +247,7 @@ function Planilla({ area, sector, borrador, cambiar }: {
       areaId: area.id,
       sector,
       marcas: tareas.map((t) => {
-        // Las que faltan solo llegan sin marcar si el operador confirmó guardarlas como «-».
-        const marca = borrador.marcas[t.id] ?? '-'
+        const marca = borrador.marcas[t.id]
         const numero = t.pideNumero && marca !== '-' ? borrador.numeros[t.id]?.trim() || null : null
         return { tareaId: t.id, marca, numero }
       }),
@@ -204,10 +262,9 @@ function Planilla({ area, sector, borrador, cambiar }: {
 
   const guardar = () => {
     tocar()
-    // Como en la planilla en papel: si queda alguna sin marcar, se pregunta antes de guardarla como «-».
+    // Como en la planilla en papel: no se guarda con cuadros en blanco. Se muestran las que faltan.
     if (faltan.length) {
       setResaltar(true)
-      setAvisoFaltan(true)
       document.getElementById(`tarea-${faltan[0].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
     }
@@ -282,20 +339,12 @@ function Planilla({ area, sector, borrador, cambiar }: {
       />
       <div className="accion-fija">
         <div className="ctl-barra">
-          {avisoFaltan && faltan.length > 0 && (
-            <div className="tarjeta ctl-confirmar" role="group" aria-label="Guardar con tareas sin marcar">
-              <p>
-                {faltan.length === 1
-                  ? 'Queda 1 tarea sin marcar. ¿La guardamos como «-» (no se hizo)?'
-                  : `Quedan ${faltan.length} tareas sin marcar. ¿Las guardamos como «-» (no se hizo)?`}
-              </p>
-              <div className="fila-acciones">
-                <button type="button" className="btn-primario" disabled={enviando || preparandoFoto} onClick={() => { tocar(); void enviar() }}>
-                  Sí, guardar
-                </button>
-                <button type="button" className="btn-secundario" onClick={() => setAvisoFaltan(false)}>Volver a marcar</button>
-              </div>
-            </div>
+          {faltan.length > 0 && (
+            <p id="ctl-faltan" className={resaltar ? 'ctl-faltan-aviso error' : 'ctl-faltan-aviso suave'} role={resaltar ? 'alert' : undefined}>
+              {faltan.length === 1
+                ? 'Falta marcar 1 tarea con X, XX o - para poder guardar.'
+                : `Faltan marcar ${faltan.length} tareas con X, XX o - para poder guardar.`}
+            </p>
           )}
           {mensaje && <p className="error" role="alert">{mensaje}</p>}
           {listo && (
@@ -303,7 +352,11 @@ function Planilla({ area, sector, borrador, cambiar }: {
               Limpieza de {listo.areaNombre} guardada · {fechaHoraPY(listo.fecha)}.
             </p>
           )}
-          <button className="btn-primario" onClick={() => void guardar()} disabled={enviando || preparandoFoto}>
+          {/* Bloqueado (gris) mientras falten tareas; tocarlo igual muestra cuáles faltan. */}
+          <button
+            className={faltan.length ? 'btn-primario ctl-bloqueado' : 'btn-primario'} onClick={() => void guardar()}
+            disabled={enviando || preparandoFoto} aria-disabled={faltan.length > 0} aria-describedby={faltan.length ? 'ctl-faltan' : undefined}
+          >
             {enviando ? 'Guardando…' : 'Guardar limpieza'}
           </button>
         </div>

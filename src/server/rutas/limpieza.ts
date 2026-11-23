@@ -34,14 +34,19 @@ interface FilaLimpieza {
   controlado_por_nombre: string | null
   controlado_en: string | null
   foto_clave: string | null
+  anulada_en: string | null
+  anulada_por_nombre: string | null
+  motivo_anulacion: string | null
 }
 
 const COLUMNAS = `SELECT l.id, l.area_id, a.nombre AS area_nombre, l.sector, l.usuario_id, u.nombre AS usuario_nombre,
-    l.fecha, l.dia, l.comentario, l.controlado_por, c.nombre AS controlado_por_nombre, l.controlado_en, l.foto_clave
+    l.fecha, l.dia, l.comentario, l.controlado_por, c.nombre AS controlado_por_nombre, l.controlado_en, l.foto_clave,
+    l.anulada_en, n.nombre AS anulada_por_nombre, l.motivo_anulacion
   FROM limpiezas l
   JOIN areas_limpieza a ON a.id = l.area_id
   JOIN usuarios u ON u.id = l.usuario_id
-  LEFT JOIN usuarios c ON c.id = l.controlado_por`
+  LEFT JOIN usuarios c ON c.id = l.controlado_por
+  LEFT JOIN usuarios n ON n.id = l.anulada_por`
 
 export interface FiltroLimpiezas {
   ids?: string[]
@@ -49,6 +54,7 @@ export interface FiltroLimpiezas {
   area?: string | null
   desde?: string | null
   hasta?: string | null
+  /** Solo las que esperan el visto bueno: sin controlar y sin anular. */
   sinControlar?: boolean
   limite?: number
 }
@@ -73,7 +79,7 @@ export async function leerLimpiezas(db: BaseD1, filtro: FiltroLimpiezas = {}): P
     si(filtro.area, 'l.area_id = ?', filtro.area ?? null)
     si(filtro.desde, 'l.dia >= ?', filtro.desde ?? null)
     si(filtro.hasta, 'l.dia <= ?', filtro.hasta ?? null)
-    si(filtro.sinControlar, 'l.controlado_por IS NULL')
+    si(filtro.sinControlar, 'l.controlado_por IS NULL AND l.anulada_en IS NULL')
     const where = partes.length ? `WHERE ${partes.join(' AND ')}` : ''
     filas = await todas<FilaLimpieza>(db, `${COLUMNAS} ${where} ORDER BY l.fecha DESC, l.id LIMIT ?`, ...params, filtro.limite ?? 1000)
   }
@@ -101,6 +107,9 @@ export async function leerLimpiezas(db: BaseD1, filtro: FiltroLimpiezas = {}): P
     controladoPorNombre: f.controlado_por_nombre,
     controladoEn: f.controlado_en,
     tieneFoto: !!f.foto_clave,
+    anuladaEn: f.anulada_en,
+    anuladaPorNombre: f.anulada_por_nombre,
+    motivoAnulacion: f.motivo_anulacion,
   }))
 }
 
@@ -128,7 +137,7 @@ export async function alertasLimpieza(db: BaseD1, sector: SectorId | null, hoy: 
     db,
     `SELECT a.nombre, a.frecuencia_dias,
             (SELECT GROUP_CONCAT(x.sector) FROM areas_sectores x WHERE x.area_id = a.id) AS sectores,
-            (SELECT MAX(l.dia) FROM limpiezas l WHERE l.area_id = a.id) AS ultimo
+            (SELECT MAX(l.dia) FROM limpiezas l WHERE l.area_id = a.id AND l.anulada_en IS NULL) AS ultimo
        FROM areas_limpieza a
       WHERE a.activo = 1 AND a.frecuencia_dias IS NOT NULL
         ${sector ? 'AND a.id IN (SELECT area_id FROM areas_sectores WHERE sector = ?)' : ''}
@@ -265,6 +274,7 @@ rutasLimpieza.post('/limpiezas/:id/control', requiere('limpieza.controlar', 'Sol
   const u = c.get('usuario')
   const [antes] = await leerLimpiezas(db, { ids: [c.req.param('id')] })
   if (!antes) throw noEncontrado('No se encontró esa limpieza.')
+  if (antes.anuladaEn) throw conflicto('ya_anulada', 'Esta limpieza está anulada: no se controla.')
   if (antes.controladoPor) {
     throw conflicto('ya_controlada', `Esta limpieza ya la controló ${antes.controladoPorNombre ?? 'otra persona'}.`)
   }
@@ -278,6 +288,36 @@ rutasLimpieza.post('/limpiezas/:id/control', requiere('limpieza.controlar', 'Sol
     }),
   ])
   if (r.meta.changes === 0) throw conflicto('ya_controlada', 'Esta limpieza ya la controló otra persona.')
+  const [despues] = await leerLimpiezas(db, { ids: [antes.id] })
+  return c.json<Limpieza>(despues)
+})
+
+/**
+ * Planilla mal cargada (ej.: todo «-» por error): el supervisor o el administrador la anulan con un motivo. No se
+ * borra; queda en el historial como anulada y deja de contar para el visto bueno, los reportes y las alertas.
+ * Se puede anular aunque ya tenga el visto bueno. El sector vuelve a cargar la planilla bien.
+ */
+rutasLimpieza.post('/limpiezas/:id/anular', requiere('limpieza.controlar', 'Solo el administrador o el supervisor pueden anular una limpieza.'), async (c) => {
+  const db = c.env.DB
+  const u = c.get('usuario')
+  const b = await cuerpo(c)
+  const motivo = texto(b.motivo, 'el motivo', { max: 300 })
+  const [antes] = await leerLimpiezas(db, { ids: [c.req.param('id')] })
+  if (!antes) throw noEncontrado('No se encontró esa limpieza.')
+  if (antes.anuladaEn) throw conflicto('ya_anulada', `Esta limpieza ya la anuló ${antes.anuladaPorNombre ?? 'otra persona'}.`)
+  const { fecha } = ahora()
+  const [r] = await db.batch([
+    sentencia(
+      db, 'UPDATE limpiezas SET anulada_por = ?, anulada_en = ?, motivo_anulacion = ? WHERE id = ? AND anulada_en IS NULL',
+      u.id, fecha, motivo, antes.id,
+    ),
+    sentenciaAuditoria(db, {
+      tabla: 'limpiezas', registroId: antes.id, accion: 'anular', usuarioId: u.id,
+      antes: { anuladaEn: null },
+      despues: { anuladaPor: u.id, anuladaEn: fecha, motivo },
+    }),
+  ])
+  if (r.meta.changes === 0) throw conflicto('ya_anulada', 'Esta limpieza ya la anuló otra persona.')
   const [despues] = await leerLimpiezas(db, { ids: [antes.id] })
   return c.json<Limpieza>(despues)
 })

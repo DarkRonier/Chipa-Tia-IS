@@ -197,6 +197,48 @@ describe('limpieza', () => {
     expect(propias.body.find((x) => x.id === l.body.id)?.controladoPorNombre).toBe('Administración')
   })
 
+  it('el supervisor o el administrador anulan una planilla mal cargada, con motivo; deja de contar', async () => {
+    const p = await nuevaPrueba()
+    const admin = await p.entrar('admin')
+    const supervisor = await p.entrar('supervisor')
+    const t = await p.entrar('panaderia')
+    await p.pedir(admin, 'PATCH', '/areas/panaderia', { frecuenciaDias: 1 })
+    // Se guardó todo como «-» por error.
+    const mal = await p.pedir<Limpieza>(t, 'POST', '/limpiezas', { areaId: 'panaderia', marcas: await marcasDe(p, t, 'panaderia') })
+    expect(mal.body).toMatchObject({ anuladaEn: null, anuladaPorNombre: null, motivoAnulacion: null })
+    expect((await p.pedir<Alerta[]>(t, 'GET', '/limpieza/alertas')).body).toEqual([])
+
+    // El sector no puede anular; hace falta un motivo.
+    expect((await p.pedir(t, 'POST', `/limpiezas/${mal.body.id}/anular`, { motivo: 'error' })).status).toBe(403)
+    expect((await p.pedir(supervisor, 'POST', `/limpiezas/${mal.body.id}/anular`, { motivo: '  ' })).status).toBe(400)
+    expect((await p.pedir(supervisor, 'POST', '/limpiezas/no-existe/anular', { motivo: 'x' })).status).toBe(404)
+
+    const r = await p.pedir<Limpieza>(supervisor, 'POST', `/limpiezas/${mal.body.id}/anular`, { motivo: ' Todo en «-» por error ' })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ id: mal.body.id, anuladaPorNombre: 'Supervisión', motivoAnulacion: 'Todo en «-» por error' })
+    expect(Date.parse(r.body.anuladaEn!)).toBeGreaterThan(Date.now() - 60_000)
+    const otraVez = await p.pedir(admin, 'POST', `/limpiezas/${mal.body.id}/anular`, { motivo: 'x' })
+    expect(otraVez.status).toBe(409)
+    expect(otraVez.body.error.codigo).toBe('ya_anulada')
+    const [aud] = await p.sql("SELECT * FROM auditoria WHERE tabla = 'limpiezas' AND accion = 'anular'")
+    expect(aud).toMatchObject({ registro_id: mal.body.id, usuario_id: 'usr-supervisor' })
+
+    // Queda en el historial, pero no espera visto bueno, no se controla y no cuenta como limpieza del área.
+    expect((await p.pedir<Limpieza[]>(t, 'GET', '/limpiezas')).body.map((x) => x.id)).toEqual([mal.body.id])
+    expect((await p.pedir<Limpieza[]>(admin, 'GET', '/limpiezas?sinControlar=1')).body).toEqual([])
+    const control = await p.pedir(admin, 'POST', `/limpiezas/${mal.body.id}/control`)
+    expect(control.status).toBe(409)
+    expect(control.body.error.codigo).toBe('ya_anulada')
+    expect((await p.pedir<Alerta[]>(t, 'GET', '/limpieza/alertas')).body.map((a) => a.texto)).toEqual([
+      'Panadería: todavía no tiene limpiezas registradas (se pide limpiar todos los días).',
+    ])
+
+    // El sector la vuelve a cargar bien; una ya controlada también se puede anular.
+    const bien = await p.pedir<Limpieza>(t, 'POST', '/limpiezas', { areaId: 'panaderia', marcas: await marcasDe(p, t, 'panaderia', {}, 'X') })
+    await p.pedir(admin, 'POST', `/limpiezas/${bien.body.id}/control`)
+    expect((await p.pedir(admin, 'POST', `/limpiezas/${bien.body.id}/anular`, { motivo: 'Era de otro día' })).status).toBe(200)
+  })
+
   it('no acepta áreas dadas de baja, pero su historial queda', async () => {
     const p = await nuevaPrueba()
     const t = await p.entrar('chiperia')
