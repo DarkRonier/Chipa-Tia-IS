@@ -38,8 +38,14 @@ export default function Controles() {
   const [params, setParams] = useSearchParams()
   const vista: Vista = params.get('ver') === 'temperaturas' ? 'temperaturas' : 'limpieza'
   const hoy = diaPY()
-  const [todos, setTodos] = useState(false)
-  const [desde, setDesde] = useState(() => rango('semana', hoy)[0])
+  // Abre con todos los sectores, para que coincida con el conteo del Resumen. El Resumen puede pedir
+  // una fecha desde más vieja (?desde=AAAA-MM-DD) cuando hay limpiezas sin controlar de antes.
+  const [todos, setTodos] = useState(true)
+  const [desde, setDesde] = useState(() => {
+    const semana = rango('semana', hoy)[0]
+    const pedido = params.get('desde')
+    return pedido && /^\d{4}-\d{2}-\d{2}$/.test(pedido) && pedido < semana ? pedido : semana
+  })
   const [hasta, setHasta] = useState(hoy)
   const rangoMal = !!desde && !!hasta && desde > hasta
   const filtro: FiltroControles = { sector: todos ? undefined : sector.id, desde, hasta }

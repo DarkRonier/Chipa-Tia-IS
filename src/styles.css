@@ -123,8 +123,10 @@ input.rojo { border-color: var(--error); background: var(--error-fondo); }
 .btn-primario { background: var(--marca); color: var(--sobre-marca); border: none; font-weight: 800; }
 .btn-primario:hover:not(:disabled) { filter: brightness(1.12); }
 .btn-primario:disabled { opacity: 0.6; cursor: default; }
-.btn-secundario { background: var(--superficie); border: 2px solid var(--borde); color: var(--texto); margin-bottom: 0.75rem; }
-.btn-secundario:hover { border-color: var(--marca-texto); color: var(--marca-texto); }
+/* Botón secundario: mismo aspecto que .btn-discreto (gris, sin borde), con el tamaño de un botón grande. */
+.btn-secundario { background: var(--discreto-fondo); border: none; color: var(--discreto-texto); margin-bottom: 0.75rem; transition: background 0.12s; }
+.btn-secundario:hover:not(:disabled) { background: var(--discreto-hover); }
+.btn-secundario:disabled { opacity: 0.5; cursor: default; }
 /* Botón discreto: para acciones secundarias (Limpiar, Ver más, Cambiar, ir a otra pantalla).
    Nunca se usan links subrayados: todo enlace sin clase toma este mismo aspecto.
    Claro: fondo gris, texto negro (o rojo con .rojo). Oscuro: fondo gris oscuro, texto blanco. */
