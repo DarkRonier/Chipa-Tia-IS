@@ -295,8 +295,8 @@ describe('hoja de factura de Chipa Tía', () => {
   it('viene con el timbrado y la numeración del talonario; guarda la dirección y el código de cada producto', async () => {
     const { p, admin, cajero } = await escenario()
     const cfg = (await p.pedir<ConfigFactura>(cajero, 'GET', '/factura/config')).body
-    expect(cfg).toMatchObject({ timbrado: '18980642', prefijo: '001-002', numeroInicial: 1775, numeroFinal: 2000, anchoHoja: 210, altoHoja: 297 })
-    expect(cfg.duplicado).toEqual({ x: 0, y: 148.5 })
+    expect(cfg).toMatchObject({ timbrado: '18980642', prefijo: '001-002', numeroInicial: 1775, numeroFinal: 2000, anchoHoja: 216, altoHoja: 330 })
+    expect(cfg.duplicado).toEqual({ x: 0, y: 165 })
     await p.pedir(admin, 'PATCH', `/productos/${CHIPA}`, { codigo: 'CH01' })
     await p.pedir(admin, 'PUT', '/factura/config', { numeroInicial: 1775 })
     expect((await p.pedir<{ numeroCompleto: string }>(admin, 'GET', '/factura/proxima')).body.numeroCompleto).toBe('001-002-0001775')
@@ -330,7 +330,15 @@ describe('hoja de factura de Chipa Tía', () => {
   it('el formato viejo (genérico) se cambia por el de la hoja nueva, pero respeta la numeración cargada', async () => {
     const { p, cajero } = await escenario()
     await p.sql("INSERT INTO configuracion (clave, valor) VALUES ('factura', ?)", JSON.stringify({ timbrado: '111', prefijo: '001-001', numeroInicial: 40, anchoHoja: 210, altoHoja: 148 }))
-    expect((await p.pedir<ConfigFactura>(cajero, 'GET', '/factura/config')).body).toMatchObject({ timbrado: '111', prefijo: '001-001', numeroInicial: 40, anchoHoja: 210, altoHoja: 297, version: 3 })
+    expect((await p.pedir<ConfigFactura>(cajero, 'GET', '/factura/config')).body).toMatchObject({ timbrado: '111', prefijo: '001-001', numeroInicial: 40, anchoHoja: 216, altoHoja: 330, version: 4 })
+  })
+
+  it('el formato A4 (versión 3) pasa a la hoja oficio y conserva la numeración', async () => {
+    const { p, cajero } = await escenario()
+    await p.sql("INSERT INTO configuracion (clave, valor) VALUES ('factura', ?)", JSON.stringify({ version: 3, timbrado: '18980642', prefijo: '001-002', numeroInicial: 1800, anchoHoja: 210, altoHoja: 297, margenSuperior: 4, duplicado: { x: 0, y: 148.5 } }))
+    const cfg = (await p.pedir<ConfigFactura>(cajero, 'GET', '/factura/config')).body
+    expect(cfg).toMatchObject({ numeroInicial: 1800, anchoHoja: 216, altoHoja: 330, margenSuperior: 0, version: 4 })
+    expect(cfg.duplicado).toEqual({ x: 0, y: 165 })
   })
 })
 

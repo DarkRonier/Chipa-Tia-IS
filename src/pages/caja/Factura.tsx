@@ -1,8 +1,8 @@
-// M12: factura preimpresa de Chipa Tía (hoja A4 con original arriba y duplicado abajo). Imprime solo los datos
+// M12: factura preimpresa de Chipa Tía (hoja oficio 216 × 330 mm con original arriba y duplicado abajo). Imprime solo los datos
 // variables (fecha, cliente, detalle e importes) sobre la hoja de la imprenta, en las posiciones del formato (milímetros).
 // El número y el timbrado ya vienen impresos: el sistema lleva la misma numeración y avisa qué hoja poner antes de imprimir.
 // El formato se calibra en Caja → Factura: márgenes que corren todo junto y la posición de cada dato, con una hoja de prueba.
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { put } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
@@ -75,12 +75,15 @@ export function HojaFactura({ venta, config, fondo = false }: { venta: Venta; co
 
 /** Pone la hoja en la página solo para imprimir (fuera de la app) y abre el diálogo de impresión. */
 function Imprimir({ venta, config, alTerminar }: { venta: Venta; config: ConfigFactura; alTerminar: () => void }) {
+  // alTerminar cambia en cada dibujo de la pantalla de atrás: si fuera dependencia del efecto, el diálogo se abriría dos veces.
+  const terminar = useRef(alTerminar)
+  terminar.current = alTerminar
   useEffect(() => {
     const estilo = document.createElement('style')
     estilo.textContent = `@page { size: ${config.anchoHoja}mm ${config.altoHoja}mm; margin: 0; }`
     document.head.appendChild(estilo)
     document.body.classList.add('con-factura')
-    const fin = () => alTerminar()
+    const fin = () => terminar.current()
     window.addEventListener('afterprint', fin)
     const t = setTimeout(() => window.print(), 50)
     return () => {
@@ -89,7 +92,7 @@ function Imprimir({ venta, config, alTerminar }: { venta: Venta; config: ConfigF
       document.body.classList.remove('con-factura')
       estilo.remove()
     }
-  }, [config, alTerminar])
+  }, [config])
   return createPortal(<div className="factura-portal"><HojaFactura venta={venta} config={config} /></div>, document.body)
 }
 
@@ -112,12 +115,31 @@ export function ImprimirFactura({ venta, config, alTerminar }: { venta: Venta; c
         {reimpresion
           ? <Aviso>Esta factura ya se imprimió. Volvé a imprimirla solo si esa hoja quedó en blanco (por ejemplo, se trabó el papel). Si la hoja se arruinó, guardala anulada y avisale al administrador.</Aviso>
           : <p className="suave">Si la hoja que sigue en el talonario tiene otro número, no imprimas y avisale al administrador: el número se corrige en Caja → Factura.</p>}
+        <ConsejoImpresora />
         <div className="fila-acciones">
           <button type="button" className="btn-primario" autoFocus onClick={() => setListo(true)}>Imprimir</button>
           <button type="button" className="btn-secundario" onClick={alTerminar}>Cancelar</button>
         </div>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Lo que más traba al imprimir: el navegador recuerda el último destino, y como los reportes se bajan con «Guardar como
+ * PDF», la impresora no aparece. Se elige una vez y queda.
+ */
+function ConsejoImpresora() {
+  return (
+    <details className="consejo-impresora">
+      <summary>¿No aparece la impresora?</summary>
+      <ol>
+        <li>En la ventana de impresión, abrí la lista <strong>Destino</strong> (o <strong>Impresora</strong>) y elegí la impresora. Si no está, tocá <strong>Ver más…</strong>.</li>
+        <li>El navegador se acuerda de la última elegida: después de la primera vez ya aparece sola. Si alguien bajó un reporte como PDF, puede volver a «Guardar como PDF» y hay que elegirla de nuevo.</li>
+        <li>Si tampoco está en «Ver más…», la impresora no está instalada en Windows: Configuración → Bluetooth y dispositivos → Impresoras y escáneres → Agregar dispositivo.</li>
+        <li>Papel: <strong>oficio</strong>. En «Más opciones», márgenes <strong>Ninguno</strong> y escala <strong>100</strong> (o «Tamaño real»).</li>
+      </ol>
+    </details>
   )
 }
 
@@ -166,6 +188,8 @@ function FormFactura({ inicial }: { inicial: ConfigFactura }) {
   const proxima = useConsulta<{ numero: number; numeroCompleto: string }>('/factura/proxima')
   const guardar = useAccion(() => put<ConfigFactura>('/factura/config', d))
   const cambiar = (x: Partial<ConfigFactura>) => { setOk(false); setD({ ...d, ...x }) }
+  const redondo = (n: number) => Math.round(n * 10) / 10
+  const mover = (dx: number, dy: number) => cambiar({ margenIzquierdo: redondo(d.margenIzquierdo + dx), margenSuperior: redondo(d.margenSuperior + dy) })
   const num = (k: CampoNum, etiqueta: string) => (
     <label key={k} className="campo">
       <span>{etiqueta}</span>
@@ -184,10 +208,11 @@ function FormFactura({ inicial }: { inicial: ConfigFactura }) {
   return (
     <>
       <p className="suave">
-        La factura sale sobre la hoja preimpresa de la imprenta (A4, original arriba y duplicado abajo): el sistema
-        imprime solo la fecha, el cliente, el detalle y los importes. Para calibrar, imprimí una hoja de prueba en una hoja
-        A4 común (al imprimir: papel A4, márgenes «Ninguno» y escala 100 %), ponela encima de una factura en blanco y miralas a contraluz. Si todo sale 3 mm más arriba, poné 3 en
-        «Correr todo hacia abajo»; si sale 2 mm a la derecha, poné -2 en «Correr todo a la derecha». Guardá y probá de nuevo.
+        La factura sale sobre la hoja preimpresa de la imprenta (oficio, 216 × 330 mm, original arriba y duplicado abajo):
+        el sistema imprime solo la fecha, el cliente, el detalle y los importes. Para calibrar, imprimí una hoja de prueba en
+        una hoja oficio común (papel oficio, márgenes «Ninguno» y escala 100), ponela encima de una factura en blanco y
+        miralas a contraluz. Después mové todo con las flechas: si los datos salen 3 mm más arriba de donde van, tocá
+        «Bajar» 3 veces. Guardá y probá de nuevo.
       </p>
 
       <h2>Numeración</h2>
@@ -213,11 +238,21 @@ function FormFactura({ inicial }: { inicial: ConfigFactura }) {
       )}
 
       <h2>Calibrar con la impresora</h2>
-      <div className="tarjeta filtros">
-        {num('margenIzquierdo', 'Correr todo a la derecha (mm)')}
-        {num('margenSuperior', 'Correr todo hacia abajo (mm)')}
-        {par('duplicado', 'Duplicado: dónde empieza respecto del original (mm)', ['a la derecha', 'hacia abajo'])}
+      <div className="tarjeta calibrar">
+        <div className="flechas-mm" role="group" aria-label="Mover todo lo que se imprime, de a 1 mm">
+          <button type="button" className="btn-secundario arriba" onClick={() => mover(0, -1)}>▲ Subir</button>
+          <button type="button" className="btn-secundario izquierda" onClick={() => mover(-1, 0)}>◀ Izquierda</button>
+          <span className="centro chico">1 mm</span>
+          <button type="button" className="btn-secundario derecha" onClick={() => mover(1, 0)}>Derecha ▶</button>
+          <button type="button" className="btn-secundario abajo" onClick={() => mover(0, 1)}>▼ Bajar</button>
+        </div>
+        <div className="filtros">
+          {num('margenIzquierdo', 'Corrido a la derecha (mm, negativo = a la izquierda)')}
+          {num('margenSuperior', 'Corrido hacia abajo (mm, negativo = hacia arriba)')}
+          {par('duplicado', 'Duplicado: dónde empieza respecto del original (mm)', ['a la derecha', 'hacia abajo'])}
+        </div>
       </div>
+      <ConsejoImpresora />
 
       <details className="tarjeta">
         <summary>Medidas de la hoja y posición de cada dato</summary>
@@ -235,7 +270,7 @@ function FormFactura({ inicial }: { inicial: ConfigFactura }) {
       <h2>Vista previa</h2>
       <label className="check">
         <input type="checkbox" checked={fondo} onChange={(e) => setFondo(e.target.checked)} />
-        <span>Verla sobre el dibujo de la hoja (sacado de la foto, enderezado y a tamaño A4)</span>
+        <span>Verla sobre el dibujo de la hoja (sacado de la foto, enderezado y a tamaño oficio)</span>
       </label>
       <div className="vista-factura"><HojaFactura venta={VENTA_PRUEBA} config={d} fondo={fondo} /></div>
       {prueba && <ImprimirFactura venta={VENTA_PRUEBA} config={d} alTerminar={() => setPrueba(false)} />}

@@ -673,44 +673,45 @@ rutasCaja.post('/ventas/:id/anular', requiere('ventas.anular'), async (c) => {
 // ---------- Factura preimpresa (M12) ----------
 
 /**
- * Hoja de Chipa Tía E.A.S. (imprenta Kike): A4 (210 × 297 mm) con original arriba y duplicado abajo, cada copia en media
- * hoja (148,5 mm). Medidas sacadas de la foto de la hoja vacía enderezada (perspectiva corregida, líneas rectas, escala
- * A4): la tabla va de x 9,3 a 200,7 mm y de y 58,7 a 141,9 mm en cada copia. Se afinan en Caja → Factura con una prueba.
+ * Hoja de Chipa Tía E.A.S. (imprenta Kike): OFICIO (216 × 330 mm) con original arriba y duplicado abajo, cada copia en
+ * media hoja (165 mm). Medidas sacadas de la foto de la hoja vacía enderezada (perspectiva corregida, líneas rectas) y
+ * llevadas a oficio (Mati, 2026-11-24: la hoja es oficio, no A4): la tabla va de x 9,6 a 206,4 mm y de y 65,2 a 157,7 mm
+ * en cada copia. Se afinan en Caja → Factura con una hoja de prueba.
  */
 export const FACTURA_POR_DEFECTO: ConfigFactura = {
-  version: 3,
+  version: 4,
   timbrado: '18980642',
   prefijo: '001-002',
   numeroInicial: 1775,
   numeroFinal: 2000,
   venceTimbrado: '2027-07-31',
-  anchoHoja: 210,
-  altoHoja: 297,
+  anchoHoja: 216,
+  altoHoja: 330,
   margenIzquierdo: 0,
   margenSuperior: 0,
   tamanoLetra: 9,
-  duplicado: { x: 0, y: 148.5 },
-  contado: { x: 158.5, y: 37.4 },
-  fecha: { x: 41.5, y: 37.6 },
-  ruc: { x: 164, y: 46 },
-  cliente: { x: 30, y: 45.8 },
-  direccion: { x: 31, y: 52.6 },
-  detalle: { x: 0, y: 68.6 },
-  altoRenglon: 4.3,
+  duplicado: { x: 0, y: 165 },
+  contado: { x: 163, y: 41.6 },
+  fecha: { x: 42.7, y: 41.8 },
+  ruc: { x: 168.7, y: 51.1 },
+  cliente: { x: 30.9, y: 50.9 },
+  direccion: { x: 31.9, y: 58.4 },
+  detalle: { x: 0, y: 76.3 },
+  altoRenglon: 4.8,
   maxRenglones: 10,
-  columnaCodigo: 10.8,
-  columnaCantidad: 34.4,
-  columnaDescripcion: 37.4,
-  columnaPrecio: 141.7,
-  columnaExentas: 161,
-  columna5: 180.3,
-  columna10: 199.2,
-  subtotales: { x: 0, y: 112.6 },
-  total: { x: 199.2, y: 119.05 },
-  totalLetras: { x: 63.5, y: 119.05 },
-  iva5: { x: 74, y: 126.1 },
-  iva10: { x: 116.5, y: 126.1 },
-  totalIva: { x: 171.5, y: 126.1 },
+  columnaCodigo: 11.1,
+  columnaCantidad: 35.4,
+  columnaDescripcion: 38.5,
+  columnaPrecio: 145.7,
+  columnaExentas: 165.6,
+  columna5: 185.5,
+  columna10: 204.9,
+  subtotales: { x: 0, y: 125.1 },
+  total: { x: 204.9, y: 132.3 },
+  totalLetras: { x: 65.3, y: 132.3 },
+  iva5: { x: 76.1, y: 140.1 },
+  iva10: { x: 119.8, y: 140.1 },
+  totalIva: { x: 176.4, y: 140.1 },
 }
 
 const CLAVE_FACTURA = 'factura'
@@ -721,8 +722,8 @@ export async function leerConfigFactura(db: BaseD1): Promise<ConfigFactura> {
   try {
     const guardada = JSON.parse(f.valor) as Partial<ConfigFactura>
     if ((guardada.version ?? 1) >= FACTURA_POR_DEFECTO.version) return { ...FACTURA_POR_DEFECTO, ...guardada }
-    // Formato viejo (genérico A5, o el de oficio estimado sin enderezar la foto): las posiciones no sirven para la hoja
-    // A4; solo se respeta la numeración si se cargó.
+    // Formato viejo (genérico A5, oficio estimado sin enderezar la foto, o A4): las posiciones no sirven para la hoja
+    // oficio; solo se respeta la numeración si se cargó.
     if (!guardada.timbrado) return { ...FACTURA_POR_DEFECTO }
     const numeracion = { timbrado: guardada.timbrado, prefijo: guardada.prefijo, numeroInicial: guardada.numeroInicial, numeroFinal: guardada.numeroFinal, venceTimbrado: guardada.venceTimbrado }
     return { ...FACTURA_POR_DEFECTO, ...Object.fromEntries(Object.entries(numeracion).filter(([, v]) => v !== undefined)) }

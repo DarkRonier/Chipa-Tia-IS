@@ -181,7 +181,10 @@ function Vender() {
     })
     if (v) {
       setHecha(v)
+      // Si cargó los datos del cliente es porque quiere la factura: va directo a imprimirla, sin otro clic.
+      const conFactura = conCliente
       limpiar()
+      if (conFactura) void factura.imprimir(v.id)
     }
   }
 
@@ -198,8 +201,8 @@ function Vender() {
             {hecha.vuelto !== null && hecha.vuelto > 0 && <> Vuelto: <strong>{gs(hecha.vuelto)}</strong>.</>}
           </Aviso>
           <div className="fila-acciones">
-            <button type="button" className="btn-secundario" disabled={factura.enviando} onClick={() => void factura.imprimir(hecha.id)}>
-              Imprimir factura
+            <button type="button" className="btn-primario" disabled={factura.enviando} onClick={() => void factura.imprimir(hecha.id)}>
+              {factura.ultima?.id === hecha.id ? 'Imprimir de nuevo' : 'Imprimir factura'}
             </button>
             <BotonIcono icono="cancelar" texto="Seguir sin factura" onClick={() => setHecha(null)} />
           </div>
@@ -275,7 +278,7 @@ function Vender() {
         <Aviso>{vender.error}</Aviso>
         <div className="fila-acciones">
           <button type="button" className="btn-primario" disabled={vender.enviando || !lineas.length || problema !== null} onClick={() => void cobrar()}>
-            {vender.enviando ? 'Cobrando…' : `Cobrar ${gs(total)}`}
+            {vender.enviando ? 'Cobrando…' : `Cobrar ${gs(total)}${conCliente ? ' e imprimir factura' : ''}`}
           </button>
           {lineas.length > 0 && <BotonIcono icono="basurero" texto="Vaciar la venta" tono="peligro" onClick={limpiar} />}
         </div>
