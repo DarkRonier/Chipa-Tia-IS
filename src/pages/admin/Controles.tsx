@@ -251,42 +251,65 @@ function ControlarTodas({ lista, alTerminar }: { lista: Limpieza[]; alTerminar: 
 
 const conProblema = (l: Lectura) => l.fueraDeRango || l.estado !== 'funciona'
 
+type VistaLecturas = 'ultimas' | 'problemas' | 'todas'
+
+/** La lectura más reciente de cada máquina (la lista viene de la más nueva a la más vieja). */
+function ultimaPorMaquina(lecturas: Lectura[]): Lectura[] {
+  const vistas = new Set<string>()
+  return lecturas.filter((l) => {
+    if (vistas.has(l.maquinaId)) return false
+    vistas.add(l.maquinaId)
+    return true
+  })
+}
+
 function ControlTemperaturas({ filtro, nombreSector }: { filtro: FiltroControles; nombreSector?: (s: SectorId) => string }) {
-  const [soloProblemas, setSoloProblemas] = useState(true)
+  // Lo que más se mira es cómo está cada máquina ahora: la última lectura de cada una (Mati, 2026-11-24).
+  // El historial completo sigue a un toque.
+  const [ver, setVer] = useState<VistaLecturas>('ultimas')
   const consulta = useConsulta<Lectura[]>('/lecturas', { ...filtro })
 
   return (
     <ConDatos consulta={consulta}>
       {(todas) => {
+        const ultimas = ultimaPorMaquina(todas)
         const problemas = todas.filter(conProblema)
-        const fuera = todas.filter((l) => l.fueraDeRango).length
-        const fallas = todas.filter((l) => l.estado !== 'funciona').length
-        const lista = soloProblemas ? problemas : todas
+        const base = ver === 'ultimas' ? ultimas : todas
+        const fuera = base.filter((l) => l.fueraDeRango).length
+        const fallas = base.filter((l) => l.estado !== 'funciona').length
+        const lista = ver === 'ultimas' ? ultimas : ver === 'problemas' ? problemas : todas
+        const opciones: [VistaLecturas, string][] = [
+          ['ultimas', `Última de cada máquina (${ultimas.length})`],
+          ['problemas', `Fuera de rango o con fallas (${problemas.length})`],
+          ['todas', `Historial completo (${todas.length})`],
+        ]
         return (
           <>
             <div className="segmentado chico" role="group" aria-label="Qué lecturas ver">
-              <button type="button" aria-pressed={soloProblemas} className={soloProblemas ? 'activo' : ''} onClick={() => setSoloProblemas(true)}>
-                Fuera de rango o con fallas ({problemas.length})
-              </button>
-              <button type="button" aria-pressed={!soloProblemas} className={!soloProblemas ? 'activo' : ''} onClick={() => setSoloProblemas(false)}>
-                Todas ({todas.length})
-              </button>
+              {opciones.map(([v, t]) => (
+                <button key={v} type="button" aria-pressed={ver === v} className={ver === v ? 'activo' : ''} onClick={() => setVer(v)}>
+                  {t}
+                </button>
+              ))}
             </div>
             <p className="suave chico ctl-resumen">
-              {plural(todas.length, 'lectura', 'lecturas')}
+              {ver === 'ultimas' ? plural(ultimas.length, 'máquina', 'máquinas') : plural(todas.length, 'lectura', 'lecturas')}
               {' · '}
               <span className={fuera ? 'rojo' : ''}>{plural(fuera, 'fuera de rango', 'fuera de rango')}</span>
               {' · '}
               <span className={fallas ? 'rojo' : ''}>{plural(fallas, 'con fallas o fuera de servicio', 'con fallas o fuera de servicio')}</span>
             </p>
+            {ver === 'ultimas' && lista.length > 0 && (
+              <p className="suave chico">Tocá una máquina para ver todas sus lecturas.</p>
+            )}
             {lista.length === 0 ? (
               <p className="suave">
-                {soloProblemas && todas.length > 0
+                {ver === 'problemas' && todas.length > 0
                   ? 'Ninguna lectura de estas fechas quedó fuera de rango ni con fallas.'
                   : 'No hay lecturas cargadas en estas fechas.'}
               </p>
             ) : (
-              <TablaLecturas lecturas={lista} conMaquina nombreSector={nombreSector} />
+              <TablaLecturas lecturas={lista} conMaquina nombreSector={nombreSector} enlaceMaquina={ver === 'ultimas'} />
             )}
           </>
         )
