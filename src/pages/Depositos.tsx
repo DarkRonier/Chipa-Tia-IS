@@ -13,6 +13,7 @@ import { useCategorias, useDepositos, useSectores } from '../cliente/catalogo'
 import { useAccion, useConsulta } from '../cliente/consultas'
 import { useEsSuper, usePuede, useUsuario } from '../cliente/sesion'
 import { normalizar } from '../components/Buscador'
+import { filasGenerales } from '../cliente/stockGeneral'
 import { Aviso, ConDatos } from '../components/Estado'
 import Modal from '../components/Modal'
 import Numero from '../components/Numero'
@@ -29,9 +30,12 @@ import '../styles/catalogos.css'
 import '../styles/stock.css'
 
 type Tipo = TipoDeposito | 'sucursal'
-const TIPOS_DEPOSITO: Tipo[] = ['venta', 'almacen', 'sucursal']
-const PLURAL: Record<Tipo, string> = { venta: 'Venta directa', almacen: 'Depósitos fríos', sucursal: 'Sucursales' }
-const EXPLICACION: Record<Tipo, string> = {
+/** Pestañas de arriba: «Todo el stock» (una tabla con todos los depósitos, la que se abre primero) y los tipos. */
+type Pestana = Tipo | 'todo'
+const PESTANAS: Pestana[] = ['todo', 'venta', 'almacen', 'sucursal']
+const PLURAL: Record<Pestana, string> = { todo: 'Todo el stock', venta: 'Venta directa', almacen: 'Depósitos fríos', sucursal: 'Sucursales' }
+const EXPLICACION: Record<Pestana, string> = {
+  todo: 'Lo que hay en cada depósito, en una sola tabla. Tocá el nombre de un depósito para ver su detalle, transferir o ajustar.',
   venta: 'Lo que está listo para vender. Cada caja descuenta de su depósito, y cada uno recibe solo los productos de sus categorías.',
   almacen: 'Donde se guarda: producción, materia prima, mercadería. Cada uno tiene su propio stock. Si tiene una máquina vinculada (heladera, freezer), se ve su última temperatura.',
   sucursal: 'Las sucursales no llevan stock en el sistema: solo se registra lo que se les envía desde la matriz.',
@@ -90,20 +94,22 @@ export default function Depositos() {
   const stock = useConsulta<StockFila[]>('/stock', { todos: 1 })
   const esSuper = useEsSuper()
   const [creando, setCreando] = useState(false)
-  const tipo = (TIPOS_DEPOSITO as string[]).includes(params.get('tipo') ?? '') ? params.get('tipo') as Tipo : 'venta'
-  const ver = params.get('ver')
-  const ir = (t: Tipo, id?: string) => setParams(id ? { tipo: t, ver: id } : { tipo: t })
+  const tipo = (PESTANAS as string[]).includes(params.get('tipo') ?? '') ? params.get('tipo') as Pestana : 'todo'
+  const ver = tipo === 'todo' ? null : params.get('ver')
+  const ir = (t: Pestana, id?: string) => setParams(t === 'todo' ? {} : id ? { tipo: t, ver: id } : { tipo: t })
 
-  const cuantos = (t: Tipo) => t === 'sucursal' ? (sucursales.datos?.length ?? 0) : depositos.lista.filter((d) => d.tipo === t).length
+  const cuantos = (t: Pestana) => t === 'todo'
+    ? (stock.datos ?? []).filter((f) => depositos.lista.some((d) => (f.porDeposito[d.id] ?? 0) !== 0)).length
+    : t === 'sucursal' ? (sucursales.datos?.length ?? 0) : depositos.lista.filter((d) => d.tipo === t).length
   const alertas = depositos.lista.filter((d) => d.tipo === 'almacen' && estadoFrio(d) === 'mal').length
 
   return (
     <>
       <h1>Depósitos</h1>
       <div className="segmentado stk-tipos-deposito" role="tablist" aria-label="Tipo de depósito">
-        {TIPOS_DEPOSITO.map((t) => (
+        {PESTANAS.map((t) => (
           <button key={t} type="button" role="tab" className={tipo === t ? 'activo' : ''} aria-selected={tipo === t} onClick={() => ir(t)}>
-            {PLURAL[t]} <span className="stk-cuenta">{cuantos(t)}</span>
+            {PLURAL[t]} <span className="stk-cuenta" title={t === 'todo' ? 'Productos con stock' : undefined}>{cuantos(t)}</span>
             {t === 'almacen' && alertas > 0 && <span className="stk-alerta-punto" title="Hay una temperatura fuera de rango" aria-label="con alerta de temperatura" />}
           </button>
         ))}
@@ -116,6 +122,16 @@ export default function Depositos() {
               <>
                 <VolverALista tipo={tipo} alVolver={() => ir(tipo)} />
                 {s ? <SucursalElegida key={s.id} sucursal={s} alBorrar={() => ir(tipo)} /> : sucursales.datos && <p className="suave">Esa sucursal ya no existe.</p>}
+              </>
+            )
+          }
+          if (tipo === 'todo') {
+            return (
+              <>
+                <p className="suave chico stk-explica">{EXPLICACION.todo}</p>
+                <ConDatos consulta={stock}>
+                  {(filas) => <TodoElStock depositos={lista} filas={filas} alElegir={(d) => ir(d.tipo, d.id)} />}
+                </ConDatos>
               </>
             )
           }
@@ -154,6 +170,113 @@ function VolverALista({ tipo, alVolver }: { tipo: Tipo; alVolver: () => void }) 
     <button type="button" className="btn-discreto stk-volver" onClick={alVolver}>
       <Flecha /> {tipo === 'venta' ? 'Depósitos de venta directa' : PLURAL[tipo]}
     </button>
+  )
+}
+
+/**
+ * «Todo el stock»: un producto por fila y un depósito por columna (venta directa primero, después los fríos), con el
+ * total. Se filtra por categoría, por búsqueda y por qué depósitos mostrar (en el celular conviene ver menos columnas).
+ */
+function TodoElStock({ depositos, filas, alElegir }: { depositos: Deposito[]; filas: StockFila[]; alElegir: (d: Deposito) => void }) {
+  const categorias = useCategorias()
+  const [categoria, setCategoria] = useState('')
+  const [buscar, setBuscar] = useState('')
+  const [cuales, setCuales] = useState('')
+  const [ocultarCeros, setOcultarCeros] = useState(true)
+  const ordenados = [...depositos.filter((d) => d.tipo === 'venta'), ...depositos.filter((d) => d.tipo === 'almacen')]
+  const columnas = ordenados.filter((d) => !cuales || d.id === cuales || d.tipo === cuales)
+  const ids = columnas.map((d) => d.id)
+  const grupos = useMemo(
+    () => filasGenerales(filas, ids, { categoria, buscar, ocultarCeros }, categorias.lista.map((c) => c.id)),
+    [filas, ids.join(), categoria, buscar, ocultarCeros, categorias.lista],
+  )
+  const usadas = categorias.lista.filter((c) => filas.some((f) => f.categoriaId === c.id))
+  const conTotal = columnas.length > 1
+  const ancho = columnas.length + (conTotal ? 2 : 1)
+  const filtrando = !!(categoria || buscar.trim() || cuales)
+
+  return (
+    <>
+      <div className="stk-general-filtros">
+        <label className="campo">
+          <span>Buscar</span>
+          <input type="search" value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Nombre, subcategoría o código" />
+        </label>
+        <label className="campo">
+          <span>Categoría</span>
+          <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+            <option value="">Todas</option>
+            {usadas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </label>
+        <label className="campo">
+          <span>Depósitos</span>
+          <select value={cuales} onChange={(e) => setCuales(e.target.value)}>
+            <option value="">Todos</option>
+            <option value="venta">Solo venta directa</option>
+            <option value="almacen">Solo depósitos fríos</option>
+            {ordenados.map((d) => <option key={d.id} value={d.id}>Solo {d.nombre}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="stk-general-pie">
+        <label className="check stk-filtro">
+          <input type="checkbox" checked={ocultarCeros} onChange={(e) => setOcultarCeros(e.target.checked)} />
+          Ocultar los productos en 0
+        </label>
+        {filtrando && (
+          <button type="button" className="btn-discreto chico" onClick={() => { setCategoria(''); setBuscar(''); setCuales('') }}>Limpiar filtros</button>
+        )}
+      </div>
+      {grupos.length === 0 ? (
+        <p className="suave">{filtrando ? 'Ningún producto coincide con el filtro.' : 'No hay stock en ningún depósito.'}</p>
+      ) : (
+        <div className="stk-general-marco">
+          <table className="tabla stk-general">
+            <thead>
+              <tr>
+                <th scope="col" className="stk-general-prod">Producto</th>
+                {columnas.map((d) => (
+                  <th key={d.id} scope="col" className="num">
+                    <button type="button" className="stk-general-dep" onClick={() => alElegir(d)} title={`Ver «${d.nombre}»`}>
+                      {d.nombre}
+                      {d.tipo === 'almacen' && estadoFrio(d) === 'mal' && (
+                        <span className="stk-alerta-punto" title="Temperatura fuera de rango" aria-label="con alerta de temperatura" />
+                      )}
+                    </button>
+                  </th>
+                ))}
+                {conTotal && <th scope="col" className="num">Total</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {grupos.map((g) => [
+                <tr key={`g-${g.categoria}`} className="stk-grupo">
+                  <th colSpan={ancho} scope="colgroup">{categorias.nombre(g.categoria) || 'Otros'}</th>
+                </tr>,
+                ...g.filas.map(({ fila: f, cantidades, total }) => (
+                  <tr key={f.productoId}>
+                    <td className="stk-general-prod">
+                      {f.productoNombre}
+                      {!f.activo && <span className="stk-desactivado">desactivado</span>}
+                      {(f.subcategoria || (f.unidad && f.unidad !== 'unidades')) && (
+                        <div className="suave chico">{[f.subcategoria, f.unidad !== 'unidades' && f.unidad].filter(Boolean).join(' · ')}</div>
+                      )}
+                    </td>
+                    {cantidades.map((n, i) => (
+                      <td key={ids[i]} className={`num${n === 0 ? ' stk-cero' : ''}${n < 0 ? ' stk-negativo' : ''}`}>
+                        {n === 0 ? '—' : n.toLocaleString('es-PY')}
+                      </td>
+                    ))}
+                    {conTotal && <td className={`num stk-total${total < 0 ? ' stk-negativo' : ''}`}>{total.toLocaleString('es-PY')}</td>}
+                  </tr>
+                )),
+              ])}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   )
 }
 
