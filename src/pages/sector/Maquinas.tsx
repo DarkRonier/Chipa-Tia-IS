@@ -3,7 +3,7 @@
 // máquina con la temperatura en rojo cuando quedó fuera de rango. El supervisor (y el administrador) no carga
 // lecturas desde acá sino fallas o incidencias, que quedan abiertas hasta que alguien las marca como resueltas.
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { post } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { usePuede } from '../../cliente/sesion'
@@ -455,8 +455,10 @@ function Historial({ maquina }: { maquina: Maquina }) {
 }
 
 /** Tabla de lecturas: fecha y usuario, temperatura (roja si quedó fuera de rango), estado, observación y foto. */
-export function TablaLecturas({ lecturas, conMaquina = false, nombreSector }: {
+export function TablaLecturas({ lecturas, conMaquina = false, nombreSector, enlaceMaquina = false }: {
   lecturas: Lectura[]
+  /** El nombre de la máquina lleva a su pantalla, con el historial completo. */
+  enlaceMaquina?: boolean
   /** Muestra la máquina (y el sector) en la primera columna, para listados de varias máquinas. */
   conMaquina?: boolean
   nombreSector?: (s: SectorId) => string
@@ -479,7 +481,11 @@ export function TablaLecturas({ lecturas, conMaquina = false, nombreSector }: {
                 {fechaHoraPY(l.fecha)}
                 {conMaquina && (
                   <div className="ctl-maquina">
-                    N° {l.maquinaNumero} · {l.maquinaNombre}
+                    {enlaceMaquina ? (
+                      <Link to={`/sector/maquinas?sector=${l.sector}&maquina=${l.maquinaId}`}>N° {l.maquinaNumero} · {l.maquinaNombre}</Link>
+                    ) : (
+                      <>N° {l.maquinaNumero} · {l.maquinaNombre}</>
+                    )}
                     {nombreSector && <span className="suave"> · {nombreSector(l.sector)}</span>}
                   </div>
                 )}
