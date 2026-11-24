@@ -936,8 +936,30 @@ export interface VentaItem {
   codigo: string
 }
 
+/**
+ * Talonarios de factura preimpresa (Mati, 2026-11-24): cada uno es otra hoja de la imprenta, con su timbrado y su
+ * numeración. Qué talonario usa cada caja y los envíos a sucursal se elige en Caja → Factura (`UsosFactura`).
+ */
+export const TALONARIOS = ['frente', 'comedor', 'chipasticks'] as const
+export type TalonarioId = (typeof TALONARIOS)[number]
+export const NOMBRE_TALONARIO: Record<TalonarioId, string> = {
+  frente: 'Chipa Tía (frente)',
+  comedor: 'Chipa Tía Comedor',
+  chipasticks: 'ChipaSticks',
+}
+/** Dónde se factura: la caja del frente, la del comedor y los envíos a sucursal. */
+export const USOS_FACTURA = ['frente', 'comedor', 'envios'] as const
+export type UsoFactura = (typeof USOS_FACTURA)[number]
+export const NOMBRE_USO_FACTURA: Record<UsoFactura, string> = {
+  frente: 'Caja del frente',
+  comedor: 'Caja del comedor',
+  envios: 'Envíos a sucursal',
+}
+export type UsosFactura = Record<UsoFactura, TalonarioId>
+
 export interface Factura {
   id: string
+  talonario: TalonarioId
   /** "001-001-0000123" */
   numeroCompleto: string
   prefijo: string
@@ -998,6 +1020,8 @@ export interface PosicionFactura { x: number; y: number }
  * `duplicado` mm (normalmente solo hacia abajo).
  */
 export interface ConfigFactura {
+  /** De qué talonario es este formato (cada uno guarda el suyo). */
+  talonario: TalonarioId
   /** Versión del formato: 4 = hoja de Chipa Tía (oficio 216 × 330 mm, original y duplicado, medida de la foto enderezada). */
   version: number
   timbrado: string

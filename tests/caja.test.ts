@@ -274,6 +274,7 @@ describe('stock de la venta: todo sale de «Directo a Venta»', () => {
 describe('factura preimpresa', () => {
   it('numera desde el número inicial, reimprime con el mismo número; el formato lo configura el admin', async () => {
     const { p, admin, cajero } = await escenario()
+    await p.pedir(admin, 'PUT', '/factura/usos', { frente: 'comedor' }) // estas pruebas son del talonario Comedor
     const cfg = await p.pedir<ConfigFactura>(admin, 'PUT', '/factura/config', { timbrado: '12345678', prefijo: '001-002', numeroInicial: 150, margenSuperior: 2.5 })
     expect(cfg.body).toMatchObject({ timbrado: '12345678', prefijo: '001-002', numeroInicial: 150, margenSuperior: 2.5 })
     expect((await p.pedir(cajero, 'PUT', '/factura/config', { numeroInicial: 1 })).status).toBe(403)
@@ -294,6 +295,7 @@ describe('factura preimpresa', () => {
 describe('hoja de factura de Chipa Tía', () => {
   it('viene con el timbrado y la numeración del talonario; guarda la dirección y el código de cada producto', async () => {
     const { p, admin, cajero } = await escenario()
+    await p.pedir(admin, 'PUT', '/factura/usos', { frente: 'comedor' }) // estas pruebas son del talonario Comedor
     const cfg = (await p.pedir<ConfigFactura>(cajero, 'GET', '/factura/config')).body
     expect(cfg).toMatchObject({ timbrado: '18980642', prefijo: '001-002', numeroInicial: 1775, numeroFinal: 2000, anchoHoja: 216, altoHoja: 330 })
     expect(cfg.duplicado).toEqual({ x: 0, y: 165 })
@@ -312,6 +314,7 @@ describe('hoja de factura de Chipa Tía', () => {
 
   it('no factura con el talonario agotado ni con el timbrado vencido', async () => {
     const { p, admin, cajero } = await escenario()
+    await p.pedir(admin, 'PUT', '/factura/usos', { frente: 'comedor' }) // estas pruebas son del talonario Comedor
     await p.pedir(admin, 'PUT', '/factura/config', { numeroInicial: 2000 })
     await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
     const vender = async () => (await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'efectivo' })).body
@@ -339,6 +342,54 @@ describe('hoja de factura de Chipa Tía', () => {
     const cfg = (await p.pedir<ConfigFactura>(cajero, 'GET', '/factura/config')).body
     expect(cfg).toMatchObject({ numeroInicial: 1800, anchoHoja: 216, altoHoja: 330, margenSuperior: 0, version: 4 })
     expect(cfg.duplicado).toEqual({ x: 0, y: 165 })
+  })
+})
+
+describe('tres talonarios y factura de los envíos a sucursal', () => {
+  it('cada caja usa su talonario y cada talonario numera aparte', async () => {
+    const { p, admin, cajero } = await escenario()
+    expect((await p.pedir(cajero, 'GET', '/factura/usos')).body).toEqual({ frente: 'frente', comedor: 'comedor', envios: 'chipasticks' })
+    expect((await p.pedir<ConfigFactura>(cajero, 'GET', '/factura/config?talonario=chipasticks')).body)
+      .toMatchObject({ talonario: 'chipasticks', timbrado: '18116748', prefijo: '001-001', numeroInicial: 828, numeroFinal: 900, venceTimbrado: '' })
+    expect((await p.pedir(admin, 'GET', '/factura/config?talonario=otro')).status).toBe(400)
+    expect((await p.pedir(cajero, 'PUT', '/factura/usos', { frente: 'comedor' })).status).toBe(403)
+
+    // El frente factura con su talonario aunque no tenga timbrado cargado: 001-001 desde el 1, aparte de ChipaSticks (también 001-001).
+    await p.pedir(cajero, 'POST', '/caja/abrir', { fondoInicial: 0 })
+    const v = (await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'efectivo' })).body
+    const f = await p.pedir<{ venta: Venta; config: ConfigFactura }>(cajero, 'POST', `/ventas/${v.id}/factura`)
+    expect(f.body.venta.factura).toMatchObject({ talonario: 'frente', numeroCompleto: '001-001-0000001', timbrado: '' })
+    expect(f.body.config.talonario).toBe('frente')
+    expect((await p.pedir(admin, 'GET', '/factura/proxima?talonario=comedor')).body.numeroCompleto).toBe('001-002-0001775')
+    expect((await p.pedir(admin, 'GET', '/factura/proxima?talonario=frente')).body.numeroCompleto).toBe('001-001-0000002')
+
+    // El administrador puede pasar el frente a otro talonario; lo ya facturado se reimprime con el suyo.
+    expect((await p.pedir(admin, 'PUT', '/factura/usos', { frente: 'comedor' })).body).toMatchObject({ frente: 'comedor', comedor: 'comedor' })
+    const v2 = (await p.pedir<Venta>(cajero, 'POST', '/ventas', { items: [{ productoId: CHIPA, cantidad: 1 }], medio: 'efectivo' })).body
+    expect((await p.pedir<{ venta: Venta }>(cajero, 'POST', `/ventas/${v2.id}/factura`)).body.venta.factura).toMatchObject({ talonario: 'comedor', numeroCompleto: '001-002-0001775' })
+    expect((await p.pedir<{ venta: Venta }>(cajero, 'POST', `/ventas/${v.id}/factura`)).body.venta.factura).toMatchObject({ talonario: 'frente', impresiones: 2 })
+  })
+
+  it('un envío a sucursal se factura a nombre de la sucursal, con el precio de venta, del talonario de envíos', async () => {
+    const { p, admin } = await escenario()
+    await p.pedir(admin, 'PATCH', `/productos/${EMPANADA}`, { precioVenta: 4000, iva: 10 })
+    expect((await p.pedir(admin, 'POST', '/auth/super', { clave: '1234' })).status).toBe(200)
+    const sucursal = (await p.pedir<{ id: string }>(admin, 'POST', '/sucursales', { nombre: 'Sucursal Coronel Bogado' })).body
+    const aj = await p.pedir(admin, 'POST', '/ajustes', { sector: 'cocina', tipo: 'stock_inicial', productoId: EMPANADA, cantidad: 10, motivo: 'Inicial', depositoId: 'frio' })
+    expect(aj.status).toBe(200)
+    const cocina = await p.entrar('cocina')
+    const envio = await p.pedir<{ envioId: string }>(cocina, 'POST', '/envios', { sucursalId: sucursal.id, desde: 'frio', items: [{ productoId: EMPANADA, cantidad: 3 }] })
+    expect(envio.body).toMatchObject({ envioId: expect.any(String) })
+
+    const f = await p.pedir<{ venta: Venta; config: ConfigFactura }>(cocina, 'POST', `/envios/${envio.body.envioId}/factura`)
+    expect(f.status).toBe(200)
+    expect(f.body.config.talonario).toBe('chipasticks')
+    expect(f.body.venta).toMatchObject({ clienteNombre: 'Sucursal Coronel Bogado', total: 12_000 })
+    expect(f.body.venta.items).toEqual([expect.objectContaining({ productoId: EMPANADA, cantidad: 3, precioUnitario: 4000, subtotal: 12_000, iva: 10 })])
+    expect(f.body.venta.factura).toMatchObject({ talonario: 'chipasticks', numeroCompleto: '001-001-0000828', timbrado: '18116748', impresiones: 1 })
+    const otra = await p.pedir<{ venta: Venta }>(cocina, 'POST', `/envios/${envio.body.envioId}/factura`)
+    expect(otra.body.venta.factura).toMatchObject({ numeroCompleto: '001-001-0000828', impresiones: 2 })
+    expect((await p.pedir(cocina, 'POST', '/envios/no-existe/factura')).status).toBe(404)
   })
 })
 

@@ -374,10 +374,13 @@ caja, ve las ventas, las anula (`ventas.anular`) y factura, pero no vende. El su
 | GET | `/ventas/:id` | — | `Venta` |
 | POST | `/ventas` | `PedidoVenta`: `{ items: [{ productoId, cantidad }], descuento?, medio \| pagos: [{ medio, importe, banco?, chequeNumero? }], recibido?, clienteNombre?, clienteRuc? }` (`pagos`: cobro híbrido, las partes suman justo el total; `recibido` se compara con la parte en efectivo) | `Venta` · solo cajero |
 | POST | `/ventas/:id/anular` | `{ motivo }` (solo con la caja abierta; devuelve el stock al mismo depósito y lote y anula la factura) · cajero y admin | `Venta` |
-| GET | `/factura/config` | — | `ConfigFactura` (timbrado, vigencia, prefijo, primer y último número del talonario y posiciones en mm de la hoja oficio (216 × 330 mm) con original y duplicado) |
-| GET | `/factura/proxima` | — · admin | `{ numero, numeroCompleto }`: la próxima factura que va a salir |
-| PUT | `/factura/config` | `ConfigFactura` · admin | `ConfigFactura` |
-| POST | `/ventas/:id/factura` | — | `{ venta, config }`: la primera vez asigna el número correlativo; después cuenta reimpresiones. 409 `talonario_agotado` (pasó el último número) o `timbrado_vencido` |
+| GET | `/factura/config?talonario=` | — (`frente`, `comedor` o `chipasticks`; sin decir, `comedor`) | `ConfigFactura` del talonario (timbrado, vigencia, prefijo, primer y último número y posiciones en mm de la hoja oficio (216 × 330 mm) con original y duplicado) |
+| GET | `/factura/proxima?talonario=` | — · admin | `{ numero, numeroCompleto }`: la próxima factura que va a salir de ese talonario |
+| PUT | `/factura/config?talonario=` | `ConfigFactura` · admin | `ConfigFactura` |
+| GET | `/factura/usos` | — | `UsosFactura`: qué talonario usa la caja del frente, la del comedor y los envíos a sucursal |
+| PUT | `/factura/usos` | `{ frente?, comedor?, envios? }` · admin | `UsosFactura` |
+| POST | `/ventas/:id/factura` | — | `{ venta, config }`: la primera vez asigna el número correlativo del talonario de su caja; después cuenta reimpresiones (mismo talonario). 409 `talonario_agotado` (pasó el último número) o `timbrado_vencido` |
+| POST | `/envios/:id/factura` | — · quien mueve stock o factura | `{ venta, config }`: factura del envío a sucursal (a nombre de la sucursal, precio de venta de cada producto), del talonario de envíos. Mismos 409 |
 
 ## Ingresos y egresos, gastos fijos y sueldos (M14) · admin (el supervisor ve solo pagos a proveedores)
 

@@ -15,9 +15,9 @@ import { gs, leerImporte, miles } from '../../shared/dinero'
 import { diaLegible, fechaHoraPY } from '../../shared/hora'
 import {
   MEDIOS_PAGO, NOMBRE_MEDIO_PAGO, NOMBRE_PUNTO_CAJA, PUNTOS_CAJA, describirParte, type PuntoCaja,
-  type Caja as TipoCaja, type ConfigFactura, type MedioPago, type PedidoVenta, type ProductoVenta, type Venta,
+  type Caja as TipoCaja, type MedioPago, type PedidoVenta, type ProductoVenta, type Venta,
 } from '../../shared/tipos'
-import { ConfigurarFactura, ImprimirFactura } from './Factura'
+import { ConfigurarFactura, useFactura } from './Factura'
 import '../../styles/compras.css'
 import BotonIcono, { Acciones } from '../../components/BotonIcono'
 import PartesPago, { faltaEnPartes, importesFinales, parteNueva, type ParteForm } from '../../components/PartesPago'
@@ -114,18 +114,6 @@ function AbrirCaja({ punto }: { punto: PuntoCaja }) {
 
 // ---------- Vender (M11) ----------
 
-/** Hace la factura (le asigna número la primera vez) y abre la impresión. */
-function useFactura() {
-  const [imprimiendo, setImprimiendo] = useState<{ venta: Venta; config: ConfigFactura } | null>(null)
-  const hacer = useAccion((id: string) => post<{ venta: Venta; config: ConfigFactura }>(`/ventas/${id}/factura`))
-  const imprimir = async (id: string) => {
-    const r = await hacer.ejecutar(id)
-    if (r) setImprimiendo(r)
-  }
-  const vista = imprimiendo && <ImprimirFactura venta={imprimiendo.venta} config={imprimiendo.config} alTerminar={() => setImprimiendo(null)} />
-  return { imprimir, vista, error: hacer.error, enviando: hacer.enviando, ultima: imprimiendo?.venta }
-}
-
 function Vender() {
   const productos = useConsulta<ProductoVenta[]>('/ventas/productos')
   const [buscar, setBuscar] = useState('')
@@ -184,7 +172,7 @@ function Vender() {
       // Si cargó los datos del cliente es porque quiere la factura: va directo a imprimirla, sin otro clic.
       const conFactura = conCliente
       limpiar()
-      if (conFactura) void factura.imprimir(v.id)
+      if (conFactura) void factura.imprimir(`/ventas/${v.id}/factura`)
     }
   }
 
@@ -201,7 +189,7 @@ function Vender() {
             {hecha.vuelto !== null && hecha.vuelto > 0 && <> Vuelto: <strong>{gs(hecha.vuelto)}</strong>.</>}
           </Aviso>
           <div className="fila-acciones">
-            <button type="button" className="btn-primario" disabled={factura.enviando} onClick={() => void factura.imprimir(hecha.id)}>
+            <button type="button" className="btn-primario" disabled={factura.enviando} onClick={() => void factura.imprimir(`/ventas/${hecha.id}/factura`)}>
               {factura.ultima?.id === hecha.id ? 'Imprimir de nuevo' : 'Imprimir factura'}
             </button>
             <BotonIcono icono="cancelar" texto="Seguir sin factura" onClick={() => setHecha(null)} />
@@ -330,7 +318,7 @@ function VentasDeLaCaja({ cajaId }: { cajaId: string }) {
                     <td className="acciones">
                       {!v.anulada && (
                         <Acciones>
-                          <BotonIcono icono="imprimir" texto={v.factura ? 'Reimprimir factura' : 'Imprimir factura'} disabled={factura.enviando} onClick={() => void factura.imprimir(v.id)} />
+                          <BotonIcono icono="imprimir" texto={v.factura ? 'Reimprimir factura' : 'Imprimir factura'} disabled={factura.enviando} onClick={() => void factura.imprimir(`/ventas/${v.id}/factura`)} />
                           {puede('ventas.anular') && (
                             <BotonIcono icono="anular" texto={`Anular la venta N° ${v.numero}`} tono="peligro" presionado={anulando === v.id}
                               onClick={() => { setAnulando(anulando === v.id ? null : v.id); setMotivo('') }} />

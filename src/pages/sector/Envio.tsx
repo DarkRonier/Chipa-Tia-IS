@@ -17,6 +17,7 @@ import { DEPOSITO, type Deposito, type PedidoEnvio, type RespuestaEnvio, type St
 import { useStock } from './Stock'
 import '../../styles/stock.css'
 import BotonIcono from '../../components/BotonIcono'
+import { useFactura } from '../caja/Factura'
 
 interface Linea { clave: number; productoId: string; lote: string; cantidad: number }
 
@@ -40,6 +41,8 @@ function Formulario() {
   const [aviso, setAviso] = useState<string | null>(null)
   const [confirmando, setConfirmando] = useState(false)
   const [listo, setListo] = useState<RespuestaEnvio | null>(null)
+  // Cada envío a sucursal lleva su factura (Mati, 2026-11-24), del talonario elegido para los envíos.
+  const factura = useFactura()
   const registrar = useAccion((p: PedidoEnvio) => post<RespuestaEnvio>('/envios', p))
   const [elegido, setElegido] = useState('')
 
@@ -153,8 +156,16 @@ function Formulario() {
               <li key={m.id}>{-m.cantidad} × {m.productoNombre}{m.lote ? ` · lote ${m.lote}` : ''}</li>
             ))}
           </ul>
+          <div className="fila-acciones">
+            <button type="button" className="btn-primario" disabled={factura.enviando} onClick={() => void factura.imprimir(`/envios/${listo.envioId}/factura`)}>
+              {factura.ultima?.id === listo.envioId ? 'Imprimir la factura de nuevo' : 'Imprimir factura del envío'}
+            </button>
+          </div>
+          {factura.ultima?.id === listo.envioId && factura.ultima.factura && <p className="chico">Factura {factura.ultima.factura.numeroCompleto}</p>}
+          <Aviso>{factura.error}</Aviso>
         </div>
       )}
+      {factura.vista}
       <ConDatos consulta={stock}>
         {() => !hayParaEnviar ? (
           <div className="tarjeta">
