@@ -1,16 +1,20 @@
-// M12: factura preimpresa de Chipa Tía (hoja oficio 216 × 330 mm con original arriba y duplicado abajo). Imprime solo los datos
+// M12: factura preimpresa (tres talonarios: Chipa Tía frente, Comedor y ChipaSticks; hoja oficio 216 × 330 mm con original arriba y duplicado abajo). Imprime solo los datos
 // variables (fecha, cliente, detalle e importes) sobre la hoja de la imprenta, en las posiciones del formato (milímetros).
 // El número y el timbrado ya vienen impresos: el sistema lleva la misma numeración y avisa qué hoja poner antes de imprimir.
 // El formato se calibra en Caja → Factura: márgenes que corren todo junto y la posición de cada dato, con una hoja de prueba.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { put } from '../../cliente/api'
+import { post, put } from '../../cliente/api'
 import { useAccion, useConsulta } from '../../cliente/consultas'
 import { Aviso, ConDatos } from '../../components/Estado'
 import Modal from '../../components/Modal'
 import { enLetras, miles } from '../../shared/dinero'
 import { columnasIva, fechaFactura, renglonesFactura } from '../../shared/factura'
-import type { ConfigFactura, Iva, PosicionFactura, Venta } from '../../shared/tipos'
+import {
+  NOMBRE_TALONARIO, NOMBRE_USO_FACTURA, TALONARIOS, USOS_FACTURA,
+  type ConfigFactura, type Iva, type PosicionFactura, type TalonarioId, type UsosFactura, type Venta,
+} from '../../shared/tipos'
+import '../../styles/compras.css'
 
 // ---------- Hoja impresa ----------
 
@@ -64,17 +68,33 @@ function Copia({ venta, config, corrida }: { venta: Venta; config: ConfigFactura
 }
 
 /** La hoja entera: original arriba y duplicado corrido `config.duplicado`. */
-export function HojaFactura({ venta, config, fondo = false }: { venta: Venta; config: ConfigFactura; fondo?: boolean }) {
+export function HojaFactura({ venta, config, fondo = false, regla = false }: { venta: Venta; config: ConfigFactura; fondo?: boolean; regla?: boolean }) {
   return (
     <div className={`hoja-factura${fondo ? ' con-fondo' : ''}`} style={{ width: `${config.anchoHoja}mm`, height: `${config.altoHoja}mm`, fontSize: `${config.tamanoLetra}pt` }}>
       <Copia venta={venta} config={config} corrida={{ x: 0, y: 0 }} />
       <Copia venta={venta} config={config} corrida={config.duplicado} />
+      {regla && <Regla config={config} />}
+    </div>
+  )
+}
+
+/**
+ * Solo en la hoja de prueba: una regla de 10 cm al pie. Si al medirla da menos (9 cm con papel A4), el navegador achicó
+ * la hoja porque en la ventana de impresión quedó otro tamaño de papel, y los datos van a salir corridos.
+ */
+function Regla({ config }: { config: ConfigFactura }) {
+  return (
+    <div className="regla-factura" style={{ left: '20mm', top: `${config.altoHoja - 14}mm` }}>
+      <div className="regla-linea" style={{ width: '100mm' }}>
+        {Array.from({ length: 11 }, (_, i) => <span key={i} style={{ left: `${i * 10}mm` }} />)}
+      </div>
+      <p>Esta línea mide 10 cm. Si mide menos, en la ventana de impresión quedó otro papel (A4 o Carta): elegí Oficio y 100 %.</p>
     </div>
   )
 }
 
 /** Pone la hoja en la página solo para imprimir (fuera de la app) y abre el diálogo de impresión. */
-function Imprimir({ venta, config, alTerminar }: { venta: Venta; config: ConfigFactura; alTerminar: () => void }) {
+function Imprimir({ venta, config, alTerminar, regla = false }: { venta: Venta; config: ConfigFactura; alTerminar: () => void; regla?: boolean }) {
   // alTerminar cambia en cada dibujo de la pantalla de atrás: si fuera dependencia del efecto, el diálogo se abriría dos veces.
   const terminar = useRef(alTerminar)
   terminar.current = alTerminar
@@ -93,7 +113,7 @@ function Imprimir({ venta, config, alTerminar }: { venta: Venta; config: ConfigF
       estilo.remove()
     }
   }, [config])
-  return createPortal(<div className="factura-portal"><HojaFactura venta={venta} config={config} /></div>, document.body)
+  return createPortal(<div className="factura-portal"><HojaFactura venta={venta} config={config} regla={regla} /></div>, document.body)
 }
 
 /**
@@ -102,15 +122,19 @@ function Imprimir({ venta, config, alTerminar }: { venta: Venta; config: ConfigF
  */
 export function ImprimirFactura({ venta, config, alTerminar }: { venta: Venta; config: ConfigFactura; alTerminar: () => void }) {
   const [listo, setListo] = useState(!venta.factura)
-  if (listo) return <Imprimir venta={venta} config={config} alTerminar={alTerminar} />
+  if (listo) return <Imprimir venta={venta} config={config} alTerminar={alTerminar} regla={!venta.factura} />
   const f = venta.factura!
   const reimpresion = f.impresiones > 1
   return (
     <Modal titulo={`Poné la hoja Nº ${f.numeroCompleto}`} alCerrar={alTerminar}>
       <div className="aviso-hoja">
         <p>
-          Poné en la impresora la hoja de factura <strong>Nº {f.numeroCompleto}</strong>
+          Poné en la impresora la hoja de factura <strong>{NOMBRE_TALONARIO[f.talonario]}</strong> <strong>Nº {f.numeroCompleto}</strong>
           {f.timbrado && <> (timbrado {f.timbrado})</>}, con el original arriba. El número está impreso en rojo, arriba a la derecha.
+        </p>
+        <p className="papel-oficio">
+          En la ventana de impresión, <strong>Tamaño del papel: Oficio</strong> (u 8,5 × 13; si no está, Legal) y escala 100.
+          Con A4 o Carta todo sale achicado y los datos caen fuera de su lugar.
         </p>
         {reimpresion
           ? <Aviso>Esta factura ya se imprimió. Volvé a imprimirla solo si esa hoja quedó en blanco (por ejemplo, se trabó el papel). Si la hoja se arruinó, guardala anulada y avisale al administrador.</Aviso>
@@ -137,10 +161,26 @@ function ConsejoImpresora() {
         <li>En la ventana de impresión, abrí la lista <strong>Destino</strong> (o <strong>Impresora</strong>) y elegí la impresora. Si no está, tocá <strong>Ver más…</strong>.</li>
         <li>El navegador se acuerda de la última elegida: después de la primera vez ya aparece sola. Si alguien bajó un reporte como PDF, puede volver a «Guardar como PDF» y hay que elegirla de nuevo.</li>
         <li>Si tampoco está en «Ver más…», la impresora no está instalada en Windows: Configuración → Bluetooth y dispositivos → Impresoras y escáneres → Agregar dispositivo.</li>
-        <li>Papel: <strong>oficio</strong>. En «Más opciones», márgenes <strong>Ninguno</strong> y escala <strong>100</strong> (o «Tamaño real»).</li>
+        <li>En <strong>Más opciones</strong>: tamaño del papel <strong>Oficio</strong> (u 8,5 × 13; si no está, <strong>Legal</strong>), márgenes <strong>Ninguno</strong> y escala <strong>100</strong>. Nunca A4 ni Carta: el navegador achica la hoja y los datos salen corridos hacia arriba.</li>
+        <li>Para no elegirlo cada vez: en Windows, Configuración → Impresoras → tu impresora → Preferencias de impresión, poné papel Oficio como predeterminado.</li>
       </ol>
     </details>
   )
+}
+
+/**
+ * Pide la factura (le asigna número la primera vez) a `ruta` (`/ventas/:id/factura` o `/envios/:id/factura`) y abre la
+ * impresión. `vista` va en la página.
+ */
+export function useFactura() {
+  const [imprimiendo, setImprimiendo] = useState<{ venta: Venta; config: ConfigFactura } | null>(null)
+  const hacer = useAccion((ruta: string) => post<{ venta: Venta; config: ConfigFactura }>(ruta))
+  const imprimir = async (ruta: string) => {
+    const r = await hacer.ejecutar(ruta)
+    if (r) setImprimiendo(r)
+  }
+  const vista = imprimiendo && <ImprimirFactura venta={imprimiendo.venta} config={imprimiendo.config} alTerminar={() => setImprimiendo(null)} />
+  return { imprimir, vista, error: hacer.error, enviando: hacer.enviando, ultima: imprimiendo?.venta }
 }
 
 // ---------- Formato y calibración (administrador) ----------
@@ -176,17 +216,58 @@ const POSICIONES: [CampoPos, string][] = [
 const aNumero = (s: string) => Number(s.replace(',', '.'))
 
 export function ConfigurarFactura() {
-  const c = useConsulta<ConfigFactura>('/factura/config')
-  return <ConDatos consulta={c}>{(config) => <FormFactura inicial={config} />}</ConDatos>
+  const [talonario, setTalonario] = useState<TalonarioId>('comedor')
+  const c = useConsulta<ConfigFactura>('/factura/config', { talonario })
+  return (
+    <>
+      <UsosTalonarios />
+      <h2>Talonario</h2>
+      <div className="segmentado" role="tablist" aria-label="Talonario">
+        {TALONARIOS.map((t) => (
+          <button key={t} type="button" role="tab" aria-selected={t === talonario} className={t === talonario ? 'activo' : ''} onClick={() => setTalonario(t)}>
+            {NOMBRE_TALONARIO[t]}
+          </button>
+        ))}
+      </div>
+      <ConDatos consulta={c}>{(config) => config.talonario === talonario ? <FormFactura key={talonario} inicial={config} /> : null}</ConDatos>
+    </>
+  )
+}
+
+/** Qué talonario usa la caja del frente, la del comedor y los envíos a sucursal. */
+function UsosTalonarios() {
+  const c = useConsulta<UsosFactura>('/factura/usos')
+  const guardar = useAccion((u: UsosFactura) => put<UsosFactura>('/factura/usos', u))
+  return (
+    <>
+      <h2>Qué factura sale en cada lugar</h2>
+      <ConDatos consulta={c}>
+        {(usos) => (
+          <div className="tarjeta filtros">
+            {USOS_FACTURA.map((uso) => (
+              <label key={uso} className="campo">
+                <span>{NOMBRE_USO_FACTURA[uso]}</span>
+                <select value={usos[uso]} disabled={guardar.enviando} onChange={(e) => void guardar.ejecutar({ ...usos, [uso]: e.target.value as TalonarioId }).then((r) => { if (r) c.recargar() })}>
+                  {TALONARIOS.map((t) => <option key={t} value={t}>{NOMBRE_TALONARIO[t]}</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
+        )}
+      </ConDatos>
+      <Aviso>{guardar.error}</Aviso>
+    </>
+  )
 }
 
 function FormFactura({ inicial }: { inicial: ConfigFactura }) {
+  const t = inicial.talonario
   const [d, setD] = useState(inicial)
   const [ok, setOk] = useState(false)
   const [prueba, setPrueba] = useState(false)
   const [fondo, setFondo] = useState(true)
-  const proxima = useConsulta<{ numero: number; numeroCompleto: string }>('/factura/proxima')
-  const guardar = useAccion(() => put<ConfigFactura>('/factura/config', d))
+  const proxima = useConsulta<{ numero: number; numeroCompleto: string }>('/factura/proxima', { talonario: t })
+  const guardar = useAccion(() => put<ConfigFactura>(`/factura/config?talonario=${t}`, d))
   const cambiar = (x: Partial<ConfigFactura>) => { setOk(false); setD({ ...d, ...x }) }
   const redondo = (n: number) => Math.round(n * 10) / 10
   const mover = (dx: number, dy: number) => cambiar({ margenIzquierdo: redondo(d.margenIzquierdo + dx), margenSuperior: redondo(d.margenSuperior + dy) })
@@ -208,10 +289,11 @@ function FormFactura({ inicial }: { inicial: ConfigFactura }) {
   return (
     <>
       <p className="suave">
-        La factura sale sobre la hoja preimpresa de la imprenta (oficio, 216 × 330 mm, original arriba y duplicado abajo):
+        La factura <strong>{NOMBRE_TALONARIO[t]}</strong> sale sobre la hoja preimpresa de la imprenta (oficio, 216 × 330 mm, original arriba y duplicado abajo):
         el sistema imprime solo la fecha, el cliente, el detalle y los importes. Para calibrar, imprimí una hoja de prueba en
         una hoja oficio común (papel oficio, márgenes «Ninguno» y escala 100), ponela encima de una factura en blanco y
-        miralas a contraluz. Después mové todo con las flechas: si los datos salen 3 mm más arriba de donde van, tocá
+        miralas a contraluz. Primero medí la regla del pie: tiene que dar 10 cm; si da menos, la hoja salió achicada (papel A4
+        o Carta en la ventana de impresión). Después mové todo con las flechas: si los datos salen 3 mm más arriba de donde van, tocá
         «Bajar» 3 veces. Guardá y probá de nuevo.
       </p>
 
@@ -262,7 +344,7 @@ function FormFactura({ inicial }: { inicial: ConfigFactura }) {
       </details>
 
       <Aviso>{guardar.error}</Aviso>
-      {ok && <Aviso tipo="ok">Formato guardado.</Aviso>}
+      {ok && <Aviso tipo="ok">Formato de {NOMBRE_TALONARIO[t]} guardado.</Aviso>}
       <div className="fila-acciones">
         <button type="button" className="btn-primario" disabled={guardar.enviando} onClick={() => void guardar.ejecutar().then((r) => { if (r) { setOk(true); proxima.recargar() } })}>Guardar formato</button>
         <button type="button" className="btn-secundario" onClick={() => setPrueba(true)}>Imprimir hoja de prueba</button>

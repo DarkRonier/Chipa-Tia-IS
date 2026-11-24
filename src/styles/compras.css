@@ -231,3 +231,10 @@ div.compra-cabeza { cursor: default; }
 @media (max-width: 700px) {
   .parte-pago { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Factura: aviso del papel antes de imprimir y regla de control de la hoja de prueba. */
+.papel-oficio { background: var(--neutro); border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.9rem; }
+.regla-factura { position: absolute; font-size: 7pt; color: #000; }
+.regla-factura p { margin: 1.5mm 0 0; white-space: nowrap; }
+.regla-linea { position: relative; height: 3mm; border-bottom: 0.3mm solid #000; }
+.regla-linea span { position: absolute; bottom: 0; width: 0; height: 3mm; border-left: 0.3mm solid #000; }

@@ -8,15 +8,16 @@
 //   Solo con la caja abierta. Las registra solo el cajero (Mati, 2026-11-21: el administrador y el supervisor no
 //   venden). Todo lo vendido descuenta del depósito Venta frente (en la caja del comedor, de Venta comedor) (en Chipería, de los lotes más viejos primero). La
 //   venta nunca se frena por stock: si no estaba cargado, el depósito queda en negativo a la vista.
-// - Factura preimpresa: numeración propia (prefijo y número), una por venta; se puede reimprimir con el mismo número.
+// - Factura preimpresa: tres talonarios (Chipa Tía frente, Comedor y ChipaSticks), cada uno con su numeración; una por
+//   venta o por envío a sucursal; se puede reimprimir con el mismo número.
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import type { Alerta } from '../../shared/alertas'
 import { diaLegible } from '../../shared/hora'
 import { puede } from '../../shared/permisos'
 import {
-  DEPOSITO, MEDIO_CON_BANCO, MEDIOS_PAGO, NOMBRE_PUNTO_CAJA, PUNTOS_CAJA,
+  DEPOSITO, MEDIO_CON_BANCO, MEDIOS_PAGO, NOMBRE_PUNTO_CAJA, NOMBRE_TALONARIO, PUNTOS_CAJA, TALONARIOS, USOS_FACTURA,
   type Arqueo, type Caja, type ConfigFactura, type Factura, type Iva, type MedioPago, type MovimientoCaja, type PartePago, type ProductoVenta,
-  type PuntoCaja, type Rol, type SectorId, type TotalesMedio, type Venta, type VentaItem,
+  type PuntoCaja, type Rol, type SectorId, type TalonarioId, type TotalesMedio, type UsoFactura, type UsosFactura, type Venta, type VentaItem,
 } from '../../shared/tipos'
 import { sentenciaAuditoria } from '../auditoria'
 import { ahora, nuevoId, sentencia, todas, todasPorTrozos, una } from '../db'
@@ -470,9 +471,7 @@ export async function leerVentas(db: BaseD1, where = '', ...params: ValorSQL[]):
       db, ids, (m) => `SELECT i.venta_id, i.producto_id, i.nombre, i.cantidad, i.precio_unitario, i.subtotal, i.iva, p.codigo
         FROM venta_items i LEFT JOIN productos p ON p.id = i.producto_id WHERE i.venta_id IN (${m}) ORDER BY i.orden`,
     ),
-    todasPorTrozos<{ id: string; venta_id: string; prefijo: string; numero: number; timbrado: string; fecha: string; impresiones: number; anulada_en: string | null }>(
-      db, ids, (m) => `SELECT id, venta_id, prefijo, numero, timbrado, fecha, impresiones, anulada_en FROM facturas WHERE venta_id IN (${m})`,
-    ),
+    todasPorTrozos<FilaFactura>(db, ids, (m) => `${SQL_FACTURA} WHERE venta_id IN (${m})`),
     todasPorTrozos<{ venta_id: string; medio: MedioPago; importe: number; banco: string; cheque_numero: string }>(
       db, ids, (m) => `SELECT venta_id, medio, importe, banco, cheque_numero FROM venta_pagos WHERE venta_id IN (${m}) ORDER BY venta_id, orden`,
     ),
@@ -507,12 +506,7 @@ export async function leerVentas(db: BaseD1, where = '', ...params: ValorSQL[]):
       items: items.filter((i) => i.venta_id === f.id).map((i): VentaItem => ({
         productoId: i.producto_id, nombre: i.nombre, cantidad: i.cantidad, precioUnitario: i.precio_unitario, subtotal: i.subtotal, iva: i.iva, codigo: i.codigo ?? '',
       })),
-      factura: fac
-        ? {
-            id: fac.id, prefijo: fac.prefijo, numero: fac.numero, numeroCompleto: numeroFactura(fac.prefijo, fac.numero), timbrado: fac.timbrado,
-            fecha: fac.fecha, impresiones: fac.impresiones, anulada: fac.anulada_en !== null,
-          } satisfies Factura
-        : null,
+      factura: fac ? aFactura(fac) : null,
     }
   })
 }
@@ -670,21 +664,17 @@ rutasCaja.post('/ventas/:id/anular', requiere('ventas.anular'), async (c) => {
   return c.json<Venta>(await unaVenta(db, venta.id))
 })
 
-// ---------- Factura preimpresa (M12) ----------
+// ---------- Factura preimpresa (M12): tres talonarios ----------
 
 /**
- * Hoja de Chipa Tía E.A.S. (imprenta Kike): OFICIO (216 × 330 mm) con original arriba y duplicado abajo, cada copia en
- * media hoja (165 mm). Medidas sacadas de la foto de la hoja vacía enderezada (perspectiva corregida, líneas rectas) y
- * llevadas a oficio (Mati, 2026-11-24: la hoja es oficio, no A4): la tabla va de x 9,6 a 206,4 mm y de y 65,2 a 157,7 mm
- * en cada copia. Se afinan en Caja → Factura con una hoja de prueba.
+ * Formato de la hoja de la imprenta Kike, el mismo en los tres talonarios (Chipa Tía, Chipa Tía Comedor y ChipaSticks
+ * tienen las mismas columnas): OFICIO (216 × 330 mm) con original arriba y duplicado abajo, cada copia en media hoja
+ * (165 mm). Medidas sacadas de la foto de la hoja vacía enderezada (perspectiva corregida, líneas rectas) y llevadas a
+ * oficio (Mati, 2026-11-24: la hoja es oficio, no A4): la tabla va de x 9,6 a 206,4 mm y de y 65,2 a 157,7 mm en cada
+ * copia. Se afinan en Caja → Factura con una hoja de prueba, talonario por talonario.
  */
-export const FACTURA_POR_DEFECTO: ConfigFactura = {
+const FORMATO_OFICIO = {
   version: 4,
-  timbrado: '18980642',
-  prefijo: '001-002',
-  numeroInicial: 1775,
-  numeroFinal: 2000,
-  venceTimbrado: '2027-07-31',
   anchoHoja: 216,
   altoHoja: 330,
   margenIzquierdo: 0,
@@ -712,29 +702,65 @@ export const FACTURA_POR_DEFECTO: ConfigFactura = {
   iva5: { x: 76.1, y: 140.1 },
   iva10: { x: 119.8, y: 140.1 },
   totalIva: { x: 176.4, y: 140.1 },
+} satisfies Omit<ConfigFactura, 'talonario' | 'timbrado' | 'prefijo' | 'numeroInicial' | 'numeroFinal' | 'venceTimbrado'>
+
+/**
+ * Numeración de cada talonario. Comedor: Chipa Tía E.A.S. unipersonal, timbrado 18980642, 001-002 del 1501 al 2000
+ * (la hoja de la foto era la 1775). ChipaSticks E.A.S.: timbrado 18116748, 001-001 del 601 al 900, vigente hasta el
+ * 30/06/2026 según la hoja, pero Mati (2026-11-24) pidió no frenar por eso: sin fecha de vencimiento cargada (la 827
+ * se usó de prueba). Chipa Tía (frente): sin timbrado todavía; se puede cargar en Caja → Factura, pero no hace falta.
+ */
+export const FACTURA_POR_DEFECTO: Record<TalonarioId, ConfigFactura> = {
+  frente: { ...FORMATO_OFICIO, talonario: 'frente', timbrado: '', prefijo: '001-001', numeroInicial: 1, numeroFinal: 0, venceTimbrado: '' },
+  comedor: { ...FORMATO_OFICIO, talonario: 'comedor', timbrado: '18980642', prefijo: '001-002', numeroInicial: 1775, numeroFinal: 2000, venceTimbrado: '2027-07-31' },
+  // En la hoja de ChipaSticks (foto de Mati, oficio) «CONTADO» y «C.I. o RUC:» terminan unos 4 mm más a la derecha.
+  chipasticks: { ...FORMATO_OFICIO, contado: { x: 167.5, y: 41.6 }, ruc: { x: 173, y: 51.1 }, talonario: 'chipasticks', timbrado: '18116748', prefijo: '001-001', numeroInicial: 828, numeroFinal: 900, venceTimbrado: '' },
 }
 
-const CLAVE_FACTURA = 'factura'
+/** Qué talonario usa cada lugar (se cambia en Caja → Factura). */
+export const USOS_POR_DEFECTO: UsosFactura = { frente: 'frente', comedor: 'comedor', envios: 'chipasticks' }
 
-export async function leerConfigFactura(db: BaseD1): Promise<ConfigFactura> {
-  const f = await una<{ valor: string }>(db, 'SELECT valor FROM configuracion WHERE clave = ?', CLAVE_FACTURA)
-  if (!f) return { ...FACTURA_POR_DEFECTO }
+/** El talonario Comedor quedó en la clave de siempre ('factura'), así no se pierde lo que ya estaba guardado. */
+const claveFactura = (t: TalonarioId) => (t === 'comedor' ? 'factura' : `factura:${t}`)
+const CLAVE_USOS = 'factura:usos'
+
+export function leerTalonario(v: unknown): TalonarioId {
+  if (v === undefined || v === null || v === '') return 'comedor'
+  if (!(TALONARIOS as readonly unknown[]).includes(v)) throw invalido('Ese talonario no existe.')
+  return v as TalonarioId
+}
+
+export async function leerConfigFactura(db: BaseD1, talonario: TalonarioId = 'comedor'): Promise<ConfigFactura> {
+  const base = FACTURA_POR_DEFECTO[talonario]
+  const f = await una<{ valor: string }>(db, 'SELECT valor FROM configuracion WHERE clave = ?', claveFactura(talonario))
+  if (!f) return { ...base }
   try {
     const guardada = JSON.parse(f.valor) as Partial<ConfigFactura>
-    if ((guardada.version ?? 1) >= FACTURA_POR_DEFECTO.version) return { ...FACTURA_POR_DEFECTO, ...guardada }
+    if ((guardada.version ?? 1) >= base.version) return { ...base, ...guardada, talonario }
     // Formato viejo (genérico A5, oficio estimado sin enderezar la foto, o A4): las posiciones no sirven para la hoja
     // oficio; solo se respeta la numeración si se cargó.
-    if (!guardada.timbrado) return { ...FACTURA_POR_DEFECTO }
+    if (!guardada.timbrado) return { ...base }
     const numeracion = { timbrado: guardada.timbrado, prefijo: guardada.prefijo, numeroInicial: guardada.numeroInicial, numeroFinal: guardada.numeroFinal, venceTimbrado: guardada.venceTimbrado }
-    return { ...FACTURA_POR_DEFECTO, ...Object.fromEntries(Object.entries(numeracion).filter(([, v]) => v !== undefined)) }
+    return { ...base, ...Object.fromEntries(Object.entries(numeracion).filter(([, v]) => v !== undefined)), talonario }
   } catch {
-    return { ...FACTURA_POR_DEFECTO }
+    return { ...base }
   }
 }
 
-/** El número que le tocaría a la próxima factura (sin reservarlo). */
+export async function leerUsosFactura(db: BaseD1): Promise<UsosFactura> {
+  const f = await una<{ valor: string }>(db, 'SELECT valor FROM configuracion WHERE clave = ?', CLAVE_USOS)
+  const r = { ...USOS_POR_DEFECTO }
+  if (!f) return r
+  try {
+    const guardado = JSON.parse(f.valor) as Partial<Record<UsoFactura, unknown>>
+    for (const uso of USOS_FACTURA) if ((TALONARIOS as readonly unknown[]).includes(guardado[uso])) r[uso] = guardado[uso] as TalonarioId
+  } catch { /* se queda con lo de siempre */ }
+  return r
+}
+
+/** El número que le tocaría a la próxima factura del talonario (sin reservarlo). */
 async function proximoNumero(db: BaseD1, config: ConfigFactura): Promise<number> {
-  const f = await una<{ n: number | null }>(db, 'SELECT MAX(numero) AS n FROM facturas WHERE prefijo = ?', config.prefijo)
+  const f = await una<{ n: number | null }>(db, 'SELECT MAX(numero) AS n FROM facturas WHERE talonario = ? AND prefijo = ?', config.talonario, config.prefijo)
   return Math.max(f?.n ?? 0, config.numeroInicial - 1) + 1
 }
 
@@ -782,65 +808,153 @@ function leerConfig(b: Record<string, unknown>, actual: ConfigFactura): ConfigFa
     const p = (b[k] && typeof b[k] === 'object' ? b[k] : {}) as Record<string, unknown>
     r[k] = { x: mm(p.x, `${k} x`), y: mm(p.y, `${k} y`) }
   }
-  r.version = FACTURA_POR_DEFECTO.version
+  r.version = FORMATO_OFICIO.version
   return r
 }
 
-rutasCaja.get('/factura/config', requiere('facturas.generar'), async (c) => c.json<ConfigFactura>(await leerConfigFactura(c.env.DB)))
+const talonarioDelPedido = (c: Context<Entorno>) => leerTalonario(c.req.query('talonario'))
+
+rutasCaja.get('/factura/config', requiere('facturas.generar'), async (c) => c.json<ConfigFactura>(await leerConfigFactura(c.env.DB, talonarioDelPedido(c))))
 
 /** La próxima factura que va a salir, para que el administrador la compare con la hoja que sigue en el talonario. */
 rutasCaja.get('/factura/proxima', requiere('facturas.configurar'), async (c) => {
-  const config = await leerConfigFactura(c.env.DB)
+  const config = await leerConfigFactura(c.env.DB, talonarioDelPedido(c))
   const numero = await proximoNumero(c.env.DB, config)
   return c.json({ numero, numeroCompleto: numeroFactura(config.prefijo, numero) })
 })
 
 rutasCaja.put('/factura/config', requiere('facturas.configurar', 'El formato de la factura lo configura el administrador.'), async (c) => {
   const db = c.env.DB
-  const antes = await leerConfigFactura(db)
+  const talonario = talonarioDelPedido(c)
+  const antes = await leerConfigFactura(db, talonario)
   const despues = leerConfig(await cuerpo(c), antes)
+  despues.talonario = talonario
+  const clave = claveFactura(talonario)
   await db.batch([
-    sentencia(db, 'INSERT INTO configuracion (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor', CLAVE_FACTURA, JSON.stringify(despues)),
-    sentenciaAuditoria(db, { tabla: 'configuracion', registroId: CLAVE_FACTURA, accion: 'editar', usuarioId: c.get('usuario').id, antes, despues }),
+    sentencia(db, 'INSERT INTO configuracion (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor', clave, JSON.stringify(despues)),
+    sentenciaAuditoria(db, { tabla: 'configuracion', registroId: clave, accion: 'editar', usuarioId: c.get('usuario').id, antes, despues }),
   ])
   return c.json<ConfigFactura>(despues)
 })
 
+rutasCaja.get('/factura/usos', requiere('facturas.generar'), async (c) => c.json<UsosFactura>(await leerUsosFactura(c.env.DB)))
+
+rutasCaja.put('/factura/usos', requiere('facturas.configurar', 'Qué talonario usa cada caja lo elige el administrador.'), async (c) => {
+  const db = c.env.DB
+  const b = await cuerpo(c)
+  const antes = await leerUsosFactura(db)
+  const despues = { ...antes }
+  for (const uso of USOS_FACTURA) if (b[uso] !== undefined) despues[uso] = leerTalonario(b[uso])
+  await db.batch([
+    sentencia(db, 'INSERT INTO configuracion (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor', CLAVE_USOS, JSON.stringify(despues)),
+    sentenciaAuditoria(db, { tabla: 'configuracion', registroId: CLAVE_USOS, accion: 'editar', usuarioId: c.get('usuario').id, antes, despues }),
+  ])
+  return c.json<UsosFactura>(despues)
+})
+
 /**
- * Factura de una venta: la primera vez le asigna el número siguiente (o el inicial configurado); las siguientes la
- * reimprimen con el mismo número.
+ * Le da número a una factura nueva del talonario (venta o envío). Controla el vencimiento del timbrado (solo si se
+ * cargó una fecha) y que queden hojas; sin timbrado cargado igual imprime (Mati, 2026-11-24: lo que importa es dónde
+ * cae cada dato). Dos facturas a la vez: la segunda toma el número siguiente.
+ */
+async function emitirFactura(db: BaseD1, config: ConfigFactura, de: { ventaId: string } | { envioId: string }, usuarioId: string) {
+  const { fecha, dia } = ahora()
+  const nombre = NOMBRE_TALONARIO[config.talonario]
+  if (config.venceTimbrado && dia > config.venceTimbrado) {
+    throw conflicto('timbrado_vencido', `El timbrado ${config.timbrado} (${nombre}) venció el ${diaLegible(config.venceTimbrado)}. Cargá el timbrado nuevo en Caja → Factura.`)
+  }
+  if (config.numeroFinal && (await proximoNumero(db, config)) > config.numeroFinal) {
+    throw conflicto('talonario_agotado', `Se terminaron las facturas de ${nombre} (hasta la ${numeroFactura(config.prefijo, config.numeroFinal)}). Cargá el talonario nuevo en Caja → Factura.`)
+  }
+  const ventaId = 'ventaId' in de ? de.ventaId : null
+  const envioId = 'envioId' in de ? de.envioId : null
+  for (let intento = 0; ; intento++) {
+    try {
+      await db.batch([sentencia(
+        db,
+        `INSERT INTO facturas (id, talonario, venta_id, envio_id, prefijo, numero, timbrado, usuario_id, fecha)
+         VALUES (?, ?, ?, ?, ?, MAX(COALESCE((SELECT MAX(numero) FROM facturas WHERE talonario = ? AND prefijo = ?), 0), ? - 1) + 1, ?, ?, ?)`,
+        nuevoId(), config.talonario, ventaId, envioId, config.prefijo, config.talonario, config.prefijo, config.numeroInicial, config.timbrado, usuarioId, fecha,
+      )])
+      return
+    } catch (e) {
+      if (intento < 2 && e instanceof Error && /UNIQUE/i.test(e.message) && !/venta_id|envio_id/.test(e.message)) continue
+      throw e
+    }
+  }
+}
+
+/**
+ * Factura de una venta: la primera vez le asigna el número siguiente del talonario de su caja (o el inicial
+ * configurado); las siguientes la reimprimen con el mismo número y el mismo talonario.
  */
 rutasCaja.post('/ventas/:id/factura', requiere('facturas.generar'), async (c) => {
   const db = c.env.DB
   const u = c.get('usuario')
   const venta = await unaVenta(db, c.req.param('id'))
   if (venta.anulada) throw conflicto('venta_anulada', 'Esa venta está anulada: no se le puede imprimir factura.')
-  const config = await leerConfigFactura(db)
   if (venta.factura) {
     await db.batch([sentencia(db, 'UPDATE facturas SET impresiones = impresiones + 1 WHERE id = ?', venta.factura.id)])
-  } else {
-    const { fecha, dia } = ahora()
-    if (config.venceTimbrado && dia > config.venceTimbrado) {
-      throw conflicto('timbrado_vencido', `El timbrado ${config.timbrado} venció el ${diaLegible(config.venceTimbrado)}. Cargá el timbrado nuevo en Caja → Factura.`)
-    }
-    if (config.numeroFinal && (await proximoNumero(db, config)) > config.numeroFinal) {
-      throw conflicto('talonario_agotado', `Se terminaron las facturas autorizadas (hasta la ${numeroFactura(config.prefijo, config.numeroFinal)}). Cargá el talonario nuevo en Caja → Factura.`)
-    }
-    for (let intento = 0; ; intento++) {
-      try {
-        await db.batch([sentencia(
-          db,
-          `INSERT INTO facturas (id, venta_id, prefijo, numero, timbrado, usuario_id, fecha)
-           VALUES (?, ?, ?, MAX(COALESCE((SELECT MAX(numero) FROM facturas WHERE prefijo = ?), 0), ? - 1) + 1, ?, ?, ?)`,
-          nuevoId(), venta.id, config.prefijo, config.prefijo, config.numeroInicial, config.timbrado, u.id, fecha,
-        )])
-        break
-      } catch (e) {
-        // Dos facturas a la vez: la segunda toma el número siguiente.
-        if (intento < 2 && e instanceof Error && /UNIQUE/i.test(e.message) && !/venta_id/.test(e.message)) continue
-        throw e
-      }
-    }
+    return c.json<{ venta: Venta; config: ConfigFactura }>({ venta: await unaVenta(db, venta.id), config: await leerConfigFactura(db, venta.factura.talonario) })
   }
+  const caja = await una<{ punto: PuntoCaja }>(db, 'SELECT punto FROM cajas WHERE id = ?', venta.cajaId)
+  const talonario = (await leerUsosFactura(db))[caja?.punto ?? 'frente']
+  const config = await leerConfigFactura(db, talonario)
+  await emitirFactura(db, config, { ventaId: venta.id }, u.id)
   return c.json<{ venta: Venta; config: ConfigFactura }>({ venta: await unaVenta(db, venta.id), config })
 })
+
+/**
+ * Factura de un envío a sucursal (Mati, 2026-11-24): sale a nombre de la sucursal, con el precio de venta de cada
+ * producto, del talonario que se eligió para los envíos (ChipaSticks si no se cambió). Se arma como una venta para
+ * imprimirla con la misma hoja.
+ */
+rutasCaja.post('/envios/:id/factura', async (c) => {
+  const db = c.env.DB
+  const u = c.get('usuario')
+  if (!puede(u.rol, 'stock.mover') && !puede(u.rol, 'facturas.generar')) throw prohibido('No tenés permiso para facturar envíos.')
+  const envioId = c.req.param('id')
+  let doc = await documentoEnvio(db, envioId)
+  let config: ConfigFactura
+  if (doc.factura) {
+    await db.batch([sentencia(db, 'UPDATE facturas SET impresiones = impresiones + 1 WHERE id = ?', doc.factura.id)])
+    config = await leerConfigFactura(db, doc.factura.talonario)
+  } else {
+    config = await leerConfigFactura(db, (await leerUsosFactura(db)).envios)
+    await emitirFactura(db, config, { envioId }, u.id)
+  }
+  doc = await documentoEnvio(db, envioId)
+  return c.json<{ venta: Venta; config: ConfigFactura }>({ venta: doc, config })
+})
+
+interface FilaFactura { id: string; talonario: TalonarioId; venta_id: string | null; envio_id: string | null; prefijo: string; numero: number; timbrado: string; fecha: string; impresiones: number; anulada_en: string | null }
+const SQL_FACTURA = 'SELECT id, talonario, venta_id, envio_id, prefijo, numero, timbrado, fecha, impresiones, anulada_en FROM facturas'
+const aFactura = (fac: FilaFactura): Factura => ({
+  id: fac.id, talonario: fac.talonario, prefijo: fac.prefijo, numero: fac.numero, numeroCompleto: numeroFactura(fac.prefijo, fac.numero), timbrado: fac.timbrado,
+  fecha: fac.fecha, impresiones: fac.impresiones, anulada: fac.anulada_en !== null,
+})
+
+/** Un envío a sucursal visto como una venta (para la factura): un renglón por producto, con su precio de venta. */
+async function documentoEnvio(db: BaseD1, envioId: string): Promise<Venta> {
+  const filas = await todas<{ producto_id: string; nombre: string; codigo: string | null; precio_venta: number | null; iva: Iva; cantidad: number; sucursal: string; usuario: string; fecha: string; dia: string }>(
+    db,
+    `SELECT m.producto_id, p.nombre, p.codigo, p.precio_venta, p.iva, -SUM(m.cantidad) AS cantidad, su.nombre AS sucursal, us.nombre AS usuario, MIN(m.fecha) AS fecha, MIN(m.dia) AS dia
+       FROM movimientos m JOIN productos p ON p.id = m.producto_id JOIN sucursales su ON su.id = m.sucursal_id JOIN usuarios us ON us.id = m.usuario_id
+      WHERE m.envio_id = ? AND m.tipo = 'envio'
+      GROUP BY m.producto_id ORDER BY MIN(m.rowid)`,
+    envioId,
+  )
+  if (!filas.length) throw noEncontrado('No se encontró ese envío.')
+  const items: VentaItem[] = filas.map((f) => {
+    const precio = f.precio_venta ?? 0
+    return { productoId: f.producto_id, nombre: f.nombre, codigo: f.codigo ?? '', cantidad: f.cantidad, precioUnitario: precio, subtotal: Math.round(precio * f.cantidad), iva: f.iva }
+  })
+  const total = items.reduce((s, i) => s + i.subtotal, 0)
+  const fac = await una<FilaFactura>(db, `${SQL_FACTURA} WHERE envio_id = ?`, envioId)
+  return {
+    id: envioId, numero: 0, cajaId: '', clienteNombre: filas[0].sucursal, clienteRuc: '', clienteDireccion: '',
+    subtotal: total, descuento: 0, total, medio: 'efectivo', pagos: [], recibido: null, vuelto: null,
+    usuarioNombre: filas[0].usuario, fecha: filas[0].fecha, dia: filas[0].dia, anulada: false, anuladaEn: null, motivoAnulacion: null,
+    items, factura: fac ? aFactura(fac) : null,
+  }
+}
