@@ -19,7 +19,7 @@
 .stk-atajos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem; margin-top: 1rem; }
 
 /* Historial y movimientos */
-.filtros.stk-filtros { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.filtros.stk-filtros { display: grid; gap: 0.6rem; margin-bottom: 0.6rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .filtros.stk-filtros input, .filtros.stk-filtros select { min-width: 0; }
 .filtros.stk-filtros .campo:nth-child(n+3) { grid-column: 1 / -1; }
 .stk-limpiar { justify-self: start; grid-column: 1 / -1; }
@@ -87,7 +87,7 @@
 .stk-cabeza p { margin: 0; }
 .stk-cabeza-acciones { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .stk-cabeza-acciones .btn-secundario { margin-bottom: 0; }
-.tabla.stk-tabla .stk-grupo th {
+.tabla.stk-tabla .stk-grupo th, .tabla.stk-general .stk-grupo th {
   text-align: left; background: var(--fondo); color: var(--suave); font-size: 0.8rem; text-transform: uppercase;
   letter-spacing: 0.03em; padding-top: 0.6rem;
 }
@@ -146,4 +146,37 @@ button.stk-item-nuevo { border-style: dashed; color: var(--marca-texto); font-we
 @media (max-width: 639px) {
   .segmentado.stk-tipos-deposito button { font-size: 0.85rem; padding-inline: 0.3rem; flex-direction: column; gap: 0.1rem; }
   .stk-temp-valor { text-align: left; }
+}
+
+/* «Todo el stock» (2026-11-24): un producto por fila y un depósito por columna. Si no entra, la tabla se desliza de
+   costado y el nombre del producto queda fijo a la izquierda. */
+.stk-general-pie { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.stk-general-pie .check.stk-filtro { margin: 0; }
+.stk-general-marco { overflow-x: auto; border-radius: 12px; box-shadow: var(--sombra); margin-bottom: 1rem; }
+.tabla.stk-general { box-shadow: none; overflow: visible; min-width: 100%; width: max-content; }
+.tabla.stk-general .stk-general-prod {
+  position: sticky; left: 0; z-index: 1; background: var(--superficie); min-width: 180px; max-width: 260px;
+  box-shadow: 1px 0 0 var(--borde);
+}
+.tabla.stk-general thead .stk-general-prod { background: var(--neutro); }
+.tabla.stk-general td.num { font-size: 1.05rem; font-weight: 600; min-width: 84px; vertical-align: middle; }
+.tabla.stk-general td.stk-cero { color: var(--suave); font-weight: 400; }
+
+.stk-general-dep {
+  font: inherit; color: var(--marca-texto); background: none; border: none; padding: 0.2rem 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 0.3rem; text-align: right; min-height: 32px;
+}
+.stk-general-dep:hover { color: var(--texto); }
+.stk-general-dep:focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; border-radius: 4px; }
+@media (max-width: 639px) {
+  .tabla.stk-general .stk-general-prod { min-width: 130px; max-width: 160px; }
+  .tabla.stk-general td.num { min-width: 64px; }
+}
+.stk-general-filtros { display: grid; gap: 0.6rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin-bottom: 0.6rem; }
+.stk-general-filtros .campo:first-child { grid-column: 1 / -1; }
+.stk-general-filtros input, .stk-general-filtros select { min-width: 0; }
+.tabla.stk-general thead th { vertical-align: bottom; }
+@media (min-width: 900px) {
+  .stk-general-filtros { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .stk-general-filtros .campo:first-child { grid-column: auto; }
 }
