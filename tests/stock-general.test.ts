@@ -1,6 +1,6 @@
 // «Todo el stock» (2026-11-24): la tabla con un producto por fila y un depósito por columna.
 import { describe, expect, it } from 'vitest'
-import { filasGenerales } from '../src/cliente/stockGeneral'
+import { filasGenerales, listadoPDF } from '../src/cliente/stockGeneral'
 import type { StockFila } from '../src/shared/tipos'
 
 const fila = (id: string, nombre: string, categoriaId: string | null, porDeposito: Record<string, number>, subcategoria = ''): StockFila => ({
@@ -44,5 +44,24 @@ describe('Todo el stock', () => {
     expect(ids({ ...TODOS, buscar: 'gaseosas' })).toEqual(['p2'])
     expect(ids({ ...TODOS, buscar: 'p5' })).toEqual(['p5'])
     expect(ids({ ...TODOS, categoria: 'bebidas' })).toEqual(['p2'])
+  })
+})
+
+describe('PDF del stock de un depósito', () => {
+  it('lista lo que hay en ese depósito (también lo negativo), por categoría y por nombre, con los lotes si lleva', () => {
+    const conLote: StockFila = { ...fila('p6', 'Chipa almidón', 'chipas', { frio: 12 }), lotes: [
+      { lote: 'CH-1', cantidad: 5, porDeposito: { frio: 5 } },
+      { lote: 'CH-2', cantidad: 7, porDeposito: { frio: 7, venta: 0 } },
+      { lote: 'CH-0', cantidad: 3, porDeposito: { venta: 3 } },
+    ] }
+    const g = listadoPDF([...FILAS, conLote], 'frio', ['chipas'], (f) => f.productoId === 'p6')
+    expect(g.map((x) => x.categoria)).toEqual(['chipas'])
+    expect(g[0].filas.map((f) => [f.nombre, f.cantidad, f.lotes.map((l) => l.lote)])).toEqual([
+      ['Chipa almidón', 12, ['CH-1', 'CH-2']],
+      ['Chipa común', 50, []],
+      ['Chipa so’o', 30, []],
+    ])
+    expect(listadoPDF(FILAS, 'comedor')[0].filas[0]).toMatchObject({ nombre: 'Pan felipe', cantidad: -2 })
+    expect(listadoPDF(FILAS, 'no-existe')).toEqual([])
   })
 })

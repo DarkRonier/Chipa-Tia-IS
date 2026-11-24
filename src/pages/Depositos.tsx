@@ -13,13 +13,16 @@ import { useCategorias, useDepositos, useSectores } from '../cliente/catalogo'
 import { useAccion, useConsulta } from '../cliente/consultas'
 import { useEsSuper, usePuede, useUsuario } from '../cliente/sesion'
 import { normalizar } from '../components/Buscador'
-import { filasGenerales } from '../cliente/stockGeneral'
+import { filasGenerales, listadoPDF } from '../cliente/stockGeneral'
+import { imprimir, nombreSeguro } from '../cliente/imprimir'
+import { EncabezadoImpresion } from '../components/Impresion'
+import { flushSync } from 'react-dom'
 import { Aviso, ConDatos } from '../components/Estado'
 import Modal from '../components/Modal'
 import Numero from '../components/Numero'
 import { Flecha } from '../components/Volver'
 import { diaLegible, diaPY, fechaHoraPY, sumarDias } from '../shared/hora'
-import { sectorDeRol } from '../shared/permisos'
+import { sectorDeRol, veTodosLosSectores } from '../shared/permisos'
 import {
   NOMBRE_ESTADO, NOMBRE_TIPO_DEPOSITO, NOMBRE_TIPO_MOVIMIENTO, type Categoria, type Deposito, type EnvioResumen, type Maquina,
   type Movimiento, type PedidoAjuste, type PedidoTransferencia, type StockFila, type Sucursal, type TipoAjuste, type TipoDeposito,
@@ -105,7 +108,7 @@ export default function Depositos() {
 
   return (
     <>
-      <h1>Depósitos</h1>
+      <h1 className="no-imprimir">Depósitos</h1>
       <div className="segmentado stk-tipos-deposito" role="tablist" aria-label="Tipo de depósito">
         {PESTANAS.map((t) => (
           <button key={t} type="button" role="tab" className={tipo === t ? 'activo' : ''} aria-selected={tipo === t} onClick={() => ir(t)}>
@@ -370,10 +373,18 @@ function DepositoElegido({ deposito, stock, alBorrar }: {
   // Un sector transfiere lo que elabora y lo comprado de sus categorías habilitadas (la API dice cuáles son).
   const delSector = useConsulta<StockFila[]>(miSector && puede('stock.mover') ? '/stock' : null, { sector: miSector ?? undefined })
   const idsDelSector = new Set((delSector.datos ?? []).map((f) => f.productoId))
+  // PDF del listado (Mati, 2026-11-24): solo supervisor y administrador. La hora de la descarga va arriba a la izquierda.
+  const puedePDF = veTodosLosSectores(u.rol)
+  const [descargado, setDescargado] = useState<string | null>(null)
+  const descargarPDF = () => {
+    const ahora = new Date().toISOString()
+    flushSync(() => setDescargado(ahora))
+    imprimir(nombreSeguro(`Stock ${deposito.nombre} Chipa Tía ${fechaHoraPY(ahora).replace(/\//g, '-').replace(':', 'h')}`))
+  }
 
   return (
     <>
-      <div className="stk-cabeza">
+      <div className="stk-cabeza no-imprimir">
         <div>
           <h2>{deposito.nombre} <span className="etiqueta stk-tipo-etiqueta">{NOMBRE_TIPO_DEPOSITO[deposito.tipo]}</span></h2>
           {(deposito.descripcion || esVenta) && (
@@ -389,16 +400,19 @@ function DepositoElegido({ deposito, stock, alBorrar }: {
           )}
         </div>
         <div className="stk-cabeza-acciones">
+          {puedePDF && stock.datos && <button type="button" className="btn-discreto" onClick={descargarPDF}>Descargar PDF</button>}
           {puede('catalogos.editar') && <button type="button" className="btn-discreto" onClick={() => setEditando(true)}>Editar</button>}
           {esSuper && deposito.tipo === 'almacen' && !deposito.sistema && (
             <button type="button" className="btn-discreto rojo" onClick={() => setBorrando(true)}>Borrar depósito</button>
           )}
         </div>
       </div>
-      {deposito.tipo === 'almacen' && deposito.maquina && <PanelTemperatura deposito={deposito} />}
+      {deposito.tipo === 'almacen' && deposito.maquina && <div className="no-imprimir"><PanelTemperatura deposito={deposito} /></div>}
       <ConDatos consulta={stock}>
         {(filas) => (
           <>
+            {puedePDF && <ListadoImpresion deposito={deposito} filas={filas} descargado={descargado} />}
+            <div className="no-imprimir">
             <TablaDeposito deposito={deposito} filas={filas} vendido={vendido.datos ?? []} />
             {esVenta && (
               <p className="suave chico stk-ayuda">
@@ -413,12 +427,51 @@ function DepositoElegido({ deposito, stock, alBorrar }: {
               />
             )}
             {puede('stock.ajustar') && <AjusteStock key={`a-${deposito.id}`} deposito={deposito} filas={filas} />}
+            </div>
           </>
         )}
       </ConDatos>
       {editando && <EditarDeposito deposito={deposito} alCerrar={() => setEditando(false)} />}
       {borrando && <BorrarDeposito deposito={deposito} alCerrar={() => setBorrando(false)} alBorrar={alBorrar} />}
     </>
+  )
+}
+
+/**
+ * Lo que sale en el PDF de un depósito (solo se ve al imprimir): arriba a la izquierda la fecha y hora de la descarga,
+ * después el encabezado y la lista completa de lo que hay, por categoría, sin los filtros de la pantalla.
+ */
+function ListadoImpresion({ deposito, filas, descargado }: { deposito: Deposito; filas: StockFila[]; descargado: string | null }) {
+  const categorias = useCategorias()
+  const sectores = useSectores()
+  const conLotes = (f: StockFila) => sectores.lista.find((s) => s.id === f.sector)?.conLotes ?? false
+  const grupos = listadoPDF(filas, deposito.id, categorias.lista.map((c) => c.id), conLotes)
+  const productos = grupos.reduce((n, g) => n + g.filas.length, 0)
+  return (
+    <div className="solo-impresion stk-pdf">
+      <p className="stk-pdf-hora">Descargado el {fechaHoraPY(descargado ?? new Date().toISOString())}</p>
+      <EncabezadoImpresion
+        titulo={`Stock de ${deposito.nombre}`} sinFecha
+        detalle={`${NOMBRE_TIPO_DEPOSITO[deposito.tipo]} · ${productos === 1 ? '1 producto' : `${productos} productos`} con stock`}
+      />
+      {productos === 0 ? <p>No hay nada en «{deposito.nombre}».</p> : (
+        <table className="tabla">
+          <thead><tr><th>Producto</th><th>Lotes</th><th className="num">Cantidad</th></tr></thead>
+          <tbody>
+            {grupos.map((g) => [
+              <tr key={`g-${g.categoria}`} className="stk-pdf-grupo"><th colSpan={3}>{categorias.nombre(g.categoria) || 'Otros'}</th></tr>,
+              ...g.filas.map((f) => (
+                <tr key={f.productoId}>
+                  <td>{f.nombre}{f.subcategoria && <span className="stk-pdf-sub"> · {f.subcategoria}</span>}</td>
+                  <td>{f.lotes.map((l) => `${l.lote} (${l.cantidad})`).join(', ')}</td>
+                  <td className="num">{conUnidad(f.cantidad, f.unidad)}</td>
+                </tr>
+              )),
+            ])}
+          </tbody>
+        </table>
+      )}
+    </div>
   )
 }
 

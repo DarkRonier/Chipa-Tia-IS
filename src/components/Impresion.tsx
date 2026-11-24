@@ -13,8 +13,10 @@ export function BotonPDF({ archivo, className = 'btn-secundario' }: { archivo: s
 }
 
 /** Encabezado que solo aparece al imprimir: empresa, título, detalle (período, sector…) y fecha de generación. */
-export function EncabezadoImpresion({ titulo, detalle, generado }: {
+export function EncabezadoImpresion({ titulo, detalle, generado, sinFecha }: {
   titulo: string; detalle?: ReactNode; generado?: string
+  /** Para cuando la fecha ya va en otro lado (por ejemplo, arriba a la izquierda de la hoja). */
+  sinFecha?: boolean
 }) {
   return (
     <header className="solo-impresion encabezado-impresion">
@@ -23,7 +25,7 @@ export function EncabezadoImpresion({ titulo, detalle, generado }: {
         <p className="ei-empresa">Chipa Tía</p>
         <h1 className="ei-titulo">{titulo}</h1>
         {detalle && <p className="ei-detalle">{detalle}</p>}
-        <p className="ei-generado">Generado el {fechaHoraPY(generado ?? new Date().toISOString())} (hora de Paraguay)</p>
+        {!sinFecha && <p className="ei-generado">Generado el {fechaHoraPY(generado ?? new Date().toISOString())} (hora de Paraguay)</p>}
       </div>
     </header>
   )
