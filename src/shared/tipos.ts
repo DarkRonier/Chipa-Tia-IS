@@ -998,7 +998,7 @@ export interface PosicionFactura { x: number; y: number }
  * `duplicado` mm (normalmente solo hacia abajo).
  */
 export interface ConfigFactura {
-  /** Versión del formato: 3 = hoja de Chipa Tía (A4, original y duplicado, medida de la foto enderezada). */
+  /** Versión del formato: 4 = hoja de Chipa Tía (oficio 216 × 330 mm, original y duplicado, medida de la foto enderezada). */
   version: number
   timbrado: string
   /** "001-002": establecimiento y punto de expedición. */

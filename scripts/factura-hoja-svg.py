@@ -1,4 +1,4 @@
-# Hoja A4 de Chipa Tía, vectorizada: líneas medidas sobre la foto enderezada (mm), rótulos en su lugar.
+# Hoja de Chipa Tía (oficio), vectorizada: líneas medidas sobre la foto enderezada (mm, en escala A4; se estiran al final), rótulos en su lugar.
 H_LINES = [  # (y, x0, x1) relativos a la copia
   (7.5, 8.2, 122.0), (34.2, 8.2, 122.0),
   (58.7, 9.3, 200.7), (63.3, 143.2, 200.7), (68.0, 9.3, 200.7), (111.0, 9.3, 200.7),
@@ -66,11 +66,13 @@ def copia(dy, pie):
       '</g>',
     ]
     return '\n'.join(g)
-svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297">
-<!-- Factura preimpresa de Chipa Tía (A4, original y duplicado). Vectorizada de la foto de la hoja vacía: perspectiva corregida,
-     líneas rectas y escala A4 (cada copia mide 148,5 mm, media hoja). Solo para la vista previa: no se imprime. -->
-<rect width="210" height="297" fill="#fff"/>
-<g stroke="#222" stroke-width="0.3" fill="#222">
+# Las medidas de arriba quedaron en la escala A4 de la primera foto; la hoja real es oficio (216 × 330 mm), así que todo
+# se estira al dibujar (x × 216/210, y × 330/297), igual que las posiciones por defecto de la factura (formato versión 4).
+svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="216mm" height="330mm" viewBox="0 0 216 330">
+<!-- Factura preimpresa de Chipa Tía (oficio, original y duplicado). Vectorizada de la foto de la hoja vacía: perspectiva
+     corregida, líneas rectas y escala oficio (cada copia mide 165 mm, media hoja). Solo para la vista previa: no se imprime. -->
+<rect width="216" height="330" fill="#fff"/>
+<g stroke="#222" stroke-width="0.3" fill="#222" transform="scale({216/210:.6f} {330/297:.6f})">
 {copia(0, 'Original: Cliente.')}
 <line x1="0" y1="148.5" x2="210" y2="148.5" stroke="#999" stroke-dasharray="1 1.2" stroke-width="0.25"/>
 {copia(148.5, 'Duplicado: Archivo Trib.')}
